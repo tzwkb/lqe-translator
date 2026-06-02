@@ -26,7 +26,8 @@ from openpyxl.utils import get_column_letter
 from lqe_engine import (
     CATEGORY_ORDER as _ALL_CATS, CATEGORY_PARENT as _PARENT,
     VALID_CATEGORIES as _VALID_CATEGORIES, VALID_SEVERITIES as _VALID_SEVERITIES,
-    apply_severity, raw_points, weighted_points,
+    apply_severity, load_terms as _load_terms, load_style_guide as _load_sg,
+    raw_points, weighted_points,
 )
 
 
@@ -267,6 +268,21 @@ def cmd_from_aipe(args):
     except Exception as e:
         print(f"[warn] style-guide fetch failed: {e}", file=sys.stderr)
 
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    job_dir  = out_path.parent
+
+    sg_path = ""
+    if style_guide:
+        sg_file = job_dir / "sg.txt"
+        sg_file.write_text(style_guide, encoding="utf-8")
+        sg_path = str(sg_file)
+    terms_path = ""
+    if terminology:
+        terms_file = job_dir / "terms.json"
+        terms_file.write_text(json.dumps(terminology, ensure_ascii=False, indent=2), encoding="utf-8")
+        terms_path = str(terms_file)
+
     state = {
         "input_path": str(Path(args.aipe_csv).resolve()),
         "source_col": "source",
@@ -274,13 +290,15 @@ def cmd_from_aipe(args):
         "headers": list(fieldnames),
         "rows_raw": rows_raw,
         "aipe_url": args.aipe_url,
-        "terminology": terminology,
-        "style_guide": style_guide,
+        "sg_path":    sg_path,
+        "terms_path": terms_path,
+        "terminology": [],
+        "style_guide": "",
         "wordcount": sum(len(s["target"].split()) for s in segments),
         "iteration": 0,
         "segments": segments,
     }
-    Path(args.out).write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    out_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
     skipped = len(all_rows) - len(valid)
     print(f"[lqe_io] {len(segments)} segments (skipped {skipped} errors) → {args.out}  wordcount={state['wordcount']}")
 
@@ -289,12 +307,11 @@ def cmd_from_aipe(args):
 
 def cmd_lookup_terms(args):
     state = json.loads(Path(args.state).read_text(encoding="utf-8"))
-    terms_path = state.get("terms_path", "")
-    if not terms_path or not Path(terms_path).exists():
-        print("[lqe_io] no terms_path in state or file missing.", file=sys.stderr)
+    terms = _load_terms(state)
+    if not terms:
+        print("[lqe_io] no terminology available.", file=sys.stderr)
         return
 
-    terms = json.loads(Path(terms_path).read_text(encoding="utf-8"))
     term_map = {t["source"].strip(): t["target"].strip() for t in terms if t.get("source")}
 
     segs = state["segments"]
@@ -769,15 +786,12 @@ def cmd_pre_check(args):
     state = json.loads(state_path.read_text(encoding="utf-8"))
     segments = state["segments"]
 
-    term_map: dict[str, str] = {}
-    terms_path = state.get("terms_path", "")
-    if terms_path and Path(terms_path).exists():
-        terms = json.loads(Path(terms_path).read_text(encoding="utf-8"))
-        term_map = {
-            t["source"].strip(): t["target"].strip().lower()
-            for t in terms
-            if t.get("source") and t.get("target") and len(t["source"].strip()) >= 3
-        }
+    terms = _load_terms(state)
+    term_map = {
+        t["source"].strip(): t["target"].strip().lower()
+        for t in terms
+        if t.get("source") and t.get("target") and len(t["source"].strip()) >= 3
+    }
 
     results = []
     total = 0
@@ -922,8 +936,8 @@ def main():
     af.add_argument("--errors",    required=True)
     af.add_argument("--score",     default=None, help="本轮分数（来自 lqe_calc.py 输出）")
     af.add_argument("--threshold", type=float, default=98.0)
-    af.add_argument("--locked-ids", default=None, help="逗号分隔的 RAG/TM 100% match segment ids")
-    af.add_argument("--locked-file", default=None, help="RAG/TM 100% match locked ids JSON 文件")
+    af.add_argument("--locked-ids", default=None, help="逗号分隔的 RAG/TM 100%% match segment ids")
+    af.add_argument("--locked-file", default=None, help="RAG/TM 100%% match locked ids JSON 文件")
 
     w = sub.add_parser("write")
     w.add_argument("--state",     required=True)

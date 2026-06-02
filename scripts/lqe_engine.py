@@ -34,6 +34,10 @@ def normalize_category(cat: str) -> str:
     return _PARENT_REMAP.get(cat, cat)
 
 
+import json
+from pathlib import Path
+
+
 def apply_severity(cat: str, sev: str) -> str:
     return FORCED_SEVERITY.get(cat, sev.strip().capitalize() if sev else "Minor")
 
@@ -44,3 +48,19 @@ def raw_points(counts: dict) -> int:
 
 def weighted_points(cat: str, counts: dict) -> float:
     return WEIGHTS.get(cat, 1.0) * raw_points(counts)
+
+
+def load_terms(state: dict) -> list[dict]:
+    path = state.get("terms_path", "")
+    if path and Path(path).exists():
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    if state.get("terminology"):
+        return state["terminology"]
+    return []
+
+
+def load_style_guide(state: dict) -> str:
+    path = state.get("sg_path", "")
+    if path and Path(path).exists():
+        return Path(path).read_text(encoding="utf-8")
+    return state.get("style_guide", "")
