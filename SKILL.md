@@ -97,7 +97,25 @@ python "$SCRIPTS/lqe_io.py" pre-check \
   --out "$JOB/errors.json"
 ```
 
-自动检测：Untranslated / 破折号 / Markup 标签缺失 / Length 超限 / 千位分隔符 / Terminology 违规。输出作为本轮 `errors.json` 的基底。若 pre-check 命中 locked segment，Agent 评估时必须移除该段 actionable error，保持 `errors=[]`, `corrected=null`。
+确定性自动检测（纯文本可判定项前移，消除 LLM 跨轮方差）：
+
+| 检查 | 类别 | 严重度 |
+|------|------|--------|
+| target 含中文 | Untranslated | Major |
+| 破折号 `—` | Punctuation | Minor |
+| 颜色标签 `#G/#C/#Y…#E` 数量不匹配 | Markup | Major |
+| **颜色标签开闭不配对**（`#G/#C/#Y` 数 ≠ `#E` 数）**[R1]** | Markup | Major |
+| 变量 `{}` / `%s` 缺失或多余 | Markup | Major |
+| **无索引位置占位符 `%s/%d` 顺序错位**（命名/带索引允许重排）**[R1]** | Markup | Major |
+| `\n` 数量不匹配 | Markup | Major |
+| **数值漏译/改值**（源阿拉伯数字未在译文出现，如伤害 100→1000）**[R6]** | Mistranslation | Major |
+| `max-length` 列存在且译文超长 **[R3]** | Length | Major |
+| 译文 > 1.5× 源（无 max-length 列时回退，仅非 CJK 源） | Length | Major |
+| 千位分隔符缺失 | Locale convention | Minor |
+| **首尾空白 / 双空格 / EN 译文含全角标点 [R5]** | Punctuation | Minor |
+| 术语表 source 命中但 target 缺译 | Terminology | Major |
+
+`max-length` 列自动识别表头：`maxlen/max_length/char_limit/限长/字符上限` 等。输出作为本轮 `errors.json` 的基底。若 pre-check 命中 locked segment，Agent 评估时必须移除该段 actionable error，保持 `errors=[]`, `corrected=null`。R6 数值检查仅在源含阿拉伯数字时触发（中文数字不误报）；Agent 评估时可移除上下文误报。
 
 ### Step 2：评估所有段落
 
@@ -156,6 +174,7 @@ python "$SCRIPTS/lqe_io.py" pre-check \
 | Terminology | 1.5 | 术语不符，**始终 Major** |
 | Markup | 1.5 | 标签/变量错误，**始终 Major** |
 | Culture specific reference | 1.5 | 文化本地化错误 |
+| Audience appropriateness | 1.5 | 译文准确但不符目标受众/语域/世界观期待 |
 | Punctuation | 1.0 | 标点错误 |
 | Spelling | 1.0 | 拼写错误 |
 | Locale convention | 1.0 | 数字/日期格式 |
@@ -164,7 +183,11 @@ python "$SCRIPTS/lqe_io.py" pre-check \
 
 严重级别：Neutral（0分）/ Minor（1分）/ Major（5分）/ Critical（10分）
 
+> **父维度对齐**：17 个子类别归入 MQM-Core / ISO 5060:2024 七个一级维度 —— Terminology / Accuracy / Linguistic Conventions / Style / Locale Conventions / Audience Appropriateness / Design and Markup（+ Other）。`Culture specific reference` 与 `Audience appropriateness` 归入 Audience Appropriateness（不再错置于 Accuracy）。
+
 > **注意**：Terminology / Untranslated / Markup / Length 的 severity 由脚本强制纠正，无论 AI 填写什么值。
+
+> **Critical 门（可选）**：`lqe_calc.py --critical-gate` 开启后，任一 Critical 错误直接 FAIL（MQM/ISO 5060/LISA 行业硬规则）；默认关，向后兼容。`--severity-scale mqm` 切换 0/1/5/25 指数严重度档。
 
 ### Step 3：写入评估结果
 

@@ -7,7 +7,10 @@ import json
 from pathlib import Path
 from collections import defaultdict
 
-from lqe_engine import WEIGHTS, SEVERITY_POINTS, apply_severity, normalize_category
+from lqe_engine import (
+    WEIGHTS, SEVERITY_POINTS, SEVERITY_POINTS_MQM,
+    apply_severity, normalize_category,
+)
 
 
 def main():
@@ -15,34 +18,54 @@ def main():
     p.add_argument("--state",  required=True)
     p.add_argument("--errors", required=True)
     p.add_argument("--threshold", type=float, default=98)
+    p.add_argument("--critical-gate", action="store_true", dest="critical_gate",
+                   help="任一 Critical 错误直接 FAIL（MQM/ISO 5060/LISA 行业硬规则）；默认关，向后兼容")
+    p.add_argument("--severity-scale", choices=["lisa", "mqm"], default="lisa",
+                   help="严重度乘数档：lisa=0/1/5/10（默认）；mqm=0/1/5/25（指数间距）")
+    p.add_argument("--locked-ids", default=None, dest="locked_ids",
+                   help="逗号分隔的 locked seg id，其错误不计入 Critical 门")
     args = p.parse_args()
+
+    sev_points = SEVERITY_POINTS_MQM if args.severity_scale == "mqm" else SEVERITY_POINTS
+    locked = set()
+    if args.locked_ids:
+        locked = {int(x.strip()) for x in args.locked_ids.split(",") if x.strip()}
 
     state  = json.loads(Path(args.state).read_text(encoding="utf-8"))
     errors = json.loads(Path(args.errors).read_text(encoding="utf-8"))
 
     wordcount = state["wordcount"]
     if wordcount == 0:
-        print("SCORE=100.00 STATUS=PASS")
+        print("SCORE=100.00 STATUS=PASS CRITICAL=0")
         return
 
     cat_raw = defaultdict(float)
     dist    = defaultdict(int)
     total_errors = 0
+    critical_count = 0
 
     for entry in errors:
+        if entry.get("id") in locked:
+            continue
         for e in entry.get("errors", []):
             raw_cat = e.get("category", "Other")
             cat = normalize_category(raw_cat)
             sev = apply_severity(cat, str(e.get("severity", "Minor")))
-            cat_raw[cat] += SEVERITY_POINTS.get(sev, 0)
+            cat_raw[cat] += sev_points.get(sev, 0)
             dist[f"{raw_cat} [{sev}]"] += 1
             total_errors += 1
+            if sev == "Critical":
+                critical_count += 1
 
     total_weighted = sum(WEIGHTS.get(cat, 1.0) * raw for cat, raw in cat_raw.items())
     score  = max((1 - total_weighted / wordcount) * 100, 0)
-    status = "PASS" if score >= args.threshold else "FAIL"
+    npt    = total_weighted * 1000 / wordcount  # 每千词惩罚分 (MQM RWC=1000)
+    gate_fail = args.critical_gate and critical_count > 0
+    status = "FAIL" if (gate_fail or score < args.threshold) else "PASS"
 
-    print(f"SCORE={score:.2f} STATUS={status} ERRORS={total_errors} WORDCOUNT={wordcount}")
+    gate_note = " (CRITICAL_GATE)" if gate_fail else ""
+    print(f"SCORE={score:.2f} STATUS={status}{gate_note} ERRORS={total_errors} "
+          f"WORDCOUNT={wordcount} CRITICAL={critical_count} NPT/1000={npt:.2f}")
     for k, v in sorted(dist.items(), key=lambda x: -x[1]):
         print(f"  {v:>4}x  {k}")
 

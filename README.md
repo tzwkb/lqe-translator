@@ -71,11 +71,18 @@ Auto-detects deterministic errors:
 | Chinese characters in target | Untranslated | Major |
 | Em dash `—` | Punctuation | Minor |
 | Color tag `#G/C/Y…#E` count mismatch | Markup | Major |
+| Color tag open/close imbalance (`#G/#C/#Y` ≠ `#E`) **[R1]** | Markup | Major |
 | Variable `{}` / `%s` missing or extra | Markup | Major |
+| Positional placeholder `%s/%d` order changed **[R1]** | Markup | Major |
 | `\n` count mismatch | Markup | Major |
-| Length > 1.5× source (non-CJK source only) | Length | Major |
+| Source number missing/changed in target (e.g. 100→1000) **[R6]** | Mistranslation | Major |
+| Target exceeds `max-length` column **[R3]** | Length | Major |
+| Length > 1.5× source (fallback when no max-length, non-CJK only) | Length | Major |
 | 4+ digit number without thousands separator | Locale convention | Minor |
+| Leading/trailing whitespace, double space, full-width punctuation **[R5]** | Punctuation | Minor |
 | Term in source but translation absent from target | Terminology | Major |
+
+`max-length` column auto-detected from headers (`maxlen` / `max_length` / `char_limit` / `限长` / `字符上限` …). R6 fires only when the source contains Arabic digits.
 
 ### 3. AI Evaluation
 
@@ -162,7 +169,10 @@ Wordcount is locked at initialization and does not change across iterations.
 | Spelling | 1.0 | |
 | Locale convention | 1.0 | |
 | Length | 1.0 | Always Major; not checked for CJK sources |
+| Audience appropriateness | 1.5 | Accurate but unfit for target audience/register/world |
 | Other | 1.0 | |
+
+> Parent dimensions align to MQM-Core / ISO 5060:2024 (Terminology, Accuracy, Linguistic Conventions, Style, Locale Conventions, Audience Appropriateness, Design and Markup, + Other). `lqe_calc.py --critical-gate` enables the industry Critical auto-fail rule; `--severity-scale mqm` switches to the 0/1/5/25 exponential scale.
 
 ---
 

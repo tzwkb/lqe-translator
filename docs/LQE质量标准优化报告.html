@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LQE 本地化质量评估 · 行业标准对齐与优化报告</title>
+<style>
+  :root{
+    --ink:#1a2230; --sub:#5b6b80; --line:#e3e8ef; --bg:#f5f7fa;
+    --brand:#0b4f8a; --brand2:#0a6ebd; --ok:#1f8a4c; --okbg:#e6f4ea;
+    --p0:#c0392b; --p0bg:#fdecea; --p1:#b9770e; --p1bg:#fdf3e3; --p2:#5b6b80; --p2bg:#eef1f5;
+    --card:#ffffff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.68;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 24px 80px}
+  header.hero{background:linear-gradient(125deg,#0b4f8a,#0a6ebd 60%,#1187c9);color:#fff;
+    padding:46px 0 38px;margin-bottom:30px;box-shadow:0 2px 14px rgba(11,79,138,.18)}
+  header.hero .wrap{padding-top:0;padding-bottom:0}
+  .brand{display:flex;align-items:center;gap:15px;margin-bottom:16px}
+  .brand img{width:62px;height:62px;border-radius:16px;background:#fff;padding:5px;
+    box-shadow:0 3px 12px rgba(8,22,40,.22);flex:0 0 auto}
+  .brand .eyebrow{margin:0}
+  .eyebrow{font-size:12.5px;letter-spacing:.22em;text-transform:uppercase;opacity:.82;margin:0 0 10px}
+  .foot-logo{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+  .foot-logo img{width:26px;height:26px;border-radius:6px;background:#fff;padding:2px}
+  h1{font-size:29px;margin:0 0 12px;font-weight:700;letter-spacing:.5px}
+  .hero p{margin:0;opacity:.93;max-width:790px}
+  .meta{margin-top:22px;display:flex;flex-wrap:wrap;gap:10px}
+  .meta span{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.25);
+    padding:5px 12px;border-radius:20px;font-size:12.5px}
+  h2{font-size:21px;margin:46px 0 8px;padding-bottom:9px;border-bottom:2px solid var(--brand);color:var(--brand)}
+  h2 .n{display:inline-block;min-width:30px;color:var(--brand2);font-variant-numeric:tabular-nums}
+  h3{font-size:16.5px;margin:26px 0 8px;color:var(--ink)}
+  p{margin:10px 0}
+  .lead{color:var(--sub);font-size:14px}
+  .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:26px 0 6px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 16px 14px;
+    box-shadow:0 1px 3px rgba(20,40,80,.04)}
+  .card .k{font-size:25px;font-weight:700;color:var(--brand);line-height:1.12}
+  .card .l{font-size:12.5px;color:var(--sub);margin-top:5px}
+  table{width:100%;border-collapse:collapse;margin:16px 0;background:var(--card);
+    border:1px solid var(--line);border-radius:10px;overflow:hidden;font-size:13.5px}
+  th,td{padding:10px 12px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+  th{background:#eef3f8;color:#33414f;font-weight:600;font-size:12.5px;letter-spacing:.02em}
+  tr:last-child td{border-bottom:none}
+  tbody tr:hover{background:#f8fbfe}
+  .term{color:var(--brand);font-weight:600}
+  .tag{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11.5px;font-weight:600;white-space:nowrap}
+  .p0{background:var(--p0bg);color:var(--p0)} .p1{background:var(--p1bg);color:var(--p1)} .p2{background:var(--p2bg);color:var(--p2)}
+  .done{background:var(--okbg);color:var(--ok)}
+  .callout{background:#fff;border-left:4px solid var(--brand2);border-radius:0 10px 10px 0;
+    padding:14px 18px;margin:18px 0;box-shadow:0 1px 3px rgba(20,40,80,.05)}
+  .callout.warn{border-left-color:var(--p1);background:#fffdf7}
+  .callout.crit{border-left-color:var(--p0);background:#fffaf9}
+  .callout b{color:var(--ink)}
+  ul.tight{margin:8px 0;padding-left:20px} ul.tight li{margin:5px 0}
+  .why{color:var(--sub);font-size:13px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  sup.c{font-size:10.5px;font-weight:700;line-height:0;white-space:nowrap}
+  sup.c a{color:var(--brand2);text-decoration:none;background:#eaf2fb;border-radius:4px;padding:0 3px;margin:0 1px;cursor:help}
+  sup.c a:hover{background:var(--brand2);color:#fff}
+  #cite-tip{position:absolute;display:none;z-index:60;max-width:360px;background:#10202f;color:#fff;
+    font-size:12px;line-height:1.55;padding:9px 12px;border-radius:9px;
+    box-shadow:0 8px 26px rgba(8,22,40,.28);pointer-events:none}
+  #cite-tip b{color:#acd3f5}
+  #cite-tip .d{display:block;margin-top:5px;color:#8fd0ff;font-size:11px;font-weight:600}
+  .refgroup{margin:18px 0 6px;font-weight:700;color:var(--brand);font-size:14px}
+  .ref{display:flex;gap:10px;padding:6px 0;border-bottom:1px dotted var(--line);font-size:12.8px;align-items:baseline}
+  .ref:target{background:#fff7e6;border-radius:6px;padding:6px 8px}
+  .rn{flex:0 0 30px;color:var(--brand2);font-weight:700;font-variant-numeric:tabular-nums}
+  .ref a{color:#0a3d62;text-decoration:none;word-break:break-all}
+  .ref a:hover{text-decoration:underline}
+  .ref .t{color:var(--ink)}
+  .foot{margin-top:40px;padding-top:18px;border-top:1px solid var(--line);color:var(--sub);font-size:12.5px}
+  @media(max-width:780px){.cards,.grid2{grid-template-columns:1fr 1fr}}
+  @media print{body{background:#fff}header.hero{box-shadow:none}.card,table,.callout{box-shadow:none}.ref a{color:#0a3d62}}
+</style>
+</head>
+<body>
+<header class="hero">
+  <div class="wrap">
+    <div class="brand"><img src="data:image/jpeg;base64,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" alt="Langlobal logo"><p class="eyebrow">Langlobal · Localization Quality Engineering</p></div>
+    <h1>游戏本地化质量评估体系：行业标准对齐与优化报告</h1>
+    <p>对照 MQM / ISO 5060:2024 / SAE J2450 / LISA QA / TAUS DQF 五大国际质量框架及游戏本地化特有维度，
+       系统诊断现有中→英质量评估体系（燕云十六声 / WWM）的差距，并完成首批高优先级优化。
+       全文每个标准、概念、数值均附<a href="#refs">权威来源</a>（角标可点击跳转）。</p>
+    <div class="meta">
+      <span>语向：中文 → 英文</span>
+      <span>领域：游戏本地化质量评估（LQE）</span>
+      <span>调研：8 维度 · 86 信源</span>
+      <span>日期：2026-06-04</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <section>
+    <h2><span class="n">0</span>执行摘要</h2>
+    <p class="lead">本地化质量评估（LQE）的国际共识，是用"<span class="term">错误类型学</span>（按维度分类问题）+ <span class="term">严重度分级</span> + <span class="term">按字数归一</span>"的方法，对译文质量打出可量化、可对比的分数<sup class="c"><a href="#R1">1</a>,<a href="#R10">10</a></sup>。
+       现有评估体系方向与之一致，本次调研发现其与国际标准存在 8 项差距（3 项为高优先级），并已完成 <b>7 项优化</b>，全部平稳兼容——不改变既有评分口径。</p>
+    <div class="cards">
+      <div class="card"><div class="k">国际七维</div><div class="l">评估维度对齐 MQM-Core / ISO 5060 标准分类</div></div>
+      <div class="card"><div class="k">+5 项</div><div class="l">新增自动质量检查（占位符/截断/数值/排版等）</div></div>
+      <div class="card"><div class="k">补 1 维</div><div class="l">补齐"受众适配性"维度，文化/合规问题有处归类</div></div>
+      <div class="card"><div class="k">零回归</div><div class="l">默认口径下历史评分完全不变，平稳过渡</div></div>
+    </div>
+    <div class="callout crit">
+      <b>本次最关键的一项优化：数值一致性校验。</b>
+      游戏里的伤害、数量、等级、概率等数字一旦在翻译中被改动（例如 100 被误译成 1000），会直接影响玩法平衡，属最高危缺陷。
+      原体系只检查数字"格式"（如千位分隔符），<b>完全不比对数值本身是否一致</b>。国际主流 QA 工具均把"原文↔译文数字一致"列为标配检查<sup class="c"><a href="#R37">37</a>,<a href="#R38">38</a></sup>，本次已补齐这一缺口。
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="n">1</span>行业质量标准调研综述</h2>
+    <p class="lead">本地化质量评估已形成全球通行的方法论内核：把译文问题归入<span class="term">标准化的错误维度</span>，按 <span class="term">Neutral / Minor / Major / Critical</span> 四级严重度赋分，再用<span class="term">加权惩罚 ÷ 字数</span>（统一折算到"每千词"）得出可横向比较的质量分<sup class="c"><a href="#R2">2</a>,<a href="#R3">3</a></sup>；对致命问题设"一票否决"硬门<sup class="c"><a href="#R5">5</a></sup>。五大框架对照如下。</p>
+    <table>
+      <thead><tr><th>框架</th><th>维护方 / 定位</th><th>顶层维度</th><th>严重度分级</th><th>评分 / 阈值</th><th>来源</th></tr></thead>
+      <tbody>
+        <tr><td><b>MQM</b><br>多维质量度量</td><td>MQM Council，已并入 ISO 5060</td><td>7 个一级维度</td>
+            <td>0 / 1 / 5 / 25（指数间距）</td><td>(1−惩罚÷字数)×100，按每千词归一；通过线可校准</td>
+            <td><sup class="c"><a href="#R1">1</a>,<a href="#R2">2</a>,<a href="#R3">3</a>,<a href="#R4">4</a></sup></td></tr>
+        <tr><td><b>ISO 5060:2024</b><br>国际标准</td><td>ISO（人评译文质量）</td><td>7 类（与 MQM 同套）</td>
+            <td>3 级：Critical / Major / Minor</td><td>错误分对比阈值；任一 Critical 一律不通过</td>
+            <td><sup class="c"><a href="#R5">5</a>,<a href="#R6">6</a>,<a href="#R7">7</a></sup></td></tr>
+        <tr><td><b>LISA QA</b><br>行业事实标准</td><td>LISA（已解散，沿用至今）</td><td>约 7 个语言类</td>
+            <td>1 / 5 / 10（平权）</td><td>默认每千词 50 分容差，按样本长度成比例</td>
+            <td><sup class="c"><a href="#R10">10</a>,<a href="#R11">11</a>,<a href="#R12">12</a></sup></td></tr>
+        <tr><td><b>SAE J2450</b><br>技术文本度量</td><td>SAE（汽车业起源）</td><td>7 类</td>
+            <td>按类别差异化权重</td><td>加权缺陷 ÷ 原文字数（缺陷密度，越低越好）</td>
+            <td><sup class="c"><a href="#R8">8</a>,<a href="#R9">9</a></sup></td></tr>
+        <tr><td><b>TAUS DQF</b><br>动态质量框架</td><td>TAUS（已与 MQM 调和）</td><td>8 组（6 核心 + Verity + 其他）</td>
+            <td>4 级，可配置</td><td>每千词；<b>阈值随内容类型 / 受众 / 时效动态变化</b></td>
+            <td><sup class="c"><a href="#R13">13</a>,<a href="#R14">14</a>,<a href="#R15">15</a></sup></td></tr>
+      </tbody>
+    </table>
+    <p class="why">几条对游戏本地化最有借鉴价值的方法论：①"每千词归一"使长短不一的文本可横向比较，是各框架共享的内核，memoQ、Smartling 等主流工具均默认按此输出标准化分数<sup class="c"><a href="#R40">40</a>,<a href="#R18">18</a></sup>；②极短文本（如单条按钮，&lt;约 250 词）应改用规则判定而非线性打分，否则单个错误就会让分数失真<sup class="c"><a href="#R17">17</a></sup>；③同一问题只归入唯一维度，避免重复扣分<sup class="c"><a href="#R1">1</a></sup>。</p>
+
+    <h3>游戏本地化特有的质量维度</h3>
+    <p class="lead">游戏 QA 通常把缺陷分为四大类<sup class="c"><a href="#R19">19</a>,<a href="#R20">20</a>,<a href="#R21">21</a>,<a href="#R22">22</a></sup>，文本级评估（LQE）主攻"语言类"，并把另外三类中"凭文本即可判断/预测"的部分前移拦截：</p>
+    <div class="grid2">
+      <table><thead><tr><th>缺陷类</th><th>文本侧能否判断</th><th>来源</th></tr></thead><tbody>
+        <tr><td><b>语言类</b> 误译/术语/语法/语气</td><td>✅ 评估主战场</td><td><sup class="c"><a href="#R20">20</a></sup></td></tr>
+        <tr><td><b>显示类</b> 截断/溢出/换行</td><td>◐ 长度风险可预测</td><td><sup class="c"><a href="#R26">26</a></sup></td></tr>
+        <tr><td><b>功能类</b> 变量/数值/未译</td><td>◐ 占位符·数值可确定</td><td><sup class="c"><a href="#R24">24</a>,<a href="#R37">37</a></sup></td></tr>
+        <tr><td><b>合规类</b> 文化/分级</td><td>◐ 冒犯·世界观矛盾可判断</td><td><sup class="c"><a href="#R30">30</a>,<a href="#R23">23</a>,<a href="#R36">36</a></sup></td></tr>
+      </tbody></table>
+      <table><thead><tr><th>关键质量维度</th><th>对应国际维度</th><th>来源</th></tr></thead><tbody>
+        <tr><td>动态变量 / 富文本标记 的完整性与<b>顺序</b></td><td>Design &amp; Markup</td><td><sup class="c"><a href="#R24">24</a>,<a href="#R37">37</a></sup></td></tr>
+        <tr><td>文本膨胀 / 界面截断（字段宽度）</td><td>Design &amp; Markup</td><td><sup class="c"><a href="#R26">26</a></sup></td></tr>
+        <tr><td>复数 / 性别 形态一致</td><td>Linguistic Conventions</td><td><sup class="c"><a href="#R24">24</a>,<a href="#R25">25</a>,<a href="#R27">27</a></sup></td></tr>
+        <tr><td>术语全局一致性</td><td>Terminology</td><td><sup class="c"><a href="#R29">29</a>,<a href="#R37">37</a></sup></td></tr>
+        <tr><td>语气 / 语域（敬语、人物口吻）</td><td>Style</td><td><sup class="c"><a href="#R29">29</a></sup></td></tr>
+        <tr><td>文化适配 / 年龄分级</td><td>Audience Appropriateness</td><td><sup class="c"><a href="#R30">30</a>,<a href="#R31">31</a>,<a href="#R32">32</a>,<a href="#R33">33</a>,<a href="#R34">34</a>,<a href="#R35">35</a></sup></td></tr>
+      </tbody></table>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="n">2</span>现状差距诊断</h2>
+    <p class="lead">8 项差距按风险定级。<span class="tag p0">P0</span> = 直接导致误判或高危漏检的关键问题。</p>
+    <table>
+      <thead><tr><th>差距</th><th>行业标准要求（来源）</th><th>对本地化质量的风险</th><th>优先级</th></tr></thead>
+      <tbody>
+        <tr><td>评估维度与国际标准不完全对应，缺"受众适配性"维度</td><td>MQM-Core / ISO 5060 七维分类<sup class="c"><a href="#R1">1</a>,<a href="#R5">5</a></sup></td><td>文化敏感、合规、世界观契合问题无处归类，被迫记为"其他"</td><td><span class="tag p1">P1</span></td></tr>
+        <tr><td>一处分类映射失效（一个标准维度未被正确启用）</td><td>维度映射须自洽<sup class="c"><a href="#R16">16</a></sup></td><td>文化类问题被错误归入"准确性"，统计口径失真</td><td><span class="tag p0">P0</span></td></tr>
+        <tr><td>缺少游戏特有的确定性检查（数值/占位符顺序/截断/一致性）</td><td>国际 QA 工具标配检查项<sup class="c"><a href="#R37">37</a>,<a href="#R38">38</a></sup></td><td>技能数值误译、变量错位等致命缺陷漏检</td><td><span class="tag p0">P0</span></td></tr>
+        <tr><td>极短文本评分易失真，且全内容类型共用单一阈值</td><td>每千词归一 + 内容画像分级阈值<sup class="c"><a href="#R3">3</a>,<a href="#R14">14</a>,<a href="#R17">17</a></sup></td><td>单条界面文案的一个小问题就被误判不通过</td><td><span class="tag p0">P0</span></td></tr>
+        <tr><td>致命错误未"一票否决"，可能因总分高而判通过</td><td>任一 Critical 直接不通过<sup class="c"><a href="#R5">5</a>,<a href="#R10">10</a></sup></td><td>个别致命缺陷被高总分稀释，放行风险</td><td><span class="tag p1">P1</span></td></tr>
+        <tr><td>未按内容类型分桶（界面 / 道具 / 剧情 / 营销）</td><td>TAUS DQF 内容画像<sup class="c"><a href="#R14">14</a></sup></td><td>剧情与界面共用一套标准，必有一方失准</td><td><span class="tag p1">P1</span></td></tr>
+        <tr><td>重复性系统错误被反复扣分</td><td>同类错误去重计分<sup class="c"><a href="#R8">8</a></sup></td><td>一处系统性错译在长文件中被多次惩罚，分数偏低</td><td><span class="tag p1">P1</span></td></tr>
+        <tr><td>评估范围边界划分过粗</td><td>按"文本可确定性"划界<sup class="c"><a href="#R20">20</a></sup></td><td>放弃了本可凭文本拦截的高价值检查</td><td><span class="tag p2">P2</span></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2><span class="n">3</span>本次优化（已完成）</h2>
+    <p class="lead">本轮聚焦高价值、零回归项，共 7 项。每项说明：<b>改了哪里 · 解决什么本地化质量问题 · 为什么这样改（对齐哪个标准）</b>。</p>
+
+    <table>
+      <thead><tr><th style="width:170px">优化点</th><th>改了哪里（做什么）</th><th>为什么这样改（对齐标准 · 来源）</th><th>优先级</th><th>状态</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><b>① 评估维度对齐国际七维</b></td>
+          <td>把原先 6 个自定义分组，重整为国际标准的七个一级维度（术语、准确性、语言规范、风格、地区惯例、受众适配性、版式与标记）。每条质量问题都能精确归入标准维度。</td>
+          <td class="why">与 MQM-Core<sup class="c"><a href="#R1">1</a></sup> / ISO 5060:2024<sup class="c"><a href="#R5">5</a></sup> 完全一致（两者共用同一套七维）。便于与客户、第三方用统一语言沟通质量，也利于跨项目横向对比。</td>
+          <td><span class="tag p0">P0</span></td><td><span class="tag done">✓ 完成</span></td>
+        </tr>
+        <tr>
+          <td><b>② 补齐"受众适配性"维度</b></td>
+          <td>新增"受众适配"问题类别，并修复了一处令该维度失效的分类映射。用于标记"译文准确、但不符合目标受众语域或世界观期待"的情况（如把仙侠敬语译成现代口语）。</td>
+          <td class="why">MQM-Core 第六维独立成维<sup class="c"><a href="#R1">1</a></sup>；DQF 调和模型将"与世界观矛盾文本"列为独立类别<sup class="c"><a href="#R16">16</a></sup>。这是 RPG / MMO 叙事本地化的核心质量维度，原体系无法量化。</td>
+          <td><span class="tag p1">P1</span></td><td><span class="tag done">✓ 完成</span></td>
+        </tr>
+        <tr>
+          <td><b>③ 动态变量与标记的顺序校验</b></td>
+          <td>对游戏文本中的动态变量（玩家名、数值等占位符）与颜色 / 富文本标记，不再只比"数量"，还校验"顺序与配对完整性"。</td>
+          <td class="why">翻译时变量顺序错位或标记未闭合，会导致游戏内显示错乱甚至崩溃，属功能性严重缺陷。Xbench、memoQ 等均将其列为核心自动检查<sup class="c"><a href="#R37">37</a>,<a href="#R39">39</a></sup>。</td>
+          <td><span class="tag p0">P0</span></td><td><span class="tag done">✓ 完成</span></td>
+        </tr>
+        <tr>
+          <td><b>④ 界面字段长度上限校验</b></td>
+          <td>可读取文案表中的"长度上限"列，对超出界面字段宽度的译文直接预警；无该列时回退到比例估算。</td>
+          <td class="why">中译英普遍文本膨胀，固定宽度的按钮 / 菜单极易截断或溢出<sup class="c"><a href="#R26">26</a></sup>。对应 DQF 的"版式—长度 / 截断"维度<sup class="c"><a href="#R14">14</a></sup>，比粗略比例估算更贴近真实显示。</td>
+          <td><span class="tag p0">P0</span></td><td><span class="tag done">✓ 完成</span></td>
+        </tr>
+        <tr>
+          <td><b>⑤ 排版规范校验</b></td>
+          <td>新增对行首尾多余空格、双空格、以及英文译文里误用的全角标点的检查。</td>
+          <td class="why">这是本地化交付中最高频的低级瑕疵；Verifika 专设"标点与空格"检查类、Xbench、Phrase 均内置相应检查<sup class="c"><a href="#R38">38</a>,<a href="#R37">37</a>,<a href="#R41">41</a></sup>，且与项目"全部半角"风格规范一致。</td>
+          <td><span class="tag p0">P0</span></td><td><span class="tag done">✓ 完成</span></td>
+        </tr>
+        <tr>
+          <td><b>⑥ 数值一致性校验</b><br><span class="why">（本次最关键）</span></td>
+          <td>自动比对原文与译文中的数字，一旦出现漏译或改值（如伤害 100 译成 1000），立即按严重缺陷预警。仅在原文含数字时触发，已处理千位分隔符等格式差异，不误报。</td>
+          <td class="why">战斗 / 技能数值译错直接影响玩法平衡，是游戏功能性最高危缺陷。各主流 QA 工具均把"数字一致性"列为标配<sup class="c"><a href="#R37">37</a>,<a href="#R38">38</a>,<a href="#R42">42</a></sup>，而原体系只查数字格式、不校验数值本身——这是诊断中标为最高漏检风险的一项。</td>
+          <td><span class="tag p0">P0</span></td><td><span class="tag done">✓ 完成</span></td>
+        </tr>
+        <tr>
+          <td><b>⑦ 评分机制对齐国际惯例</b></td>
+          <td>提供两项可选能力：一是"致命错误一票否决"——任何 Critical 级问题无论总分高低直接判不通过；二是输出"每千词错误密度"指标，便于不同长度文本横向比较。两者默认关闭，不改变现有评分口径。</td>
+          <td class="why">致命错误一票否决是 MQM / ISO 5060 / LISA 的一致硬规则<sup class="c"><a href="#R5">5</a>,<a href="#R3">3</a>,<a href="#R10">10</a></sup>；每千词归一是各框架共享的可比性内核，memoQ 质量报告默认按此输出<sup class="c"><a href="#R2">2</a>,<a href="#R40">40</a></sup>。设为可选，保证平稳过渡。</td>
+          <td><span class="tag p0">P0</span></td><td><span class="tag done">✓ 完成</span></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="callout warn">
+      <b>一个专业判断：不臆造数值。</b>
+      对优化②⑦ 之外的分级阈值与权重（如不同内容类型该用多少分通过、各维度权重倍数、重复错误折扣比例），
+      权威来源只给出方向、不给具体数值<sup class="c"><a href="#R14">14</a></sup>。因此本次<b>不写入任何主观假设的数字</b>，留待用真实历史评估数据校准后再落地，避免把拍脑袋的标准固化下来。
+    </div>
+
+    <h3>优化前后对照</h3>
+    <table>
+      <thead><tr><th>方面</th><th>优化前</th><th>优化后</th></tr></thead>
+      <tbody>
+        <tr><td>评估维度分类</td><td>6 个自定义分组（含 1 处失效维度）</td><td>国际标准 MQM-Core 七维，映射自洽</td></tr>
+        <tr><td>自动质量检查</td><td>8 项</td><td><b>13 项</b>（新增：变量顺序、标记配对、数值一致、字段截断、排版空白）</td></tr>
+        <tr><td>致命错误处理</td><td>仅计入总分，可能仍判通过</td><td>可启用"一票否决"（默认沿用原口径）</td></tr>
+        <tr><td>横向可比性</td><td>仅看总分</td><td>增加"每千词错误密度"指标</td></tr>
+        <tr><td>兼容性</td><td>—</td><td>默认评分口径不变，新能力均为可选，平稳过渡</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2><span class="n">4</span>后续规划</h2>
+    <div class="grid2">
+      <div>
+        <h3>近期应做</h3>
+        <ul class="tight">
+          <li><b>按内容类型分桶设阈值</b>：对界面 / 道具说明 / 剧情对话 / 营销文案分别设定质量通过线与维度侧重——即 TAUS DQF 的内容画像方法<sup class="c"><a href="#R14">14</a>,<a href="#R13">13</a></sup>。<span class="why">具体数值需用真实历史数据标定。</span></li>
+          <li><b>极短文本规则判定</b>：对单条按钮等过短文本改用规则判断，而非线性打分<sup class="c"><a href="#R17">17</a></sup>。</li>
+          <li><b>全局一致性校验</b>：同一原文在整个文件内是否始终译法一致<sup class="c"><a href="#R37">37</a></sup>。</li>
+          <li><b>复数 / 性别形态校验</b>：多语言语法形态的完整性<sup class="c"><a href="#R24">24</a>,<a href="#R25">25</a></sup>。</li>
+        </ul>
+      </div>
+      <div>
+        <h3>中期可选</h3>
+        <ul class="tight">
+          <li><b>重复错误去重计分</b>：避免同一系统性错误在长文件中被反复扣分<sup class="c"><a href="#R8">8</a></sup>；折扣比例待业务确认。</li>
+          <li><b>扩展未翻译检测</b>：英文原样复制、空译等情形<sup class="c"><a href="#R37">37</a></sup>。</li>
+          <li><b>锁定段改动检测</b>：核验不可译内容（变量名、商标等）未被改写<sup class="c"><a href="#R28">28</a></sup>。</li>
+          <li><b>明确职责边界</b>：文本质量评估与功能 / 视觉 / 合规测试的交接界面<sup class="c"><a href="#R20">20</a></sup>。</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="n">5</span>结论</h2>
+    <p>现有评估体系的设计方向与国际标准一致，本次以<b>零回归</b>方式补齐了最高价值的部分：评估维度对齐国际七维、五项游戏特有的自动质量检查、以及致命错误一票否决机制。
+       其中<b>数值一致性校验</b>直接堵住了游戏功能性最高危的漏检口。
+       后续多为需<b>真实数据标定</b>的分级阈值与权重，建议在积累一批已评估项目后再校准落地，避免主观假设固化为标准。</p>
+  </section>
+
+  <section id="refs">
+    <h2><span class="n">6</span>参考来源</h2>
+    <p class="lead">本报告基于对 8 个维度、86 个信源的系统调研（含交叉事实核查），核查结论均为可信 / 基本可信。以下为各标准、概念、数值的原始出处（点击直达）。</p>
+
+    <div class="refgroup">A. MQM / ISO 5060 / ISO 11669</div>
+    <div class="ref" id="R1"><span class="rn">1</span><span><span class="t">The MQM Core Typology（七个一级维度与归类决策树）</span><br><a href="https://themqm.org/the-mqm-typology/" target="_blank" rel="noopener">themqm.org/the-mqm-typology/</a></span></div>
+    <div class="ref" id="R2"><span class="rn">2</span><span><span class="t">The MQM Scoring Models（评分模型、每千词归一）</span><br><a href="https://themqm.org/error-types-2/the-mqm-scoring-models/" target="_blank" rel="noopener">themqm.org/error-types-2/the-mqm-scoring-models/</a></span></div>
+    <div class="ref" id="R3"><span class="rn">3</span><span><span class="t">MQM Values and Scores（严重度乘数 0/1/5/25、通过线与校准）</span><br><a href="https://themqm.org/error-types-2/values-and-scores/" target="_blank" rel="noopener">themqm.org/error-types-2/values-and-scores/</a></span></div>
+    <div class="ref" id="R4"><span class="rn">4</span><span><span class="t">MQM Concrete Example with Formulas（评分公式实例）</span><br><a href="https://themqm.org/introduction-to-tqe/concrete-example-with-formulas/" target="_blank" rel="noopener">themqm.org/introduction-to-tqe/concrete-example-with-formulas/</a></span></div>
+    <div class="ref" id="R5"><span class="rn">5</span><span><span class="t">ISO 5060:2024 译文质量评估标准（7 类维度、致命错误一票否决）</span><br><a href="https://www.iso.org/standard/80701.html" target="_blank" rel="noopener">iso.org/standard/80701.html</a></span></div>
+    <div class="ref" id="R6"><span class="rn">6</span><span><span class="t">ISO 11669:2024 翻译项目通用指南（项目规格驱动维度/阈值选择）</span><br><a href="https://www.iso.org/standard/79089.html" target="_blank" rel="noopener">iso.org/standard/79089.html</a></span></div>
+    <div class="ref" id="R7"><span class="rn">7</span><span><span class="t">Slator — 新国际标准 ISO 5060 聚焦人工评估</span><br><a href="https://slator.com/new-iso-standard-5060-focuses-on-human-evaluation-to-ensure-translation-quality/" target="_blank" rel="noopener">slator.com/new-iso-standard-5060-focuses-on-human-evaluation…</a></span></div>
+
+    <div class="refgroup">B. LISA QA Model / SAE J2450</div>
+    <div class="ref" id="R8"><span class="rn">8</span><span><span class="t">SAE J2450 — Wikipedia（7 类、按类别权重、严重度存疑取重 / 最早类别优先）</span><br><a href="https://en.wikipedia.org/wiki/SAE_J2450" target="_blank" rel="noopener">en.wikipedia.org/wiki/SAE_J2450</a></span></div>
+    <div class="ref" id="R9"><span class="rn">9</span><span><span class="t">EC Innovations — J2450 翻译质量度量（权重表与缺陷密度）</span><br><a href="https://www.ecinnovations.com/blog/j2450-the-translation-quality-metric-widely-used-by-leading-auto-manufacturers/" target="_blank" rel="noopener">ecinnovations.com/blog/j2450-the-translation-quality-metric…</a></span></div>
+    <div class="ref" id="R10"><span class="rn">10</span><span><span class="t">RWS — LISA QA Model（类别与严重度 1/5/10）</span><br><a href="https://docs.rws.com/en-US/sdl-multitrans-785465/the-lisa-qa-model-788069" target="_blank" rel="noopener">docs.rws.com/…/the-lisa-qa-model-788069</a></span></div>
+    <div class="ref" id="R11"><span class="rn">11</span><span><span class="t">SDL TMS — LISA QA Model（默认每千词 50 分阈值，按长度成比例）</span><br><a href="http://producthelp.sdl.com/SDL_TMS_2011/en/Creating_and_Maintaining_Organizations/Managing_QA_Models/LISA_QA_Model.htm" target="_blank" rel="noopener">producthelp.sdl.com/…/LISA_QA_Model.htm</a></span></div>
+    <div class="ref" id="R12"><span class="rn">12</span><span><span class="t">AM Vietnam — LISA QA Model 与 MQM 对照</span><br><a href="https://amvietnam.com/lisa-qa-model-and-mqm/" target="_blank" rel="noopener">amvietnam.com/lisa-qa-model-and-mqm/</a></span></div>
+
+    <div class="refgroup">C. TAUS DQF / DQF-MQM 调和</div>
+    <div class="ref" id="R13"><span class="rn">13</span><span><span class="t">Paola Valli (TAUS) — The TAUS Quality Dashboard（ACL 2015 主论文）</span><br><a href="https://aclanthology.org/2015.tc-1.17.pdf" target="_blank" rel="noopener">aclanthology.org/2015.tc-1.17.pdf</a></span></div>
+    <div class="ref" id="R14"><span class="rn">14</span><span><span class="t">TAUS DQF 内容画像（阈值随内容类型/受众/时效变化）</span><br><a href="https://www.taus.net/dqf/content-profiling" target="_blank" rel="noopener">taus.net/dqf/content-profiling</a></span></div>
+    <div class="ref" id="R15"><span class="rn">15</span><span><span class="t">TAUS — DQF 与 MQM 调和为行业统一质量标准</span><br><a href="https://o.taus.net/academy/news/press-release/dqf-and-mqm-harmonized-to-create-an-industry-wide-quality-standard" target="_blank" rel="noopener">o.taus.net/…/dqf-and-mqm-harmonized…</a></span></div>
+    <div class="ref" id="R16"><span class="rn">16</span><span><span class="t">MQM History（DQF/MQM 调和时间线与 Verity 维度）</span><br><a href="https://themqm.org/mqm-history/" target="_blank" rel="noopener">themqm.org/mqm-history/</a></span></div>
+
+    <div class="refgroup">D. 评分与阈值方法学</div>
+    <div class="ref" id="R17"><span class="rn">17</span><span><span class="t">Multi-Range Theory of Translation Quality Measurement（短文本转规则判定、线性/非线性区间）</span><br><a href="https://arxiv.org/abs/2405.16969" target="_blank" rel="noopener">arxiv.org/abs/2405.16969</a></span></div>
+    <div class="ref" id="R18"><span class="rn">18</span><span><span class="t">ContentQuo — 用错误类型学衡量内容质量（每千词归一实操）</span><br><a href="https://www.contentquo.com/blog/measuring-content-quality-with-error-typology-step-by-step-guide" target="_blank" rel="noopener">contentquo.com/blog/measuring-content-quality-with-error-typology…</a></span></div>
+
+    <div class="refgroup">E. 游戏本地化 QA 流程与平台分级</div>
+    <div class="ref" id="R19"><span class="rn">19</span><span><span class="t">IGDA 本地化 SIG — 游戏本地化最佳实践 v2.2（缺陷分类与文化化）</span><br><a href="https://igda-website.s3.us-east-2.amazonaws.com/wp-content/uploads/2021/04/09142137/Best-Practices-for-Game-Localization-v22.pdf" target="_blank" rel="noopener">igda-website…/Best-Practices-for-Game-Localization-v22.pdf</a></span></div>
+    <div class="ref" id="R20"><span class="rn">20</span><span><span class="t">LocalizeDirect — 游戏本地化测试（LQA）指南（语言/显示/功能缺陷分类）</span><br><a href="https://www.localizedirect.com/posts/lqa-what-is-game-localization-testing" target="_blank" rel="noopener">localizedirect.com/posts/lqa-what-is-game-localization-testing</a></span></div>
+    <div class="ref" id="R21"><span class="rn">21</span><span><span class="t">Keywords Studios — 本地化 QA（LQA）测试服务</span><br><a href="https://www.keywordsstudios.com/en/services/globalize/qa-testing/localization-qa-testing/" target="_blank" rel="noopener">keywordsstudios.com/…/localization-qa-testing/</a></span></div>
+    <div class="ref" id="R22"><span class="rn">22</span><span><span class="t">Bernal-Merino — 《电子游戏的翻译与本地化》（Routledge，学术基准）</span><br><a href="https://www.routledge.com/Translation-and-Localisation-in-Video-Games-Making-Entertainment-Software-Global/Bernal-Merino/p/book/9781138731462" target="_blank" rel="noopener">routledge.com/…/Bernal-Merino/9781138731462</a></span></div>
+    <div class="ref" id="R23"><span class="rn">23</span><span><span class="t">SandVox — 主机认证与本地化（第一方合规要求）</span><br><a href="https://sandvox.io/console-certification-localization-guide/" target="_blank" rel="noopener">sandvox.io/console-certification-localization-guide/</a></span></div>
+
+    <div class="refgroup">F. 游戏语言维度（变量 / 复数性别 / 截断 / 术语 / 锁定段）</div>
+    <div class="ref" id="R24"><span class="rn">24</span><span><span class="t">Phrase — ICU 消息格式实用指南（复数/性别变体、占位符）</span><br><a href="https://phrase.com/blog/posts/guide-to-the-icu-message-format/" target="_blank" rel="noopener">phrase.com/blog/posts/guide-to-the-icu-message-format/</a></span></div>
+    <div class="ref" id="R25"><span class="rn">25</span><span><span class="t">Unicode CLDR 复数规则（复数类别规范）</span><br><a href="https://cldr.unicode.org/index/cldr-spec/plural-rules" target="_blank" rel="noopener">cldr.unicode.org/index/cldr-spec/plural-rules</a></span></div>
+    <div class="ref" id="R26"><span class="rn">26</span><span><span class="t">POEditor — 本地化中的文本膨胀与收缩（中→英超框）</span><br><a href="https://poeditor.com/blog/text-expansion-and-contraction-localization/" target="_blank" rel="noopener">poeditor.com/blog/text-expansion-and-contraction-localization/</a></span></div>
+    <div class="ref" id="R27"><span class="rn">27</span><span><span class="t">MultiLingual — 游戏中的性别包容语言及其本地化挑战</span><br><a href="https://multilingual.com/issues/may-jun-2019/gender-inclusive-language-in-games-and-its-localization-challenges/" target="_blank" rel="noopener">multilingual.com/…/gender-inclusive-language-in-games…</a></span></div>
+    <div class="ref" id="R28"><span class="rn">28</span><span><span class="t">Matecat — 锁定段（不可译 / 锁定内容处理）</span><br><a href="https://guides.matecat.com/locked-segments" target="_blank" rel="noopener">guides.matecat.com/locked-segments</a></span></div>
+    <div class="ref" id="R29"><span class="rn">29</span><span><span class="t">LCP — 风格指南与术语表在游戏本地化中的重要性（术语一致性/语域）</span><br><a href="https://lcplocalizations.com/the-importance-of-style-guides-and-glossaries-in-game-localization/" target="_blank" rel="noopener">lcplocalizations.com/…/style-guides-and-glossaries…</a></span></div>
+
+    <div class="refgroup">G. 文化化与年龄分级</div>
+    <div class="ref" id="R30"><span class="rn">30</span><span><span class="t">游戏文化化：定义与最佳实践（IGDA 本地化 SIG / Kate Edwards）</span><br><a href="https://www.at-it-translator.com/video-game-culturalization-definition-and-best-practices-igda-locsig/" target="_blank" rel="noopener">at-it-translator.com/video-game-culturalization…</a></span></div>
+    <div class="ref" id="R31"><span class="rn">31</span><span><span class="t">Kate Edwards — Wikipedia（文化化奠基人，IGDA 前执行总监）</span><br><a href="https://en.wikipedia.org/wiki/Kate_Edwards" target="_blank" rel="noopener">en.wikipedia.org/wiki/Kate_Edwards</a></span></div>
+    <div class="ref" id="R32"><span class="rn">32</span><span><span class="t">ESRB 分级指南 — 类别与内容描述符</span><br><a href="https://www.esrb.org/ratings-guide/" target="_blank" rel="noopener">esrb.org/ratings-guide/</a></span></div>
+    <div class="ref" id="R33"><span class="rn">33</span><span><span class="t">PEGI — 分级标识含义（欧洲）</span><br><a href="https://pegi.info/what-do-the-labels-mean" target="_blank" rel="noopener">pegi.info/what-do-the-labels-mean</a></span></div>
+    <div class="ref" id="R34"><span class="rn">34</span><span><span class="t">CERO — 分级系统（日本官方）</span><br><a href="https://www.cero.gr.jp/en/publics/index/17/" target="_blank" rel="noopener">cero.gr.jp/en/publics/index/17/</a></span></div>
+    <div class="ref" id="R35"><span class="rn">35</span><span><span class="t">USK — 年龄分级（德国官方）</span><br><a href="https://usk.de/en/the-usk-age-ratings/" target="_blank" rel="noopener">usk.de/en/the-usk-age-ratings/</a></span></div>
+    <div class="ref" id="R36"><span class="rn">36</span><span><span class="t">SCMP — 游戏如何因内容在中国被封（区域审查 / 合规风险）</span><br><a href="https://www.scmp.com/tech/apps-social/article/2187763/taiwan-tibet-tiananmen-how-get-your-video-game-banned-china" target="_blank" rel="noopener">scmp.com/tech/apps-social/article/2187763/…</a></span></div>
+
+    <div class="refgroup">H. 自动化 QA 工具（确定性检查清单出处）</div>
+    <div class="ref" id="R37"><span class="rn">37</span><span><span class="t">ApSIC Xbench — QA 文档（标记/数字/术语/一致性/双空格等自动检查）</span><br><a href="https://docs.xbench.net/online-help/dialogs/main-window/qa/" target="_blank" rel="noopener">docs.xbench.net/online-help/dialogs/main-window/qa/</a></span></div>
+    <div class="ref" id="R38"><span class="rn">38</span><span><span class="t">Verifika — 使用指南 / 标点与空格检查类</span><br><a href="https://e-verifika.com/using_the_program" target="_blank" rel="noopener">e-verifika.com/using_the_program</a></span></div>
+    <div class="ref" id="R39"><span class="rn">39</span><span><span class="t">memoQ — 编辑 LQA 模型（可配置 MQM/LISA/自定义记分卡）</span><br><a href="https://docs.memoq.com/current/en/Workspace/edit-lqa-models.html" target="_blank" rel="noopener">docs.memoq.com/current/en/Workspace/edit-lqa-models.html</a></span></div>
+    <div class="ref" id="R40"><span class="rn">40</span><span><span class="t">memoQ — LQA 报告（标准化分数、每千词归一）</span><br><a href="https://docs.memoq.com/current/en/Workspace/lqa-reports.html" target="_blank" rel="noopener">docs.memoq.com/current/en/Workspace/lqa-reports.html</a></span></div>
+    <div class="ref" id="R41"><span class="rn">41</span><span><span class="t">Phrase — 质量保证（QA）检查项</span><br><a href="https://support.phrase.com/hc/en-us/articles/5709703799324-Quality-Assurance-QA-TMS" target="_blank" rel="noopener">support.phrase.com/…/Quality-Assurance-QA-TMS</a></span></div>
+    <div class="ref" id="R42"><span class="rn">42</span><span><span class="t">RWS Trados — QA Checker 设置（数字/标点/一致性检查项）</span><br><a href="https://docs.rws.com/en-US/sdl-trados-studio-783545/specifying-settings-for-qa-checker-359765" target="_blank" rel="noopener">docs.rws.com/…/specifying-settings-for-qa-checker-359765</a></span></div>
+  </section>
+
+  <div class="foot">
+    <div class="foot-logo"><img src="data:image/jpeg;base64,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" alt="Langlobal logo"><b style="color:#5b6b80">Langlobal · 游戏本地化质量工程</b></div>
+    <p><b>方法说明</b>：本报告基于对游戏本地化质量标准的系统调研（覆盖 8 个维度、含交叉事实核查）。主标准（MQM / ISO / SAE / TAUS）优先取官方一手出处。各项优化已在系统中完成并验证。</p>
+    <p style="margin-top:10px;color:#9aa7b5">Langlobal · 游戏本地化质量评估 · 行业标准对齐优化报告 · 2026-06-04</p>
+  </div>
+
+</div>
+
+<div id="cite-tip" role="tooltip"></div>
+<script>
+(function(){
+  // 从底部文献区构建 编号→{标题,网址} 映射（单一数据源）
+  var refs={};
+  document.querySelectorAll('.ref').forEach(function(el){
+    var a=el.querySelector('a[href]'), t=el.querySelector('.t');
+    refs[el.id]={url:a?a.getAttribute('href'):'', title:t?t.textContent.trim():''};
+  });
+  var tip=document.getElementById('cite-tip'), hideT;
+  function dom(u){return u.replace(/^https?:\/\/(www\.)?/,'').split('/')[0];}
+  function show(a){
+    clearTimeout(hideT);
+    var r=refs[a.dataset.ref]; if(!r) return;
+    tip.innerHTML='<b>['+a.textContent+']</b> '+r.title+'<span class="d">'+dom(r.url)+'　·　点击打开 ↗</span>';
+    tip.style.display='block';
+    var rc=a.getBoundingClientRect();
+    var top=rc.top+window.scrollY-tip.offsetHeight-9;
+    var left=rc.left+window.scrollX+rc.width/2-tip.offsetWidth/2;
+    left=Math.max(10,Math.min(left,window.innerWidth-tip.offsetWidth-10));
+    if(top<window.scrollY+6) top=rc.bottom+window.scrollY+9; // 顶部空间不足则放下方
+    tip.style.top=top+'px'; tip.style.left=left+'px';
+  }
+  function hide(){ hideT=setTimeout(function(){tip.style.display='none';},80); }
+  document.querySelectorAll('sup.c a[href^="#R"]').forEach(function(a){
+    var id=a.getAttribute('href').slice(1), r=refs[id];
+    a.dataset.ref=id;
+    if(r&&r.url){                       // 点击直接新标签打开原始来源，不再页内跳转
+      a.setAttribute('href',r.url);
+      a.setAttribute('target','_blank');
+      a.setAttribute('rel','noopener');
+      a.setAttribute('title','['+a.textContent+'] '+r.title);  // 无 JS 时的原生提示兜底
+    }
+    a.addEventListener('mouseenter',function(){show(a);});
+    a.addEventListener('mouseleave',hide);
+    a.addEventListener('focus',function(){show(a);});
+    a.addEventListener('blur',hide);
+  });
+})();
+</script>
+</body>
+</html>

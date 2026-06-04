@@ -35,6 +35,19 @@ from lqe_engine import (
 
 _SRC_KEYS = {"source", "zh", "src", "原文", "中文_cn", "中文", "chinese"}
 _TGT_KEYS = {"target", "en", "tgt", "译文", "en_us", "english", "翻译"}
+_MAXLEN_KEYS = {"maxlen", "max_len", "max length", "maxlength", "max_length",
+                "char_limit", "charlimit", "limit", "width", "ui_max",
+                "限长", "字符上限", "长度上限", "字数上限"}
+
+
+def _parse_maxlen(val) -> int | None:
+    if val is None or str(val).strip() == "":
+        return None
+    try:
+        n = int(float(str(val).strip()))
+        return n if n > 0 else None
+    except ValueError:
+        return None
 
 
 def _pick_col(keys: list, candidates: set) -> str | None:
@@ -148,6 +161,15 @@ def cmd_read(args):
         ti = headers.index(args.target_col)
         start_row = 2
 
+    # R3: 自动识别 max-length 列（UI 字段宽度上限），用于逐元素截断检查
+    mi = None
+    for idx, h in enumerate(headers):
+        if h is not None and str(h).strip().lower() in _MAXLEN_KEYS:
+            mi = idx
+            break
+    if mi is not None:
+        print(f"[lqe_io] max-length column detected: '{headers[mi]}' (col {mi})")
+
     segments, rows_raw = [], []
     for i, row in enumerate(ws.iter_rows(min_row=start_row, values_only=True)):
         if any(c is not None for c in row):
@@ -157,6 +179,7 @@ def cmd_read(args):
                 "target": str(row[ti] if ti < len(row) and row[ti] is not None else ""),
                 "corrected": None,
                 "content_type": None,
+                "max_len": _parse_maxlen(row[mi]) if mi is not None and mi < len(row) else None,
                 "iter": 0,
             })
             rows_raw.append(list(row))
@@ -225,6 +248,12 @@ def cmd_from_aipe(args):
         print("[ERROR] No valid rows after filtering errors.", file=sys.stderr)
         sys.exit(1)
 
+    def _row_maxlen(r):
+        for k in ("max_length", "maxlen", "max_len", "char_limit", "limit"):
+            if r.get(k):
+                return _parse_maxlen(r.get(k))
+        return None
+
     segments = [
         {
             "id": i,
@@ -232,6 +261,7 @@ def cmd_from_aipe(args):
             "target": r.get("translation", ""),
             "corrected": None,
             "content_type": r.get("content_type") or None,
+            "max_len": _row_maxlen(r),
             "iter": 0,
         }
         for i, r in enumerate(valid)
@@ -779,6 +809,18 @@ _RE_DASH     = re.compile(r'—')
 _RE_NUM      = re.compile(r'(?<!\d)(\d{4,})(?!\d)')
 _RE_COLOR    = {c: re.compile(rf'#{c}[^#]*?#E') for c in 'GCY'}  # count-only, content translatable
 _RE_VARS     = [re.compile(r'\{[^}]*\}'), re.compile(r'%[sd]')]   # exact match
+# R1: 位置占位符顺序（无索引 %s/%d 顺序敏感；命名/带索引占位符允许重排）；颜色标签开闭配对
+_RE_POS_PH   = re.compile(r'%(?![0-9]+\$)[sd]')
+_RE_OPEN_TAG = re.compile(r'#[GCY]')
+_RE_CLOSE_TAG = re.compile(r'#E')
+# R6: 数值一致性（提取阿拉伯数字 token，归一去千位分隔符）
+_RE_NUMTOK   = re.compile(r'\d[\d,]*(?:\.\d+)?')
+# R5: EN 译文中不应出现的全角标点 / 全角空格
+_FORBIDDEN_FW = '，。！？；：、（）【】《》「」“”‘’　'
+
+
+def _norm_nums(text: str):
+    return Counter(m.group(0).replace(',', '') for m in _RE_NUMTOK.finditer(text))
 
 
 def cmd_pre_check(args):
@@ -832,7 +874,13 @@ def cmd_pre_check(args):
             errs.append({"category": "Markup", "severity": "Major",
                          "comment": f"\\n count: source={src_nl}, target={tgt_nl}"})
 
-        if src_cjk <= len(src) * 0.3:
+        max_len = seg.get("max_len")
+        if max_len:
+            # R3: 有真实 UI 字段宽度上限 → 硬截断检查（优先于 1.5× 启发式）
+            if len(tgt) > max_len:
+                errs.append({"category": "Length", "severity": "Major",
+                             "comment": f"Target {len(tgt)} chars exceeds max-length {max_len}"})
+        elif src_cjk <= len(src) * 0.3:
             src_len = len(src.replace(" ", ""))
             tgt_len = len(tgt.replace(" ", ""))
             if src_len > 0 and tgt_len > src_len * 1.5:
@@ -851,6 +899,37 @@ def cmd_pre_check(args):
             if term_src in src and term_tgt not in tgt_lower:
                 errs.append({"category": "Terminology", "severity": "Major",
                              "comment": f"'{term_src}' → expected '{term_tgt}'"})
+
+        # R1: 无索引位置占位符 %s/%d 顺序（数量相同但顺序错位 → 参数错位）
+        src_pos, tgt_pos = _RE_POS_PH.findall(src), _RE_POS_PH.findall(tgt)
+        if sorted(src_pos) == sorted(tgt_pos) and src_pos != tgt_pos:
+            errs.append({"category": "Markup", "severity": "Major",
+                         "comment": f"Positional placeholder order changed: {src_pos} → {tgt_pos}"})
+        # R1: 颜色标签开闭配对（target 内 #G/#C/#Y 数应等于 #E 数）
+        opens, closes = len(_RE_OPEN_TAG.findall(tgt)), len(_RE_CLOSE_TAG.findall(tgt))
+        if opens != closes:
+            errs.append({"category": "Markup", "severity": "Major",
+                         "comment": f"Unbalanced color tags: {opens} open (#G/#C/#Y) vs {closes} close (#E)"})
+
+        # R6: 数值一致性（仅当源含阿拉伯数字；漏译/改值是游戏 Critical 级隐患）
+        if _RE_NUMTOK.search(src):
+            missing = _norm_nums(src) - _norm_nums(tgt)
+            if missing:
+                miss = ", ".join(sorted(missing.elements()))
+                errs.append({"category": "Mistranslation", "severity": "Major",
+                             "comment": f"Source number(s) missing/changed in target: {miss}"})
+
+        # R5: 空白规范化 + EN 译文全角标点
+        if tgt.strip() and tgt != tgt.strip():
+            errs.append({"category": "Punctuation", "severity": "Minor",
+                         "comment": "Leading/trailing whitespace in target"})
+        if '  ' in tgt.strip():
+            errs.append({"category": "Punctuation", "severity": "Minor",
+                         "comment": "Double space in target"})
+        fw = sorted({ch for ch in tgt if ch in _FORBIDDEN_FW})
+        if fw:
+            errs.append({"category": "Punctuation", "severity": "Minor",
+                         "comment": f"Full-width punctuation in EN target: {''.join(fw)}"})
 
         total += len(errs)
         results.append({"id": seg["id"], "errors": errs, "corrected": None})
