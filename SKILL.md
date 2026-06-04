@@ -103,8 +103,7 @@ python "$SCRIPTS/lqe_io.py" pre-check \
 |------|------|--------|
 | target 含中文 | Untranslated | Major |
 | 破折号 `—` | Punctuation | Minor |
-| 颜色标签 `#G/#C/#Y…#E` 数量不匹配 | Markup | Major |
-| **颜色标签开闭不配对**（`#G/#C/#Y` 数 ≠ `#E` 数）**[R1]** | Markup | Major |
+| 颜色标签 `#G/#C/#Y…#E` 整对数量不匹配（源↔译） | Markup | Major |
 | 变量 `{}` / `%s` 缺失或多余 | Markup | Major |
 | **无索引位置占位符 `%s/%d` 顺序错位**（命名/带索引允许重排）**[R1]** | Markup | Major |
 | `\n` 数量不匹配 | Markup | Major |
@@ -188,6 +187,37 @@ python "$SCRIPTS/lqe_io.py" pre-check \
 > **注意**：Terminology / Untranslated / Markup / Length 的 severity 由脚本强制纠正，无论 AI 填写什么值。
 
 > **Critical 门（可选）**：`lqe_calc.py --critical-gate` 开启后，任一 Critical 错误直接 FAIL（MQM/ISO 5060/LISA 行业硬规则）；默认关，向后兼容。`--severity-scale mqm` 切换 0/1/5/25 指数严重度档。
+
+#### 归类决策规则
+
+**单一归属**：每条错误只记一个类别（避免重复计分）。同一处可落多类时，按下表取最具体 / 最严的一个（对齐 MQM 决策树单维度归属）。
+
+| 现象 | 归类 |
+|------|------|
+| 含义偏离原文 | Mistranslation |
+| 漏内容 / 多内容 | Omission / Addition |
+| 整段未译、中文残留 | Untranslated（始终 Major）|
+| 错词命中术语表 **或强制文化映射**（枪→Spear、师傅→Master 等） | **Terminology**（始终 Major）|
+| 不在术语表的普通错词 | Mistranslation |
+| 文化专有概念译错（龙的内涵、典故、节气） | Culture specific reference |
+| 译文准确但口吻 / 语域 / 世界观不符（仙侠敬语→现代俚语） | Audience appropriateness |
+| 违反明文风格指南 | Company style |
+| 无明文、仅表达不自然 | Unidiomatic |
+| 与同文件他处译法冲突 —— **涉及术语表词条** | **Terminology** |
+| 与同文件他处译法冲突 —— 其余 | Inconsistency |
+| 句子不合语法（破句） | Grammar |
+| 标点符号本身 | Punctuation |
+| 数字 / 日期 / 货币格式 | Locale convention |
+| 标签 / 变量 / 换行 | Markup（始终 Major）|
+| 超长 / 截断 | Length（始终 Major）|
+
+**严重度判定（非强制类）**
+- **Critical**：卡上线 / 崩溃 / 冒犯性 / 法律风险。
+- **Major**：改变含义、破坏功能、砸品牌（误译、术语、漏译）。
+- **Minor**：表面瑕疵、偏好问题（轻微不自然、标点）。
+- **存疑取重**（J2450 元规则）：不确定 Major / Minor → 取 Major。
+- **数值错误**（技能 / 战斗数值，如 100→1000）默认 **Major**（归 Mistranslation）。
+- Terminology / Untranslated / Markup / Length 由脚本强制 Major，无需手判。
 
 ### Step 3：写入评估结果
 

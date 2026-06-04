@@ -70,8 +70,7 @@ Auto-detects deterministic errors:
 |-------|----------|----------|
 | Chinese characters in target | Untranslated | Major |
 | Em dash `—` | Punctuation | Minor |
-| Color tag `#G/C/Y…#E` count mismatch | Markup | Major |
-| Color tag open/close imbalance (`#G/#C/#Y` ≠ `#E`) **[R1]** | Markup | Major |
+| Color tag `#G/C/Y…#E` pair count mismatch (source↔target) | Markup | Major |
 | Variable `{}` / `%s` missing or extra | Markup | Major |
 | Positional placeholder `%s/%d` order changed **[R1]** | Markup | Major |
 | `\n` count mismatch | Markup | Major |

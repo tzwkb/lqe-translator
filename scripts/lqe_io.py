@@ -809,10 +809,10 @@ _RE_DASH     = re.compile(r'—')
 _RE_NUM      = re.compile(r'(?<!\d)(\d{4,})(?!\d)')
 _RE_COLOR    = {c: re.compile(rf'#{c}[^#]*?#E') for c in 'GCY'}  # count-only, content translatable
 _RE_VARS     = [re.compile(r'\{[^}]*\}'), re.compile(r'%[sd]')]   # exact match
-# R1: 位置占位符顺序（无索引 %s/%d 顺序敏感；命名/带索引占位符允许重排）；颜色标签开闭配对
+# R1: 位置占位符顺序（无索引 %s/%d 顺序敏感；命名/带索引占位符允许重排）
+# 注：颜色标签的开闭配对不做独立计数——`#` 在部分项目兼作叙述标记（#Enter/#Camera），
+# `#E/#C/#G/#Y` 会误匹配英文词首；颜色标签数量异常由下方整对 `#X...#E` 源译比对负责。
 _RE_POS_PH   = re.compile(r'%(?![0-9]+\$)[sd]')
-_RE_OPEN_TAG = re.compile(r'#[GCY]')
-_RE_CLOSE_TAG = re.compile(r'#E')
 # R6: 数值一致性（提取阿拉伯数字 token，归一去千位分隔符）
 _RE_NUMTOK   = re.compile(r'\d[\d,]*(?:\.\d+)?')
 # R5: EN 译文中不应出现的全角标点 / 全角空格
@@ -905,11 +905,6 @@ def cmd_pre_check(args):
         if sorted(src_pos) == sorted(tgt_pos) and src_pos != tgt_pos:
             errs.append({"category": "Markup", "severity": "Major",
                          "comment": f"Positional placeholder order changed: {src_pos} → {tgt_pos}"})
-        # R1: 颜色标签开闭配对（target 内 #G/#C/#Y 数应等于 #E 数）
-        opens, closes = len(_RE_OPEN_TAG.findall(tgt)), len(_RE_CLOSE_TAG.findall(tgt))
-        if opens != closes:
-            errs.append({"category": "Markup", "severity": "Major",
-                         "comment": f"Unbalanced color tags: {opens} open (#G/#C/#Y) vs {closes} close (#E)"})
 
         # R6: 数值一致性（仅当源含阿拉伯数字；漏译/改值是游戏 Critical 级隐患）
         if _RE_NUMTOK.search(src):
