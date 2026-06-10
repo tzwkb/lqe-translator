@@ -1,13 +1,13 @@
 ---
-name: lqe-agent-skill
+name: lqe-translator
 description: LQE scoring + self-iteration agent for AI-generated ZH→EN translations (燕云/WWM). Claude identifies errors AND provides corrected translations in one pass. Python calculates score. /loop drives iteration until score ≥ 98.
 ---
 
-# LQE Agent Skill
+# LQE Translator
 
 路径变量（每次会话开始时定义）：
 ```bash
-SCRIPTS=~/.claude/skills/lqe-agent-skill/scripts
+SCRIPTS=~/.claude/skills/lqe-translator/scripts
 ```
 
 ---
@@ -25,7 +25,7 @@ SCRIPTS=~/.claude/skills/lqe-agent-skill/scripts
 **方式 B：独立使用**
 - 输入 Excel 路径
 - 原文列名/索引、译文列名/索引
-- 风格指南路径（`.docx`/`.txt`/`.md`，可选）
+- 风格指南路径（`.docx`/`.txt`/`.md`/`.xlsx`，可选；xlsx 多 sheet 自动转 markdown：sheet=章节、行=规则、空表头首列=分类前向填充）
 - 术语表路径（`.xlsx`/`.csv`/`.tsv`/`.json`，可选）
 
 ### 2. 初始化

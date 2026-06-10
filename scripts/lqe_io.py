@@ -131,6 +131,39 @@ def _load_style_guide(path: str) -> str:
             else:
                 lines.append(text)
         return "\n".join(lines)
+    if suffix in (".xlsx", ".xlsm"):
+        wb = openpyxl.load_workbook(str(p), data_only=True)
+        out = []
+        for ws in wb.worksheets:
+            rows = []
+            for r in ws.iter_rows(values_only=True):
+                cells = ["" if c is None else str(c).strip() for c in r]
+                if any(cells):
+                    rows.append(cells)
+            if len(rows) < 2:
+                continue
+            header, data = rows[0], rows[1:]
+            out.append(f"\n# {ws.title}")
+            category = ""
+            for r in data:
+                title, body = "", []
+                for i, v in enumerate(r):
+                    h = header[i] if i < len(header) else ""
+                    if i == 0 and not h:
+                        if v:
+                            category = v
+                        continue
+                    if not v:
+                        continue
+                    if not title:
+                        title = v
+                    else:
+                        body.append(f"[{h}] {v}" if h else v)
+                if not title and not body:
+                    continue
+                out.append(f"## {category} — {title}" if category else f"## {title}")
+                out.extend(body)
+        return "\n".join(out)
     return p.read_text(encoding="utf-8")
 
 
