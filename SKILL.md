@@ -35,7 +35,8 @@ SCRIPTS=~/.claude/skills/lqe-translator/scripts
   - `profile.json`：`{name, language_pair, style_guide, terminology, checks, adjudications, wordcount_basis, threshold}`（相对路径相对 profile 所在目录解析）
   - `checks.json`：项目专属确定性检查。`builtin` 开关内置项（键：`untranslated_cjk/em_dash/color_tags/variables/newline_count/length/locale_numbers/terminology/pos_placeholder/numbers_consistency/whitespace/fullwidth_punct/empty_target`，默认全开）；`custom` 数组：`{id, pattern(regex), where(target|source|both), category, severity, comment}`，每段命中一次报一条
   - `adjudications.md`：客户裁决/changelog 摘要——**Step 2 评估前必须 Read 注入上下文**，效力顺序通常为 实时更新要求 > Query 裁决 > SG，防止把已裁决项判成错误
-- 已建项目：`nrc-th`（洛克王国中→泰）、`nrc-en`（中→英）
+- 已建项目：`nrc-th`（洛克王国中→泰）、`nrc-en`（中→英）、`wwm`（燕云十六声中→英，28,534 条官方术语库）
+- 注意：SKILL.md 下文的"内置规则"（Title/Sentence Mode、禁破折号、文化术语映射等）实为 WWM 规则，仅在**无 SG 且无项目档案**时兜底；有项目档案时以其 SG/checks/adjudications 为准
 
 ### 2. 初始化
 

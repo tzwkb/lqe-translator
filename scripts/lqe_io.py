@@ -34,7 +34,7 @@ from lqe_engine import (
 # ── read ──────────────────────────────────────────────────────────────────────
 
 _SRC_KEYS = {"source", "zh", "src", "原文", "中文_cn", "中文", "chinese", "chinese_prc", "zh_cn", "zh-cn", "简中", "中文简体", "source text"}
-_TGT_KEYS = {"target", "en", "tgt", "译文", "en_us", "english", "翻译", "thai", "th", "泰语", "泰文", "target text"}
+_TGT_KEYS = {"target", "en", "tgt", "译文", "en_us", "english", "翻译", "英文", "thai", "th", "泰语", "泰文", "target text"}
 _ZW_TABLE = {ord(c): None for c in "​‌‍﻿"}
 
 
