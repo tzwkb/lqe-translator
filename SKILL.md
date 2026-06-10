@@ -26,8 +26,16 @@ SCRIPTS=~/.claude/skills/lqe-translator/scripts
 - 输入 Excel 路径
 - 原文列名/索引、译文列名/索引
 - 风格指南路径（`.docx`/`.txt`/`.md`/`.xlsx`，可选；xlsx 多 sheet 自动转 markdown：sheet=章节、行=规则、空表头首列=分类前向填充）
-- 术语表路径（`.xlsx`/`.csv`/`.tsv`/`.json`，可选；词条零宽字符自动清理；含 CJK 的 2 字词条参与 pre-check 匹配）
+- 术语表路径（`.xlsx`/`.csv`/`.tsv`/`.json`，可选；词条零宽字符自动清理；含 CJK 的 2 字词条参与 pre-check 匹配；json 词条可带 `status` 字段透传到报错注记）
 - 词数基准 `--wordcount-basis`：`target-words`（默认，译文空格分词，适用 EN）/ `source-chars`（源文 CJK 字符+拉丁词，**泰语等无空格译文必选**，否则词数低估数倍、98 阈值失真）
+
+**方式 C：项目档案（同项目多文件复用，优先推荐）**
+- `read --project <项目名>`：从 `projects/<项目名>/profile.json` 带出 SG/术语/词数基准/阈值/checks/adjudications，显式 CLI 参数优先
+- `projects/<名>/` 结构：
+  - `profile.json`：`{name, language_pair, style_guide, terminology, checks, adjudications, wordcount_basis, threshold}`（相对路径相对 profile 所在目录解析）
+  - `checks.json`：项目专属确定性检查。`builtin` 开关内置项（键：`untranslated_cjk/em_dash/color_tags/variables/newline_count/length/locale_numbers/terminology/pos_placeholder/numbers_consistency/whitespace/fullwidth_punct/empty_target`，默认全开）；`custom` 数组：`{id, pattern(regex), where(target|source|both), category, severity, comment}`，每段命中一次报一条
+  - `adjudications.md`：客户裁决/changelog 摘要——**Step 2 评估前必须 Read 注入上下文**，效力顺序通常为 实时更新要求 > Query 裁决 > SG，防止把已裁决项判成错误
+- 已建项目：`nrc-th`（洛克王国中→泰）、`nrc-en`（中→英）
 
 ### 2. 初始化
 
@@ -74,6 +82,8 @@ Read `$JOB/state.json`，提取：
 - `terms_path`：指向 `$JOB/terms.json`，读取内容作为术语表
 - `wordcount`：固定词数（迭代不变）
 - `iteration`：当前轮次
+- `adjudications_path`（项目档案带入，可空）：**非空必须 Read**，裁决内容优先于 SG，已裁决项不得判错
+- `threshold`：评分阈值（项目档案可改，默认 98），传给 lqe_calc/write/apply-fixes 的 `--threshold`
 
 ### Step 1.2：RAG 100% match 保护
 
@@ -115,7 +125,7 @@ python "$SCRIPTS/lqe_io.py" pre-check \
 | **首尾空白 / 双空格 / EN 译文含全角标点 [R5]** | Punctuation | Minor |
 | 术语表 source 命中但 target 缺译 | Terminology | Major |
 
-`max-length` 列自动识别表头：`maxlen/max_length/char_limit/限长/字符上限` 等。输出作为本轮 `errors.json` 的基底。若 pre-check 命中 locked segment，Agent 评估时必须移除该段 actionable error，保持 `errors=[]`, `corrected=null`。R6 数值检查仅在源含阿拉伯数字时触发（中文数字不误报）；Agent 评估时可移除上下文误报。
+`max-length` 列自动识别表头：`maxlen/max_length/char_limit/限长/字符上限` 等。输出作为本轮 `errors.json` 的基底。项目档案的 `checks.json` 在此生效：`builtin` 开关可关闭与项目规范冲突的内置项（如 Em-dash 允许的项目关 `em_dash`），`custom` regex 追加项目专属检查；术语报错带 `[TB:status]` 注记（Approved 硬判，New/WorkingTB 评估时按语境甄别）。若 pre-check 命中 locked segment，Agent 评估时必须移除该段 actionable error，保持 `errors=[]`, `corrected=null`。R6 数值检查仅在源含阿拉伯数字时触发（中文数字不误报）；Agent 评估时可移除上下文误报。
 
 ### Step 2：评估所有段落
 
@@ -307,6 +317,12 @@ L_per_category  = weight × K
 ## 文件结构
 
 ```
+projects/<项目名>/        项目档案（可复用，方式 C）
+├── profile.json        SG/术语/词数基准/阈值/checks/adjudications 配置
+├── checks.json         内置检查开关 + 自定义 regex 检查
+├── adjudications.md    客户裁决记录（评估前必读）
+└── terms_*.json        项目术语（可带 status）
+
 jobs/<文件名>/
 ├── state.json          初始化一次；跨轮持久化（译文、词数、迭代历史）
 ├── sg.txt              风格指南全文

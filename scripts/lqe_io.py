@@ -44,7 +44,10 @@ def _clean_terms(items: list) -> list:
         s = str(t.get("source", "")).translate(_ZW_TABLE).strip()
         g = str(t.get("target", "")).translate(_ZW_TABLE).strip()
         if s and g:
-            out.append({"source": s, "target": g})
+            item = {"source": s, "target": g}
+            if t.get("status"):
+                item["status"] = str(t["status"]).strip()
+            out.append(item)
     return out
 _MAXLEN_KEYS = {"maxlen", "max_len", "max length", "maxlength", "max_length",
                 "char_limit", "charlimit", "limit", "width", "ui_max",
@@ -118,6 +121,27 @@ def _load_terminology(path: str) -> list:
     return []
 
 
+def _load_project(name_or_path: str) -> dict:
+    p = Path(name_or_path)
+    if "/" not in str(name_or_path) and not p.suffix:
+        p = Path("projects") / name_or_path
+    if p.is_dir():
+        p = p / "profile.json"
+    if not p.exists():
+        print(f"[ERROR] project profile not found: {p}", file=sys.stderr)
+        sys.exit(1)
+    prof = json.loads(p.read_text(encoding="utf-8"))
+    prof["_dir"] = str(p.parent.resolve())
+    return prof
+
+
+def _project_path(prof: dict, val: str) -> str:
+    if not val:
+        return ""
+    q = Path(val)
+    return str(q if q.is_absolute() else Path(prof["_dir"]) / q)
+
+
 def _load_style_guide(path: str) -> str:
     p = Path(path)
     if not p.exists():
@@ -179,6 +203,14 @@ def _load_style_guide(path: str) -> str:
 
 
 def cmd_read(args):
+    prof = _load_project(args.project) if getattr(args, "project", None) else None
+    if prof:
+        if not args.style_guide and prof.get("style_guide"):
+            args.style_guide = _project_path(prof, prof["style_guide"])
+        if not args.terminology and prof.get("terminology"):
+            args.terminology = _project_path(prof, prof["terminology"])
+        print(f"[lqe_io] project: {prof.get('name', '?')} ({prof.get('language_pair', '?')})")
+
     wb = openpyxl.load_workbook(args.input)
     ws = wb.active
 
@@ -256,7 +288,7 @@ def cmd_read(args):
             terms_path = str(terms_file)
             print(f"[lqe_io] terminology: {len(terms)} entries → {terms_file}")
 
-    basis = getattr(args, "wordcount_basis", "target-words")
+    basis = getattr(args, "wordcount_basis", None) or (prof.get("wordcount_basis") if prof else None) or "target-words"
     if basis == "source-chars":
         wordcount = sum(
             len(_RE_CJK.findall(s["source"])) + len(re.findall(r"[A-Za-z0-9]+", s["source"]))
@@ -265,6 +297,13 @@ def cmd_read(args):
     else:
         wordcount = sum(len(s["target"].split()) for s in segments)
 
+    checks_path = adjud_path = ""
+    if prof:
+        cp = Path(_project_path(prof, prof.get("checks", "checks.json")))
+        checks_path = str(cp) if cp.exists() else ""
+        ap = Path(_project_path(prof, prof.get("adjudications", "adjudications.md")))
+        adjud_path = str(ap) if ap.exists() else ""
+
     state = {
         "input_path": str(Path(args.input).resolve()),
         "source_col": args.source_col,
@@ -272,6 +311,11 @@ def cmd_read(args):
         "headers": headers,
         "rows_raw": rows_raw,
         "aipe_url": None,
+        "project": prof.get("name", "") if prof else "",
+        "language_pair": prof.get("language_pair", "") if prof else "",
+        "checks_path": checks_path,
+        "adjudications_path": adjud_path,
+        "threshold": prof.get("threshold", 98) if prof else 98,
         "sg_path":    sg_path,
         "terms_path": terms_path,
         "terminology": [],
@@ -879,6 +923,21 @@ def _norm_nums(text: str):
     return Counter(m.group(0).replace(',', '') for m in _RE_NUMTOK.finditer(text))
 
 
+def _load_checks(state: dict):
+    toggles, custom = {}, []
+    p = state.get("checks_path", "")
+    if p and Path(p).exists():
+        cfg = json.loads(Path(p).read_text(encoding="utf-8"))
+        toggles = cfg.get("builtin", {})
+        for c in cfg.get("custom", []):
+            try:
+                custom.append((re.compile(c["pattern"]), c))
+            except (re.error, KeyError) as e:
+                print(f"[warn] bad custom check {c.get('id', '?')}: {e}", file=sys.stderr)
+        print(f"[pre-check] checks profile: {len(toggles)} toggles, {len(custom)} custom rules")
+    return toggles, custom
+
+
 def cmd_pre_check(args):
     state_path = Path(args.state)
     state = json.loads(state_path.read_text(encoding="utf-8"))
@@ -886,11 +945,14 @@ def cmd_pre_check(args):
 
     terms = _load_terms(state)
     term_map = {
-        t["source"].strip(): t["target"].strip().lower()
+        t["source"].strip(): (t["target"].strip().lower(), t.get("status", ""))
         for t in terms
         if t.get("source") and t.get("target")
         and len(t["source"].strip()) >= (2 if _RE_CJK.search(t["source"]) else 3)
     }
+
+    toggles, custom = _load_checks(state)
+    on = lambda key: toggles.get(key, True)
 
     results = []
     total = 0
@@ -904,28 +966,28 @@ def cmd_pre_check(args):
         src_cjk     = len(_RE_CJK.findall(src))
 
         # R7: 空译文（仅报一条，跳过其余检查避免堆叠噪音）
-        if src.strip() and not tgt.strip():
+        if on("empty_target") and src.strip() and not tgt.strip():
             results.append({"id": seg["id"], "errors": [
                 {"category": "Untranslated", "severity": "Major",
                  "comment": "Target is empty"}], "corrected": None})
             total += 1
             continue
 
-        if tgt_has_cjk and src.strip():
+        if on("untranslated_cjk") and tgt_has_cjk and src.strip():
             errs.append({"category": "Untranslated", "severity": "Major",
                          "comment": "Target contains Chinese characters"})
 
-        if _RE_DASH.search(tgt):
+        if on("em_dash") and _RE_DASH.search(tgt):
             errs.append({"category": "Punctuation", "severity": "Minor",
                          "comment": "Em dash '—' found; use ' - '"})
 
-        for c, pat in _RE_COLOR.items():
+        for c, pat in (_RE_COLOR.items() if on("color_tags") else ()):
             sc, tc = len(pat.findall(src)), len(pat.findall(tgt))
             if sc != tc:
                 errs.append({"category": "Markup", "severity": "Major",
                              "comment": f"#{c}...#E count: source={sc}, target={tc}"})
 
-        for pat in _RE_VARS:
+        for pat in (_RE_VARS if on("variables") else ()):
             s_hits, t_hits = set(pat.findall(src)), set(pat.findall(tgt))
             for m in s_hits - t_hits:
                 errs.append({"category": "Markup", "severity": "Major",
@@ -935,17 +997,17 @@ def cmd_pre_check(args):
                              "comment": f"Extra variable: {m!r}"})
 
         src_nl, tgt_nl = src.count(r'\n'), tgt.count(r'\n')
-        if src_nl != tgt_nl:
+        if on("newline_count") and src_nl != tgt_nl:
             errs.append({"category": "Markup", "severity": "Major",
                          "comment": f"\\n count: source={src_nl}, target={tgt_nl}"})
 
-        max_len = seg.get("max_len")
+        max_len = seg.get("max_len") if on("length") else None
         if max_len:
             # R3: 有真实 UI 字段宽度上限 → 硬截断检查（优先于 1.5× 启发式）
             if len(tgt) > max_len:
                 errs.append({"category": "Length", "severity": "Major",
                              "comment": f"Target {len(tgt)} chars exceeds max-length {max_len}"})
-        else:
+        elif on("length"):
             src_plain = _RE_MARKUP.sub('', src)
             tgt_plain = _RE_MARKUP.sub('', tgt)
             if len(_RE_CJK.findall(src_plain)) <= len(src_plain) * 0.3:
@@ -955,7 +1017,7 @@ def cmd_pre_check(args):
                     errs.append({"category": "Length", "severity": "Major",
                                  "comment": f"Target {tgt_len} chars > 1.5× source {src_len} (markup stripped)"})
 
-        for m in _RE_NUM.finditer(tgt):
+        for m in (_RE_NUM.finditer(tgt) if on("locale_numbers") else ()):
             num = int(m.group(1))
             if not (1900 <= num <= 2099):
                 errs.append({"category": "Locale convention", "severity": "Minor",
@@ -963,19 +1025,20 @@ def cmd_pre_check(args):
                 break
 
         tgt_lower = tgt.lower()
-        for term_src, term_tgt in term_map.items():
+        for term_src, (term_tgt, term_status) in (term_map.items() if on("terminology") else ()):
             if term_src in src and term_tgt not in tgt_lower:
+                note = f" [TB:{term_status}]" if term_status else ""
                 errs.append({"category": "Terminology", "severity": "Major",
-                             "comment": f"'{term_src}' → expected '{term_tgt}'"})
+                             "comment": f"'{term_src}' → expected '{term_tgt}'{note}"})
 
         # R1: 无索引位置占位符 %s/%d 顺序（数量相同但顺序错位 → 参数错位）
         src_pos, tgt_pos = _RE_POS_PH.findall(src), _RE_POS_PH.findall(tgt)
-        if sorted(src_pos) == sorted(tgt_pos) and src_pos != tgt_pos:
+        if on("pos_placeholder") and sorted(src_pos) == sorted(tgt_pos) and src_pos != tgt_pos:
             errs.append({"category": "Markup", "severity": "Major",
                          "comment": f"Positional placeholder order changed: {src_pos} → {tgt_pos}"})
 
         # R6: 数值一致性（仅当源含阿拉伯数字；漏译/改值是游戏 Critical 级隐患）
-        if _RE_NUMTOK.search(src):
+        if on("numbers_consistency") and _RE_NUMTOK.search(src):
             missing = _norm_nums(src) - _norm_nums(tgt)
             if missing:
                 miss = ", ".join(sorted(missing.elements()))
@@ -983,16 +1046,25 @@ def cmd_pre_check(args):
                              "comment": f"Source number(s) missing/changed in target: {miss}"})
 
         # R5: 空白规范化 + EN 译文全角标点
-        if tgt.strip() and tgt != tgt.strip():
+        if on("whitespace") and tgt.strip() and tgt != tgt.strip():
             errs.append({"category": "Punctuation", "severity": "Minor",
                          "comment": "Leading/trailing whitespace in target"})
-        if '  ' in tgt.strip():
+        if on("whitespace") and '  ' in tgt.strip():
             errs.append({"category": "Punctuation", "severity": "Minor",
                          "comment": "Double space in target"})
-        fw = sorted({ch for ch in tgt if ch in _FORBIDDEN_FW})
+        fw = sorted({ch for ch in tgt if ch in _FORBIDDEN_FW}) if on("fullwidth_punct") else []
         if fw:
             errs.append({"category": "Punctuation", "severity": "Minor",
                          "comment": f"Full-width punctuation in EN target: {''.join(fw)}"})
+
+        for pat, c in custom:
+            where = c.get("where", "target")
+            hay = src if where == "source" else (src + "\n" + tgt if where == "both" else tgt)
+            m = pat.search(hay)
+            if m:
+                errs.append({"category": c.get("category", "Company style"),
+                             "severity": c.get("severity", "Minor"),
+                             "comment": f"{c.get('comment', c.get('id', 'custom check'))} [match: {m.group(0)[:30]}]"})
 
         total += len(errs)
         results.append({"id": seg["id"], "errors": errs, "corrected": None})
@@ -1061,12 +1133,13 @@ def main():
 
     r = sub.add_parser("read")
     r.add_argument("--input", required=True)
+    r.add_argument("--project", default=None, help="项目档案：projects/<名>/profile.json 或目录/文件路径；提供 SG/术语/词数基准/checks/adjudications 默认值，显式参数优先")
     r.add_argument("--source-col", required=True, dest="source_col", help="列名或列索引（0-based，配合 --no-header）")
     r.add_argument("--target-col", required=True, dest="target_col", help="列名或列索引（0-based，配合 --no-header）")
     r.add_argument("--no-header", action="store_true", dest="no_header", help="文件无表头行，source-col/target-col 为整数索引")
     r.add_argument("--terminology", default=None, help="术语表文件路径（.csv/.tsv/.json/.xlsx）")
     r.add_argument("--style-guide", default=None, dest="style_guide", help="风格指南文件路径（.txt/.md/.docx/.xlsx）")
-    r.add_argument("--wordcount-basis", default="target-words", choices=["target-words", "source-chars"],
+    r.add_argument("--wordcount-basis", default=None, choices=["target-words", "source-chars"],
                    dest="wordcount_basis",
                    help="词数基准：target-words=译文空格分词（EN 等）；source-chars=源文 CJK 字符数+拉丁词数（泰语等无空格译文用）")
     r.add_argument("--out", default="lqe_state.json")
