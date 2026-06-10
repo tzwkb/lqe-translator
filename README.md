@@ -1,4 +1,4 @@
-# LQE Agent Skill
+# LQE Translator
 
 Language Quality Evaluation pipeline for AI-generated ZH→EN translations (燕云十六声 / WWM).
 
@@ -7,7 +7,7 @@ Language Quality Evaluation pipeline for AI-generated ZH→EN translations (燕�
 ## Directory Structure
 
 ```
-lqe-agent-skill/
+lqe-translator/
 ├── scripts/
 │   ├── lqe_engine.py    # Shared constants (weights, severities, categories)
 │   ├── lqe_calc.py      # Score calculator
@@ -35,7 +35,7 @@ pip install openpyxl requests python-docx -q
 ```
 
 ```bash
-SCRIPTS=~/.claude/skills/lqe-agent-skill/scripts
+SCRIPTS=~/.claude/skills/lqe-translator/scripts
 ```
 
 ---
