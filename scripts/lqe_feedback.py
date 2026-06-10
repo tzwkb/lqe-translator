@@ -40,10 +40,13 @@ def cmd(args):
         actionable = [e for e in r["errors"] if e.get("severity") != "Neutral"]
         if not actionable:
             continue
-        reason = "; ".join(
-            f"[{e.get('category','?')}/{e.get('severity','?')}] {e.get('comment','')}".rstrip()
-            for e in actionable
-        )
+        parts = []
+        for e in actionable:
+            c = e.get("comment", "").strip()
+            if not c:
+                c = f"{e.get('category','?')} issue (no detail provided by reviewer)"
+            parts.append(f"[{e.get('category','?')}/{e.get('severity','?')}] {c}")
+        reason = "; ".join(parts)
         suggest = r.get("corrected") or ""
         ws.append([s["source"], s["target"], suggest, reason, ""])
         n += 1
