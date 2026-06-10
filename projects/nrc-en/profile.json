@@ -1,0 +1,11 @@
+{
+  "name": "nrc-en",
+  "language_pair": "ZHCN-EN",
+  "game": "Roco Kingdom (NRC / 洛克王国：世界)",
+  "style_guide": "sg_en.md",
+  "terminology": "terms_en.json",
+  "checks": "checks.json",
+  "adjudications": "adjudications.md",
+  "wordcount_basis": "target-words",
+  "threshold": 98
+}

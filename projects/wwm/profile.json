@@ -1,0 +1,11 @@
+{
+  "name": "wwm",
+  "language_pair": "ZHCN-EN",
+  "game": "Where Winds Meet (燕云十六声)",
+  "style_guide": "sg.txt",
+  "terminology": "terminology_0509.xlsx",
+  "checks": "checks.json",
+  "adjudications": "adjudications.md",
+  "wordcount_basis": "target-words",
+  "threshold": 98
+}

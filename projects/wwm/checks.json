@@ -1,0 +1,10 @@
+{
+  "builtin": {
+    "em_dash": true,
+    "fullwidth_punct": true
+  },
+  "custom": [
+    {"id": "wwm-middot", "pattern": "·", "where": "target", "category": "Punctuation", "severity": "Minor", "comment": "WWM SG: 中文间隔号·→' - '（猫猫·珍珠→Cat - Pearl）"},
+    {"id": "wwm-x-count", "pattern": "× |\\S×", "where": "target", "category": "Company style", "severity": "Minor", "comment": "WWM SG: 物品数量=Item ×N（×前空格、×后无空格）"}
+  ]
+}
