@@ -54,6 +54,12 @@ def cmd_plan(args):
     if cur:
         batches.append(cur)
 
+    _SCHEMA_HEADER = (
+        "# 输出 schema（强制）：每个 error 必须含 category / severity / comment 三字段，"
+        "comment 不得为空。术语类 comment 必须写明：源词 + TB期望译法 + 偏离描述。"
+        "批量同型错误（如系列活动名）也要逐条填 comment，禁止只在汇报里说一次。\n"
+        "# ────────────────────────────────────────\n"
+    )
     manifest = []
     for i, batch in enumerate(batches):
         lines = []
@@ -67,7 +73,7 @@ def cmd_plan(args):
             if flags:
                 block += f"\nPRECHECK: {flags}"
             lines.append(block)
-        (bdir / f"batch_{i:02d}.txt").write_text('\n---\n'.join(lines), encoding="utf-8")
+        (bdir / f"batch_{i:02d}.txt").write_text(_SCHEMA_HEADER + '\n---\n'.join(lines), encoding="utf-8")
         ids = [s["id"] for s, _ in batch]
         manifest.append({"batch": i, "n": len(batch), "id_min": ids[0], "id_max": ids[-1],
                           "est_output_chars": sum(_est_output_chars(s, len(h)) for s, h in batch)})
@@ -92,6 +98,29 @@ def cmd_merge(args):
         except json.JSONDecodeError as e:
             print(f"[warn] skip malformed {f.name}: {e}")
 
+    # 关卡：计分错误必须有非空 comment。缺则从 Working TB 回填（术语类）或占位。
+    terms = json.loads((job / "terms.json").read_text(encoding="utf-8")) if (job / "terms.json").exists() else []
+    tmap = sorted([(t["source"], t["target"], t.get("status", "")) for t in terms if len(t["source"]) >= 2],
+                  key=lambda x: -len(x[0]))
+    segs = {s["id"]: s for s in state["segments"]}
+    backfilled = 0
+    for sid, r in merged.items():
+        seg = segs.get(sid, {})
+        src, tgt = seg.get("source", ""), (r.get("corrected") or seg.get("target", ""))
+        for e in r.get("errors", []):
+            if e.get("severity") == "Neutral" or e.get("comment", "").strip():
+                continue
+            if e.get("category") == "Terminology":
+                miss = [(zh, th, st) for zh, th, st in tmap if zh in src and th.lower() not in tgt.lower()]
+                if miss:
+                    zh, th, st = miss[0]
+                    e["comment"] = f"WorkingTB: {zh}={th}; locked term not applied in target [TB:{st}]"
+                else:
+                    e["comment"] = "Terminology deviation from Working TB (reviewer to specify)"
+            else:
+                e["comment"] = f"{e.get('category','?')} flagged (reviewer comment missing)"
+            backfilled += 1
+
     seg_ids = [s["id"] for s in state["segments"]]
     missing = [i for i in seg_ids if i not in merged]
     out = []
@@ -101,6 +130,8 @@ def cmd_merge(args):
 
     done = len(seg_ids) - len(missing)
     print(f"[merge] {len(evals)} eval files → {done}/{len(seg_ids)} segs covered → errors.json")
+    if backfilled:
+        print(f"[merge] ⚠ {backfilled} scoring errors had EMPTY comment (reviewer skipped) — backfilled from TB/placeholder")
     if missing:
         # 压缩成区间显示
         runs, a = [], missing[0]
