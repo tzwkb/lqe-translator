@@ -33,8 +33,19 @@ from lqe_engine import (
 
 # ── read ──────────────────────────────────────────────────────────────────────
 
-_SRC_KEYS = {"source", "zh", "src", "原文", "中文_cn", "中文", "chinese"}
-_TGT_KEYS = {"target", "en", "tgt", "译文", "en_us", "english", "翻译"}
+_SRC_KEYS = {"source", "zh", "src", "原文", "中文_cn", "中文", "chinese", "chinese_prc", "zh_cn", "zh-cn", "简中", "中文简体", "source text"}
+_TGT_KEYS = {"target", "en", "tgt", "译文", "en_us", "english", "翻译", "thai", "th", "泰语", "泰文", "target text"}
+_ZW_TABLE = {ord(c): None for c in "​‌‍﻿"}
+
+
+def _clean_terms(items: list) -> list:
+    out = []
+    for t in items:
+        s = str(t.get("source", "")).translate(_ZW_TABLE).strip()
+        g = str(t.get("target", "")).translate(_ZW_TABLE).strip()
+        if s and g:
+            out.append({"source": s, "target": g})
+    return out
 _MAXLEN_KEYS = {"maxlen", "max_len", "max length", "maxlength", "max_length",
                 "char_limit", "charlimit", "limit", "width", "ui_max",
                 "限长", "字符上限", "长度上限", "字数上限"}
@@ -66,7 +77,7 @@ def _load_terminology(path: str) -> list:
 
     if suffix == ".json":
         data = json.loads(p.read_text(encoding="utf-8"))
-        return data if isinstance(data, list) else data.get("items", [])
+        return _clean_terms(data if isinstance(data, list) else data.get("items", []))
 
     if suffix in (".csv", ".tsv"):
         delim = "\t" if suffix == ".tsv" else ","
@@ -78,7 +89,7 @@ def _load_terminology(path: str) -> list:
         keys = [k for k in rows[0].keys() if k is not None]
         src_key = _pick_col(keys, _SRC_KEYS) or keys[0]
         tgt_key = _pick_col(keys, _TGT_KEYS) or (keys[1] if len(keys) > 1 else keys[0])
-        return [{"source": r.get(src_key, ""), "target": r.get(tgt_key, "")} for r in rows if r.get(src_key)]
+        return _clean_terms([{"source": r.get(src_key, ""), "target": r.get(tgt_key, "")} for r in rows if r.get(src_key)])
 
     if suffix in (".xlsx", ".xls"):
         wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
@@ -101,7 +112,7 @@ def _load_terminology(path: str) -> list:
                     result.append({"source": str(src_val), "target": str(tgt_val or "")})
         finally:
             wb.close()
-        return result
+        return _clean_terms(result)
 
     print(f"[warn] unsupported terminology format: {suffix}", file=sys.stderr)
     return []
@@ -245,6 +256,15 @@ def cmd_read(args):
             terms_path = str(terms_file)
             print(f"[lqe_io] terminology: {len(terms)} entries → {terms_file}")
 
+    basis = getattr(args, "wordcount_basis", "target-words")
+    if basis == "source-chars":
+        wordcount = sum(
+            len(_RE_CJK.findall(s["source"])) + len(re.findall(r"[A-Za-z0-9]+", s["source"]))
+            for s in segments
+        )
+    else:
+        wordcount = sum(len(s["target"].split()) for s in segments)
+
     state = {
         "input_path": str(Path(args.input).resolve()),
         "source_col": args.source_col,
@@ -256,7 +276,8 @@ def cmd_read(args):
         "terms_path": terms_path,
         "terminology": [],
         "style_guide": "",
-        "wordcount": sum(len(s["target"].split()) for s in segments),
+        "wordcount": wordcount,
+        "wordcount_basis": basis,
         "iteration": 0,
         "segments": segments,
     }
@@ -848,6 +869,8 @@ _RE_VARS     = [re.compile(r'\{[^}]*\}'), re.compile(r'%[sd]')]   # exact match
 _RE_POS_PH   = re.compile(r'%(?![0-9]+\$)[sd]')
 # R6: 数值一致性（提取阿拉伯数字 token，归一去千位分隔符）
 _RE_NUMTOK   = re.compile(r'\d[\d,]*(?:\.\d+)?')
+# R3 回退门控/长度比对前剥离标记（标签会稀释 CJK 占比、虚增长度）
+_RE_MARKUP   = re.compile(r'<[^>]*>|\{[^}]*\}|%[sd]')
 # R5: EN 译文中不应出现的全角标点 / 全角空格
 _FORBIDDEN_FW = '，。！？；：、（）【】《》「」“”‘’　'
 
@@ -865,7 +888,8 @@ def cmd_pre_check(args):
     term_map = {
         t["source"].strip(): t["target"].strip().lower()
         for t in terms
-        if t.get("source") and t.get("target") and len(t["source"].strip()) >= 3
+        if t.get("source") and t.get("target")
+        and len(t["source"].strip()) >= (2 if _RE_CJK.search(t["source"]) else 3)
     }
 
     results = []
@@ -878,6 +902,14 @@ def cmd_pre_check(args):
 
         tgt_has_cjk = bool(_RE_CJK.search(tgt))
         src_cjk     = len(_RE_CJK.findall(src))
+
+        # R7: 空译文（仅报一条，跳过其余检查避免堆叠噪音）
+        if src.strip() and not tgt.strip():
+            results.append({"id": seg["id"], "errors": [
+                {"category": "Untranslated", "severity": "Major",
+                 "comment": "Target is empty"}], "corrected": None})
+            total += 1
+            continue
 
         if tgt_has_cjk and src.strip():
             errs.append({"category": "Untranslated", "severity": "Major",
@@ -913,12 +945,15 @@ def cmd_pre_check(args):
             if len(tgt) > max_len:
                 errs.append({"category": "Length", "severity": "Major",
                              "comment": f"Target {len(tgt)} chars exceeds max-length {max_len}"})
-        elif src_cjk <= len(src) * 0.3:
-            src_len = len(src.replace(" ", ""))
-            tgt_len = len(tgt.replace(" ", ""))
-            if src_len > 0 and tgt_len > src_len * 1.5:
-                errs.append({"category": "Length", "severity": "Major",
-                             "comment": f"Target {tgt_len} chars > 1.5× source {src_len}"})
+        else:
+            src_plain = _RE_MARKUP.sub('', src)
+            tgt_plain = _RE_MARKUP.sub('', tgt)
+            if len(_RE_CJK.findall(src_plain)) <= len(src_plain) * 0.3:
+                src_len = len(src_plain.replace(" ", ""))
+                tgt_len = len(tgt_plain.replace(" ", ""))
+                if src_len > 0 and tgt_len > src_len * 1.5:
+                    errs.append({"category": "Length", "severity": "Major",
+                                 "comment": f"Target {tgt_len} chars > 1.5× source {src_len} (markup stripped)"})
 
         for m in _RE_NUM.finditer(tgt):
             num = int(m.group(1))
@@ -1030,7 +1065,10 @@ def main():
     r.add_argument("--target-col", required=True, dest="target_col", help="列名或列索引（0-based，配合 --no-header）")
     r.add_argument("--no-header", action="store_true", dest="no_header", help="文件无表头行，source-col/target-col 为整数索引")
     r.add_argument("--terminology", default=None, help="术语表文件路径（.csv/.tsv/.json/.xlsx）")
-    r.add_argument("--style-guide", default=None, dest="style_guide", help="风格指南文件路径（.txt/.md/.docx）")
+    r.add_argument("--style-guide", default=None, dest="style_guide", help="风格指南文件路径（.txt/.md/.docx/.xlsx）")
+    r.add_argument("--wordcount-basis", default="target-words", choices=["target-words", "source-chars"],
+                   dest="wordcount_basis",
+                   help="词数基准：target-words=译文空格分词（EN 等）；source-chars=源文 CJK 字符数+拉丁词数（泰语等无空格译文用）")
     r.add_argument("--out", default="lqe_state.json")
 
     fa = sub.add_parser("from-aipe")

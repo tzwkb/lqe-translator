@@ -26,7 +26,8 @@ SCRIPTS=~/.claude/skills/lqe-translator/scripts
 - 输入 Excel 路径
 - 原文列名/索引、译文列名/索引
 - 风格指南路径（`.docx`/`.txt`/`.md`/`.xlsx`，可选；xlsx 多 sheet 自动转 markdown：sheet=章节、行=规则、空表头首列=分类前向填充）
-- 术语表路径（`.xlsx`/`.csv`/`.tsv`/`.json`，可选）
+- 术语表路径（`.xlsx`/`.csv`/`.tsv`/`.json`，可选；词条零宽字符自动清理；含 CJK 的 2 字词条参与 pre-check 匹配）
+- 词数基准 `--wordcount-basis`：`target-words`（默认，译文空格分词，适用 EN）/ `source-chars`（源文 CJK 字符+拉丁词，**泰语等无空格译文必选**，否则词数低估数倍、98 阈值失真）
 
 ### 2. 初始化
 
