@@ -76,15 +76,15 @@ footer{margin-top:56px;text-align:center;color:#99a;font-size:12px}
 <div class="arrow">▼</div>
 <div class="fork">
 <div class="pass"><b>≥ 98 PASS</b><br>输出报告 + 修正稿，结束</div>
-<div class="fail"><b>&lt; 98 FAIL</b><br>修正写回，输入 <code>/loop</code> 进入下一轮（回到 ④）</div>
+<div class="fail"><b>&lt; 98 FAIL</b><br>修正写回，让 agent 进入下一轮（回到 ④）</div>
 </div>
 </div>
 
 <h3>实际操作只有两步</h3>
 <table>
-<tr><th width="40">1</th><td>在 Claude Code 输入 <code>/lqe-translator</code>，然后说明任务，例如：<br>
+<tr><th width="40">1</th><td>向 agent 发起任务并说明文件与项目（Claude Code 框架输入 <code>/lqe-translator</code>；其他框架按其方式加载本 skill 后直接说明任务），例如：<br>
 <i>"用 nrc-th 项目档案，评估 ~/Desktop/Batch5普老师.xlsx，原文列『原文』，译文列『泰语』"</i></td></tr>
-<tr><th>2</th><td>每轮结束 agent 会报分数；没过就输入 <code>/loop</code> 继续，过了就拿文件</td></tr>
+<tr><th>2</th><td>每轮结束 agent 会报分数；没过就让 agent 继续迭代（Claude Code 用 <code>/loop</code>，其他框架直接说“继续”），过了就拿文件</td></tr>
 </table>
 
 <h2>四、agent 会问你什么</h2>
@@ -123,7 +123,7 @@ footer{margin-top:56px;text-align:center;color:#99a;font-size:12px}
 <b>Q：审校回了 QA 反馈文件怎么办？</b>
 <p>发给 agent，说"根据回件优化规则"。误报会被消化成项目规则（裁决 / 检查项 / 术语状态），下批自动生效。</p>
 <b>Q：跑一半中断了？</b>
-<p>状态都在 <code>jobs/&lt;文件名&gt;/state.json</code>，重新打开会话输入 <code>/loop</code> 接着跑。</p>
+<p>状态都在 <code>jobs/&lt;文件名&gt;/state.json</code>，新开会话让 agent 接着跑即可，不会丢进度。</p>
 <b>Q：能改阈值吗？</b>
 <p>能，项目档案里配置（默认 98）。</p>
 <b>Q：术语表 / SG 更新了？</b>
