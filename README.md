@@ -2,6 +2,8 @@
 
 Language Quality Evaluation pipeline for AI-generated ZH→EN translations (燕云十六声 / WWM).
 
+> **项目经理（PM）请直接阅读 [PM_GUIDE.html](PM_GUIDE.html)**——面向 PM 的操作手册（怎么发起、会被问什么、拿到什么），无需读本 README 的技术细节。
+
 ---
 
 ## Directory Structure
