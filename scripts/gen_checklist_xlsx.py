@@ -76,8 +76,8 @@ r += 1
 r = put_table(ws, r, ["规则", "内容", "来源"], [
     ["三点法则", "准确＋合规（SG/指令/术语）＋合语法→视为正确，偏好性改写不计错（至多 Neutral 建议）。防误报第一道闸", "LQA模板（新增）"],
     ["单一归属＋存疑取重", "按归类决策表取最具体一类；Minor/Major 拿不准取 Major", "Skill 沿用"],
-    ["Word Choice 边界", "意思错→Mistranslation；意思对但有更优词→Unidiomatic(Min) 或 Neutral", "LQA模板（新增）"],
-    ["严重度三档锚", "Minor=可察觉不误导；Major=很可能误导玩家/损公信；Critical=投诉/法务/功能破坏/高曝光面", "Skill 沿用＋LQE报告定义表逐类细化"],
+    ["Word Choice 边界", "意思错→Mistranslation；意思对但有更优词→Unidiomatic(Min) 或 Neutral", "边界=LQA模板明文；落到 Unidiomatic/Neutral=本清单适配（skill 无 Word Choice 类）"],
+    ["严重度三档锚", "Minor=可察觉不误导；Major=很可能误导玩家/损公信；Critical=投诉/法务/功能破坏/高曝光面", "Skill＋LQE报告定义表＋LQA模板三处定义的合成转述，非逐字"],
 ])
 
 r += 1
