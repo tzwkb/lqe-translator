@@ -1025,11 +1025,19 @@ def cmd_pre_check(args):
                 break
 
         tgt_lower = tgt.lower()
-        for term_src, (term_tgt, term_status) in (term_map.items() if on("terminology") else ()):
-            if term_src in src and term_tgt not in tgt_lower:
-                note = f" [TB:{term_status}]" if term_status else ""
-                errs.append({"category": "Terminology", "severity": "Major",
-                             "comment": f"'{term_src}' → expected '{term_tgt}'{note}"})
+        if on("terminology"):
+            hit_srcs = [ts for ts in term_map if ts in src]
+            for term_src in hit_srcs:
+                term_tgt, term_status = term_map[term_src]
+                # 复合术语优先：更长词条命中且其译法已在译文中 → 跳过被包含的子词条
+                covered = any(other != term_src and term_src in other
+                              and term_map[other][0] in tgt_lower for other in hit_srcs)
+                if covered:
+                    continue
+                if term_tgt not in tgt_lower:
+                    note = f" [TB:{term_status}]" if term_status else ""
+                    errs.append({"category": "Terminology", "severity": "Major",
+                                 "comment": f"'{term_src}' → expected '{term_tgt}'{note}"})
 
         # R1: 无索引位置占位符 %s/%d 顺序（数量相同但顺序错位 → 参数错位）
         src_pos, tgt_pos = _RE_POS_PH.findall(src), _RE_POS_PH.findall(tgt)
