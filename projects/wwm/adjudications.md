@@ -16,3 +16,36 @@
 
 ## RAG/TM 保护
 输入若含 rag/tm/memory/match/score/locked 列且为 100%/exact/locked → 不修改、不计分、corrected=null、export 保留原译文
+
+## 0512 globaltrunk 人工 LQE 裁决（2026-06-11 注入，效力=Query 级）
+源：《【AI】【英】0512【globaltrunk】【0511新增】_LQE Report》——人工审校对 AI 译文的实判（×=被判错的 AI 译法）。检查项与关注点总表见 docs/质量检查项清单.md。
+
+### 术语定译
+- 画卯=Roll Call（×Mark Mao）；画卯奖励=Roll Call Rewards；本人已到！=I'm here!
+- 太极/强化太极=Cosmic Reversal（×Tai Chi）
+- 新锐|新兵=Recruit；老将|老兵=Veteran（×New Edge / Old General）
+- 青（巨子/手札）=Halcyon（×Qing）；与巨子青书=Letter to Grandmaster Halcyon
+- 皇宫寻宝=Imperial Palace Treasure Hunt（×Treasures of the Imperial Palace）；前往寻宝=Go Treasure Hunting
+- 御前练兵=Imperial Drill（×Prep – Defense Drill）
+- 智赛·斗财主=Wisdom Contest: Landlords（×Wisdom Tournament - Landlords）
+- 芝兰自芳=Fragrant Orchid；X·典藏=X - Premium（×Premium Collection）
+- 鳞跃龙扉=Transcendence Gate（×Leap of the Dragon Gate）
+- 赋神·乘桴归梦=Fu Shen - Rippling Dream（×Drifting Home on Dreams / Drifting Reverie）
+- 桃源三剑·完本=Three Swords of the Haven（"完本"不译出）
+- 残章任务=Lost Chapter quest；高堂野客·上=Throne and Tempest Ⅰ
+- 手札=Journal 统一（鹤的手札=Crane's Journal，×Note）
+- 瑞兽葡萄飞天镜=Apsara Grape Mirror（×直译长名）
+- 朝生暮落花的寒花=frost flowers（×buds）
+- 异色灵蝶=strangely colored butterflies（通名，×Spectral Butterfly——勿过度术语化）
+- 心力值=Energy；青云之路=Azure Path（×Path to High Honors）
+- 灶台=[Stove]、餐桌=[Dining Table]、蒸馏塔=[Distillation Tower]、窑炉=[Kiln]、休憩设施=[Resting Facility]、云间渡=[Cloudrest Passage]
+
+### 风格/流程裁决
+- 序号/卷号用 Unicode 罗马数字 Ⅰ Ⅱ Ⅲ Ⅳ（×ASCII I II III）：青的手札 - Ⅰ；Seek Within - Volume Ⅱ
+- 设施/可放置物名用方括号 [X]（×「」保留、×#Y"X"#E 引号式）
+- `<任务名>` 引用→去尖括号补通名：Continue completing the X quest（句子化大小写，×Continue Completing）
+- 平行任务句族统一句型：Complete any X once with a Veteran/Recruit（×Team up with… and complete…）
+- 对联/题目类文本**成组译**：上下联对仗+押韵（New Year at the Door / Spring Winds Grace the Floor；…the Pay Grows / …the Fortune Flows），拆单句直译=Critical
+- 玩法规则文本错译一律 Critical；占位符缺失（`{}天后领取{}` 丢一个）判 Mistranslation Critical
+- 重复错误：标 Repeated=YES 记录但不罚分（34 条实证）
+- 及格阈值：TEP/MTPE=98；润色/二审=99
