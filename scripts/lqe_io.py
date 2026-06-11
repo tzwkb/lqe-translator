@@ -282,6 +282,14 @@ def cmd_read(args):
     terms_path = ""
     if args.terminology:
         terms = _load_terminology(args.terminology)
+        lock_statuses = {str(s).lower() for s in (prof.get("lock_statuses") or [])} if prof else set()
+        if terms and lock_statuses:
+            n_locked = 0
+            for t in terms:
+                if str(t.get("status", "")).lower() in lock_statuses:
+                    t["locked"] = True
+                    n_locked += 1
+            print(f"[lqe_io] locked terms: {n_locked} (lock_statuses: {sorted(lock_statuses)})")
         if terms:
             terms_file = job_dir / "terms.json"
             terms_file.write_text(json.dumps(terms, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -945,7 +953,7 @@ def cmd_pre_check(args):
 
     terms = _load_terms(state)
     term_map = {
-        t["source"].strip(): (t["target"].strip().lower(), t.get("status", ""))
+        t["source"].strip(): (t["target"].strip().lower(), t.get("status", ""), bool(t.get("locked")))
         for t in terms
         if t.get("source") and t.get("target")
         and len(t["source"].strip()) >= (2 if _RE_CJK.search(t["source"]) else 3)
@@ -1028,7 +1036,7 @@ def cmd_pre_check(args):
         if on("terminology"):
             hit_srcs = [ts for ts in term_map if ts in src]
             for term_src in hit_srcs:
-                term_tgt, term_status = term_map[term_src]
+                term_tgt, term_status, term_locked = term_map[term_src]
                 # 复合术语优先：更长词条命中且其译法已在译文中 → 跳过被包含的子词条
                 covered = any(other != term_src and term_src in other
                               and term_map[other][0] in tgt_lower for other in hit_srcs)
@@ -1036,6 +1044,8 @@ def cmd_pre_check(args):
                     continue
                 if term_tgt not in tgt_lower:
                     note = f" [TB:{term_status}]" if term_status else ""
+                    if term_locked:
+                        note += " [LOCKED]"
                     errs.append({"category": "Terminology", "severity": "Major",
                                  "comment": f"'{term_src}' → expected '{term_tgt}'{note}"})
 

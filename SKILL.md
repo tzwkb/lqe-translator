@@ -32,7 +32,7 @@ SCRIPTS=~/.claude/skills/lqe-translator/scripts
 **方式 C：项目档案（同项目多文件复用，优先推荐）**
 - `read --project <项目名>`：从 `projects/<项目名>/profile.json` 带出 SG/术语/词数基准/阈值/checks/adjudications，显式 CLI 参数优先
 - `projects/<名>/` 结构：
-  - `profile.json`：`{name, language_pair, style_guide, terminology, checks, adjudications, wordcount_basis, threshold}`（相对路径相对 profile 所在目录解析）
+  - `profile.json`：`{name, language_pair, style_guide, terminology, checks, adjudications, wordcount_basis, threshold, lock_statuses}`（相对路径相对 profile 所在目录解析；`lock_statuses`=哪些术语 status 算锁定，空数组=确认无锁定）
   - `checks.json`：项目专属确定性检查。`builtin` 开关内置项（键：`untranslated_cjk/em_dash/color_tags/variables/newline_count/length/locale_numbers/terminology/pos_placeholder/numbers_consistency/whitespace/fullwidth_punct/empty_target`，默认全开）；`custom` 数组：`{id, pattern(regex), where(target|source|both), category, severity, comment}`，每段命中一次报一条
   - `adjudications.md`：客户裁决/changelog 摘要——**Step 2 评估前必须 Read 注入上下文**，效力顺序通常为 实时更新要求 > Query 裁决 > SG，防止把已裁决项判成错误
 - 已建项目：`nrc-th`（洛克王国中→泰）、`nrc-en`（中→英）、`wwm`（燕云十六声中→英，28,534 条官方术语库）
@@ -65,7 +65,14 @@ python "$SCRIPTS/lqe_io.py" read \
 
 `<文件名>` 取输入文件的 stem（去扩展名）。`read` 会自动创建 `jobs/<文件名>/` 目录，并将 SG 写入 `sg.txt`，术语表写入 `terms.json`。
 
-初始化完成后告知：段落数、词数、是否加载 SG 和术语表，提示运行 `/loop`。
+### 3. 术语锁定确认（首轮评估前必做）
+
+锁定 = 判错后**跳过二次 review**：报错不可移除、不可改判，corrected 必须采用锁定译法。锁定级只能来自客户数据列或用户确认，**不得自创**：
+- profile 已有 `lock_statuses`（含空数组）→ 直接生效：`read` 已给命中词条打 `locked` 标，pre-check 报错带 `[LOCKED]`
+- 未定义且术语带 status/状态类列 → 列出全部取值问用户哪些算锁定；答案写回 profile.json（确认「无」写 `[]`）持久化，下批不再问；方式 B 无 profile 时把 `locked: true` 直接写进 `jobs/<名>/terms.json` 对应词条
+- 术语表无任何状态信息 → 全部术语 review 时可甄别、可修改，不存在硬判级
+
+初始化完成后告知：段落数、词数、是否加载 SG 和术语表、锁定术语数（或「全部可 review」），提示运行 `/loop`。
 
 ---
 
@@ -126,7 +133,7 @@ python "$SCRIPTS/lqe_io.py" pre-check \
 | **首尾空白 / 双空格 / EN 译文含全角标点 [R5]** | Punctuation | Minor |
 | 术语表 source 命中但 target 缺译 | Terminology | Major |
 
-`max-length` 列自动识别表头：`maxlen/max_length/char_limit/限长/字符上限` 等。输出作为本轮 `errors.json` 的基底。项目档案的 `checks.json` 在此生效：`builtin` 开关可关闭与项目规范冲突的内置项（如 Em-dash 允许的项目关 `em_dash`），`custom` regex 追加项目专属检查；术语报错带 `[TB:status]` 注记（Approved 硬判，New/WorkingTB 评估时按语境甄别；status 只来自客户数据列或文件来源，**不得自创状态级**）。pre-check 术语匹配最长词条优先：长词条命中且译法正确时不报被包含子词。若 pre-check 命中 locked segment，Agent 评估时必须移除该段 actionable error，保持 `errors=[]`, `corrected=null`。R6 数值检查仅在源含阿拉伯数字时触发（中文数字不误报）；Agent 评估时可移除上下文误报。
+`max-length` 列自动识别表头：`maxlen/max_length/char_limit/限长/字符上限` 等。输出作为本轮 `errors.json` 的基底。项目档案的 `checks.json` 在此生效：`builtin` 开关可关闭与项目规范冲突的内置项（如 Em-dash 允许的项目关 `em_dash`），`custom` regex 追加项目专属检查；术语报错带 `[TB:status]` 注记；带 `[LOCKED]`（profile `lock_statuses` 命中，见「术语锁定确认」）的跳过二次 review——不可移除、不可改判，corrected 必须采用锁定译法；**其余术语报错无论 status（含 Approved）评估时均可按语境甄别**。pre-check 术语匹配最长词条优先：长词条命中且译法正确时不报被包含子词。若 pre-check 命中 locked segment，Agent 评估时必须移除该段 actionable error，保持 `errors=[]`, `corrected=null`。R6 数值检查仅在源含阿拉伯数字时触发（中文数字不误报）；Agent 评估时可移除上下文误报。
 
 ### Step 2：评估所有段落
 
