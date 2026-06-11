@@ -126,7 +126,7 @@ python "$SCRIPTS/lqe_io.py" pre-check \
 | **首尾空白 / 双空格 / EN 译文含全角标点 [R5]** | Punctuation | Minor |
 | 术语表 source 命中但 target 缺译 | Terminology | Major |
 
-`max-length` 列自动识别表头：`maxlen/max_length/char_limit/限长/字符上限` 等。输出作为本轮 `errors.json` 的基底。项目档案的 `checks.json` 在此生效：`builtin` 开关可关闭与项目规范冲突的内置项（如 Em-dash 允许的项目关 `em_dash`），`custom` regex 追加项目专属检查；术语报错带 `[TB:status]` 注记（Approved/Locked 硬判——Locked=客户在线锁定译法、优先级最高，New/WorkingTB 评估时按语境甄别）。pre-check 术语匹配最长词条优先：长词条命中且译法正确时不报被包含子词。若 pre-check 命中 locked segment，Agent 评估时必须移除该段 actionable error，保持 `errors=[]`, `corrected=null`。R6 数值检查仅在源含阿拉伯数字时触发（中文数字不误报）；Agent 评估时可移除上下文误报。
+`max-length` 列自动识别表头：`maxlen/max_length/char_limit/限长/字符上限` 等。输出作为本轮 `errors.json` 的基底。项目档案的 `checks.json` 在此生效：`builtin` 开关可关闭与项目规范冲突的内置项（如 Em-dash 允许的项目关 `em_dash`），`custom` regex 追加项目专属检查；术语报错带 `[TB:status]` 注记（Approved 硬判，New/WorkingTB 评估时按语境甄别；status 只来自客户数据列或文件来源，**不得自创状态级**）。pre-check 术语匹配最长词条优先：长词条命中且译法正确时不报被包含子词。若 pre-check 命中 locked segment，Agent 评估时必须移除该段 actionable error，保持 `errors=[]`, `corrected=null`。R6 数值检查仅在源含阿拉伯数字时触发（中文数字不误报）；Agent 评估时可移除上下文误报。
 
 ### Step 2：评估所有段落
 

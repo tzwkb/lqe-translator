@@ -5,7 +5,6 @@
 ## 术语状态语义（terms_th.json 的 status 字段）
 - **New**（主库 TH 列）: 待审核——偏离时报 Terminology 但注明 soft，评估时按语境甄别
 - **WorkingTB**（译员工作 TB）: 项目流通译法——偏离报 Terminology Major
-- **Locked**（memoQ 在线锁定，0611 审校确认）: 最终版，优先于 WorkingTB——偏离硬判 Major
 - 精灵名一律 ≤12 字符（仅精灵名段；无 key 列时凭 TB 命中判断该段是否精灵名）
 
 ## 跨语言通用裁决（源文侧，TH 同样适用）
@@ -26,7 +25,8 @@
 - 待提交 changelog 概念变更跨语言：薛定量子猫→魔盒猫等以新名为准
 
 ## 审校裁决 2026-06-11（夏老师 Batch4 回件）
-- 规则已全部机器化：76 个锁定专名回写 terms_th.json(status=Locked，与客户 0430 版 TB 不一致处以此为准，对照 `locked_terms_batch4.json`)；?! 豁免改 checks.json；最长匹配进 lqe_io.py。本节仅留出处。
+- 97 段专名审校注"这些术语都是锁定的"（memoQ）→ 仅证实**本批不可改、非 actionable**；锁定的是现译文还是 TB 译法无书面依据，**TB 未改动**，按原 status 继续判。后续批次这些段再命中时：照常报 Terminology，但注记"0611 审校称已锁定，待客户澄清"，不出硬修正。对照清单 `locked_terms_batch4.json`。待办 Query：请客户导出 memoQ 锁定术语清单
+- ?!/！？混合不算连续标点（已进 checks.json）；复合术语最长匹配优先（已进 lqe_io.py）
 
 ## TH SG 关键硬规则（评估时执行）
 - 泰国皇家学会标准泰语；轻奇幻语气，禁古泰语（ข้าน้อย/สู/เอ็ง）与粗俗词（มึง/กู）
