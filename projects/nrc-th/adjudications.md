@@ -5,6 +5,7 @@
 ## 术语状态语义（terms_th.json 的 status 字段）
 - **New**（主库 TH 列）: 待审核——偏离时报 Terminology 但注明 soft，评估时按语境甄别
 - **WorkingTB**（译员工作 TB）: 项目流通译法——偏离报 Terminology Major
+- **Locked**（memoQ 在线锁定，0611 审校确认）: 最终版，优先于 WorkingTB——偏离硬判 Major
 - 精灵名一律 ≤12 字符（仅精灵名段；无 key 列时凭 TB 命中判断该段是否精灵名）
 
 ## 跨语言通用裁决（源文侧，TH 同样适用）
@@ -24,11 +25,8 @@
 - **字符限制**（主表[文本字符限制]，含空格标点）：TASK_DIALOGUE/SELECT_CONF 与 LOC_FILE/NPC_OPTION_CONF 选项类 ≤11 字符（不改字号）/ ≤32 字符（最小字号）；**所有精灵名 ≤12 字符**——TH 属"其他语言"档
 - 待提交 changelog 概念变更跨语言：薛定量子猫→魔盒猫等以新名为准
 
-## 审校裁决 2026-06-11（夏老师 Batch4 QAFeedback 回件，539条/210条有评注）
-- **精灵/物品专名已在线锁定（97段）**：审校确认这些专名译法在 memoQ 锁定为最终版，即使与 Working TB 不一致也以锁定版为准。已将 76 个锁定译法回写 `terms_th.json`（status=`Locked`，target 改为锁定版，如 喵喵=เหมียวเหมียว、绿翼鸟=กรีนวิงค์、圣光迪莫=ดีโมแสงศักดิ์สิทธิ์）。评估时 Locked 术语按新 target 硬判；**不得再按旧 TB 报偏离**。原始锁定句段对照：`locked_terms_batch4.json`
-- **连续标点规则仅限同种**：SG"禁连续感叹/问号"指 !!/??（连续同种），混合 ?!/！？ 不违规。checks.json `th-multi-punct` 已改 regex
-- **复合术语优先**：长词条（蹦蹦种子/格兰种子）命中且译文正确时，不再按子词（种子）报 Terminology。pre-check 已固化最长匹配优先
-- 其余 112 条评注"1"=审校确认接受我方修正，无需规则调整
+## 审校裁决 2026-06-11（夏老师 Batch4 回件）
+- 规则已全部机器化：76 个锁定专名回写 terms_th.json(status=Locked，与客户 0430 版 TB 不一致处以此为准，对照 `locked_terms_batch4.json`)；?! 豁免改 checks.json；最长匹配进 lqe_io.py。本节仅留出处。
 
 ## TH SG 关键硬规则（评估时执行）
 - 泰国皇家学会标准泰语；轻奇幻语气，禁古泰语（ข้าน้อย/สู/เอ็ง）与粗俗词（มึง/กู）
