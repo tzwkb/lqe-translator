@@ -8,6 +8,7 @@ from pathlib import Path
 from collections import defaultdict
 
 from lqe_engine import (
+    read_json,
     WEIGHTS, SEVERITY_POINTS, SEVERITY_POINTS_MQM,
     apply_severity, normalize_category,
 )
@@ -31,8 +32,8 @@ def main():
     if args.locked_ids:
         locked = {int(x.strip()) for x in args.locked_ids.split(",") if x.strip()}
 
-    state  = json.loads(Path(args.state).read_text(encoding="utf-8"))
-    errors = json.loads(Path(args.errors).read_text(encoding="utf-8"))
+    state  = read_json(args.state)
+    errors = read_json(args.errors)
 
     wordcount = state["wordcount"]
     if wordcount == 0:

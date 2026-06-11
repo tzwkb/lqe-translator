@@ -24,6 +24,7 @@ from openpyxl.styles import PatternFill, Font, Alignment
 from openpyxl.utils import get_column_letter
 
 from lqe_engine import (
+    read_json,
     CATEGORY_ORDER as _ALL_CATS, CATEGORY_PARENT as _PARENT,
     VALID_CATEGORIES as _VALID_CATEGORIES, VALID_SEVERITIES as _VALID_SEVERITIES,
     apply_severity, load_terms as _load_terms, load_style_guide as _load_sg,
@@ -79,7 +80,7 @@ def _load_terminology(path: str) -> list:
     suffix = p.suffix.lower()
 
     if suffix == ".json":
-        data = json.loads(p.read_text(encoding="utf-8"))
+        data = read_json(p)
         return _clean_terms(data if isinstance(data, list) else data.get("items", []))
 
     if suffix in (".csv", ".tsv"):
@@ -130,7 +131,7 @@ def _load_project(name_or_path: str) -> dict:
     if not p.exists():
         print(f"[ERROR] project profile not found: {p}", file=sys.stderr)
         sys.exit(1)
-    prof = json.loads(p.read_text(encoding="utf-8"))
+    prof = read_json(p)
     prof["_dir"] = str(p.parent.resolve())
     return prof
 
@@ -442,7 +443,7 @@ def cmd_from_aipe(args):
 # ── lookup-terms ──────────────────────────────────────────────────────────────
 
 def cmd_lookup_terms(args):
-    state = json.loads(Path(args.state).read_text(encoding="utf-8"))
+    state = read_json(args.state)
     terms = _load_terms(state)
     if not terms:
         print("[lqe_io] no terminology available.", file=sys.stderr)
@@ -483,7 +484,7 @@ def _locked_ids(args) -> set[int]:
     if getattr(args, "locked_ids", None):
         ids.update(int(x.strip()) for x in args.locked_ids.split(",") if x.strip())
     if getattr(args, "locked_file", None):
-        data = json.loads(Path(args.locked_file).read_text(encoding="utf-8"))
+        data = read_json(args.locked_file)
         if isinstance(data, dict):
             data = data.get("locked_ids") or data.get("segments") or []
         for item in data:
@@ -498,8 +499,8 @@ def _locked_ids(args) -> set[int]:
 
 def cmd_apply_fixes(args):
     state_path = Path(args.state)
-    state = json.loads(state_path.read_text(encoding="utf-8"))
-    errors_data = json.loads(Path(args.errors).read_text(encoding="utf-8"))
+    state = read_json(state_path)
+    errors_data = read_json(args.errors)
     locked_ids = _locked_ids(args)
 
     seg_ids = {s["id"] for s in state["segments"]}
@@ -885,8 +886,8 @@ def _build_xlsx(state, history, score, threshold, out_path):
 
 def cmd_write(args):
     state_path = Path(args.state)
-    state = json.loads(state_path.read_text(encoding="utf-8"))
-    final_errors_data = json.loads(Path(args.errors).read_text(encoding="utf-8"))
+    state = read_json(state_path)
+    final_errors_data = read_json(args.errors)
     score = float(args.score)
 
     final_entry = {
@@ -935,7 +936,7 @@ def _load_checks(state: dict):
     toggles, custom = {}, []
     p = state.get("checks_path", "")
     if p and Path(p).exists():
-        cfg = json.loads(Path(p).read_text(encoding="utf-8"))
+        cfg = read_json(p)
         toggles = cfg.get("builtin", {})
         for c in cfg.get("custom", []):
             try:
@@ -948,7 +949,7 @@ def _load_checks(state: dict):
 
 def cmd_pre_check(args):
     state_path = Path(args.state)
-    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state = read_json(state_path)
     segments = state["segments"]
 
     terms = _load_terms(state)
@@ -1101,7 +1102,7 @@ def cmd_pre_check(args):
 
 def cmd_export(args):
     state_path = Path(args.state)
-    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state = read_json(state_path)
     segments = state["segments"]
     seg_map = {s["id"]: s for s in segments}
 
@@ -1126,7 +1127,7 @@ def cmd_export(args):
         seg = seg_map.get(i)
         if seg is None:
             continue
-        final_text = seg.get("corrected") or seg["target"]
+        final_text = seg["target"] if seg.get("locked") else (seg.get("corrected") or seg["target"])
         if ti < len(row_cells):
             row_cells[ti].value = final_text
 

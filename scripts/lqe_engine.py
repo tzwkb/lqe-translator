@@ -64,6 +64,10 @@ def weighted_points(cat: str, counts: dict) -> float:
     return WEIGHTS.get(cat, 1.0) * raw_points(counts)
 
 
+def read_json(path):
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
 def load_terms(state: dict) -> list[dict]:
     path = state.get("terms_path", "")
     if path and Path(path).exists():
