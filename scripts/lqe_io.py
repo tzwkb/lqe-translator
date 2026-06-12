@@ -1235,7 +1235,7 @@ def main():
     r.add_argument("--terminology", default=None, help="术语表文件路径（.csv/.tsv/.json/.xlsx）")
     r.add_argument("--style-guide", default=None, dest="style_guide", help="风格指南文件路径（.txt/.md/.docx/.xlsx）")
     r.add_argument("--target-lang", default=None, dest="target_lang",
-                   help="目标语言代码（en/th 等）；挂载 languages/<lang>.json 语言层默认。方式 C 自动从 profile language_pair 解析，无需传")
+                   help="目标语言代码（en/th 等）；挂载 languages/<code>/ 语言属性。方式 C 自动从 profile language_pair 解析，无需传")
     r.add_argument("--wordcount-basis", default=None, choices=["target-words", "source-chars"],
                    dest="wordcount_basis",
                    help="词数基准：target-words=译文空格分词（EN 等）；source-chars=源文 CJK 字符数+拉丁词数（泰语等无空格译文用）")

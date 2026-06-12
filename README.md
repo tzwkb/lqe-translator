@@ -13,13 +13,24 @@ lqe-translator/
 ├── scripts/
 │   ├── lqe_engine.py    # Shared constants (weights, severities, categories)
 │   ├── lqe_calc.py      # Score calculator
-│   └── lqe_io.py        # All I/O subcommands
-├── input/               # Source translation Excel files
+│   ├── lqe_io.py        # All I/O subcommands
+│   ├── lqe_batch.py     # Batch orchestration + resumable runs (plan/merge)
+│   ├── lqe_feedback.py  # Client QAFeedback table export
+│   └── gen_*.py         # docs/ xlsx report generators
+├── languages/<code>/    # Language attribute layer (linguistic facts; en/th)
+│   ├── attributes.json  # script/word_delim/sentence_terminator/numerals/wordcount_basis
+│   └── eval_notes.md    # Language-level AI evaluation notes (copied into jobs)
+├── projects/<game>/     # Client layer
+│   ├── <lang>/          # Language track: profile.json + checks.json + adjudications.md
+│   │                    #   + terms_*.json + sg_* + sources/ + inputs/
+│   └── common/          # Game-level shared reference (language-agnostic)
+├── docs/                # Analysis & report documents
 ├── jobs/
 │   └── <file_stem>/     # One folder per translation job
 │       ├── state.json         # Job state (segments, history, paths)
 │       ├── sg.txt             # Style guide full text
 │       ├── terms.json         # Terminology table
+│       ├── lang_notes.md      # Language-level eval notes (from languages/)
 │       ├── errors.json        # Current iteration errors (AI output)
 │       ├── errors_precheck.json   # Auto-detected issues (first iteration)
 │       ├── errors_iter{N}.json    # Archived errors per FAIL iteration
@@ -46,9 +57,18 @@ SCRIPTS=~/.claude/skills/lqe-translator/scripts
 
 ### 1. Initialize
 
+Project profile (preferred — one flag pulls SG/terms/checks/adjudications/language attrs):
 ```bash
 python "$SCRIPTS/lqe_io.py" read \
-  --input "input/<file>.xlsx" \
+  --input "<file>.xlsx" --project <game>/<lang> \
+  --source-col "<col>" --target-col "<col>" \
+  --out "jobs/<file_stem>/state.json"
+```
+
+Standalone:
+```bash
+python "$SCRIPTS/lqe_io.py" read \
+  --input "<file>.xlsx" \
   --source-col "<col>" \
   --target-col "<col>" \
   --style-guide "<sg.docx>" \
@@ -190,4 +210,15 @@ python "$SCRIPTS/lqe_io.py" lookup-terms \
 python "$SCRIPTS/lqe_io.py" from-aipe \
   --aipe-csv "<export.csv>" --aipe-url "http://localhost:8000" \
   --out "jobs/<stem>/state.json"
+```
+
+**Batch orchestration** (large files; resumable):
+```bash
+python "$SCRIPTS/lqe_batch.py" plan  --job "jobs/<stem>" [--output-budget 24000]
+python "$SCRIPTS/lqe_batch.py" merge --job "jobs/<stem>"
+```
+
+**Client QAFeedback export** (actionable errors only):
+```bash
+python "$SCRIPTS/lqe_feedback.py" --job "jobs/<stem>"
 ```
