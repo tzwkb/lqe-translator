@@ -1,6 +1,6 @@
 # LQE Translator
 
-Language Quality Evaluation pipeline for AI-generated ZH→EN translations (燕云十六声 / WWM).
+Language Quality Evaluation pipeline for game-localization translations — ZH source to any target language (EN/TH live). Project profiles: `nrc` (Roco Kingdom), `wwm` (Where Winds Meet).
 
 > **项目经理（PM）请直接阅读 [PM_GUIDE.html](PM_GUIDE.html)**——面向 PM 的操作手册（怎么发起、会被问什么、拿到什么），无需读本 README 的技术细节。
 

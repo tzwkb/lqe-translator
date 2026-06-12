@@ -1,6 +1,6 @@
 ---
 name: lqe-translator
-description: LQE scoring + self-iteration agent for AI-generated ZH→EN translations (燕云/WWM). Claude identifies errors AND provides corrected translations in one pass. Python calculates score. /loop drives iteration until score ≥ 98.
+description: LQE scoring + self-iteration agent for AI/human game-localization translations — ZH source to any target language (EN/TH live; project profiles nrc/wwm). Deterministic pre-check (23 builtin rules + project custom) finds mechanical errors; Claude judges semantic errors AND provides corrected translations in one pass; Python calculates score. /loop drives iteration until score ≥ 98. Triggers: LQE/LQA, 译文质检/评估/打分, translation QA.
 ---
 
 # LQE Translator
