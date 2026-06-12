@@ -75,7 +75,7 @@ for n in notes:
 r += 1
 ws.cell(row=r, column=1, value="应用状态与主要差异（摘要）").font = SEC_F
 r += 1
-ws.cell(row=r, column=1, value="应用状态：本清单尚未接入评估流程，当前为参考文档。已生效的仅有 projects/wwm/en/adjudications.md 中归档的 0512 裁决（评估前必读文件，下次评估自动注入）；其余新增内容均待批准实施，见“后续实施事项”").alignment = WRAP
+ws.cell(row=r, column=1, value="应用状态：N5–N9 及 PM 反馈 #3/#7/#10 已实施（2026-06-12）；projects/wwm/en/adjudications.md 的 0512 裁决已归档生效；N1–N4 仍待批准。原说明：已生效的 0512 裁决（评估前必读文件，下次评估自动注入）；其余新增内容均待批准实施，见“后续实施事项”").alignment = WRAP
 r += 1
 r = put_table(ws, r, ["方面", "现行体系", "本清单方案", "依据"], [
     ["重复错误计分", "每次出现均全额计分；报告输出虽含 repeated 列但数值恒为 0，无识别逻辑", "仅首次计分，重复予以记录不计罚分", "LQE 报告评分卡复核（34 条重复错误未计入罚分）。现行算法在重复较多的文件上得分将低于客户口径"],
@@ -120,6 +120,8 @@ r = put_table(ws, r, ["编号", "事项", "涉及文件", "状态"], [
     [4, "0512 报告术语与风格裁决归档", "projects/wwm/en/adjudications.md", "已完成（2026-06-11）"],
     [5, "评估流程引用本清单", "SKILL.md", "待批准"],
     [6, "题目类文本按组送评（同组段落合并提供评估上下文）", "scripts/lqe_io.py 及评估流程", "待批准；建议在下一批题目表评估前完成"],
+    [7, "PM 反馈新增检查 N5–N9 及 #3/#7/#10（详见《PM反馈检查项修改报告》）", "scripts/lqe_io.py、SKILL.md、languages/", "已完成（2026-06-12，PM 批准）"],
+    [8, "异源同译长度分档（≥20 字才报，PM 已拍板）", "随事项 2 的 N2 实施", "待实施（参数已定）"],
 ])
 for col, w in zip("ABCDEFG", [26, 64, 40, 42, 14, 12, 10]):
     ws.column_dimensions[col].width = w
@@ -143,6 +145,14 @@ rows2 = [
     ["N1", "pinyin_residue", "拼音残留", "Mistranslation", "Critical", "新增·LQE报告", "译文中出现两个以上连续拼音音节构成的词，且不在官方保留拼音名单内（报告修订稿保留 Kaifeng、Qinghe、Jianghu、Fu Shen 等）。报告实例：“画卯”译为 Mark Mao（第 105 段）、“平安”译为 Ping'an（第 54 段），均评为 Critical。属半确定性检查：正则初筛后须人工或 AI 复核", "scripts/lqe_io.py（待批准）"],
     ["N2", "intra_consistency", "同文件内同源异译", "Inconsistency", "Minor", "新增·LQE报告", "同一文件内相同源文对应不同译文；以及相同译文对应不同源文。系报告 Inconsistency 类错误（第 82–94 段）中可程序化检出的子集", "scripts/lqe_io.py（待批准）"],
     ["N3", "roman_numeral", "序号用罗马数字字符", "Company style", "Minor", "新增·LQE报告", "序号、卷号应使用 Unicode 罗马数字（Ⅰ Ⅱ Ⅲ），不使用 ASCII 字母拼写。报告实例：“其一”修订为“Ⅰ”（第 194 段）、“卷二”修订为“Volume Ⅱ”（第 268 段）", "projects/wwm/en/checks.json（待批准）"],
+    ["N5", "terminal_punct", "句尾终止标点不对齐", "Punctuation", "Minor", "PM反馈#1", "源以终止标点结尾而译文句尾无（.!?…），或源无句尾标点而译文添加句号；句中标点数量交 AI 评估；无句号体系语言（th）由语言属性自动关闭", "scripts/lqe_io.py（已实施 2026-06-12）"],
+    ["N6", "cn_numbers", "中文数字+量词漏译", "Mistranslation", "Major", "PM反馈#2", "仅「中文数字+量词」强模式触发（含「一」）；译侧接受阿拉伯数字、英文数词、泰文数字与泰语数词", "scripts/lqe_io.py（已实施 2026-06-12）"],
+    ["N7", "word_repeat", "单词连续重复", "Grammar", "Minor", "PM反馈#6", "the the 类；白名单豁免合法重复；非空格分词语言由语言属性自动关闭", "scripts/lqe_io.py（已实施 2026-06-12）"],
+    ["N8", "intra_word_case", "词内大小写混乱", "Spelling", "Minor", "PM反馈#8", "AppLe 类词内转折；豁免术语表词形/Mc/iPhone 型/PvP 型/标签变量；非拉丁语言自动关闭", "scripts/lqe_io.py（已实施 2026-06-12）"],
+    ["N9", "paired_punct", "半角成对标点不完整", "Punctuation", "Minor", "PM反馈#9", "()、[]、直双引号奇偶；源侧平衡而译侧不平衡才报；撇号豁免；全角/弯引号由现行全角标点检查拦截", "scripts/lqe_io.py（已实施 2026-06-12）"],
+    ["—", "tag_count", "通用标签数量对账", "Markup", "Major", "PM反馈#3", "<…>、[…] 模式源译数量比对兜底；项目专属格式用 checks.json custom type=count_match 精配", "scripts/lqe_io.py（已实施 2026-06-12）"],
+    ["—", "term_case", "术语全大写缩写大小写", "Company style", "Major", "PM反馈#7", "术语表词条含 HP/ATK 类全大写缩写而译文大小写不符；PM 裁决仅查缩写、判严重；非拉丁语言自动关闭", "scripts/lqe_io.py（已实施 2026-06-12）"],
+    ["—", "ellipsis_mix", "省略号样式混用", "Inconsistency", "Minor", "PM反馈#10", "PM 裁决一个项目只用一种省略号；文件内 … 与 ... 并存时少数派段报", "scripts/lqe_io.py（已实施 2026-06-12）"],
     ["N4", "repeat_dedup", "重复错误计分规则", "（计分规则）", "—", "新增·LQE报告", "重复出现的同一错误仅首次计罚分，其余标记 Repeated 不计分。依据：报告 34 条重复标记错误经评分卡复核均未计入罚分。重复判定条件（相同源文、相同译文、相同错误）系依据报告数据归纳，报告未明文定义", "scripts/lqe_calc.py（待批准）"],
 ]
 put_table(ws2, 1, ["序号", "键/编号", "检查内容", "类别", "严重度", "来源", "评估关注点", "实施位置"], rows2,

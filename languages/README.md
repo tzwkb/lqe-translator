@@ -18,10 +18,10 @@ languages/<code>/
 
 | 字段 | 取值 | 消费者 |
 |---|---|---|
-| `script` | `latin` / `thai` / `cjk` | pre-check：`cjk` 自动关 `fullwidth_punct`（日语等 CJK 目标语全角标点合法）；〔待批 N8/术语大小写：仅 `latin` 适用〕 |
-| `word_delim` | `space` / `none` | read：`none` 且词数基准 `target-words` 时警告防呆（泰语词数会低估数倍）；〔待批 N7 词重复：仅 `space` 适用〕 |
-| `sentence_terminator` | 终止符字符集 / `none` | 〔待批 N5 句尾标点：`none` 自动不适用〕 |
-| `numerals` | 数字系统数组 | 〔待批 N6 中文数字：译侧可接受的数词体系〕 |
+| `script` | `latin` / `thai` / `cjk` | pre-check：`cjk` 自动关 `fullwidth_punct`（日语等 CJK 目标语全角标点合法）；`≠latin` 自动关 N8 词内大小写、#7 术语缩写大小写 |
+| `word_delim` | `space` / `none` | read：`none` 且词数基准 `target-words` 时警告防呆（泰语词数会低估数倍）；pre-check：`≠space` 自动关 N7 词重复 |
+| `sentence_terminator` | 终止符字符集 / `none` | pre-check：`none` 自动关 N5 句尾标点 |
+| `numerals` | 数字系统数组 | N6 中文数字检查译侧接受的数词体系（`thai` → 泰文数字 ๐-๙ 与泰语数词均认） |
 | `wordcount_basis` | `target-words` / `source-chars` | read 词数链：CLI 显式 > profile > 此处 > 内置 `target-words` |
 
 ## 为什么按单语言而非语言对建层

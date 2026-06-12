@@ -34,9 +34,9 @@ SCRIPTS=~/.claude/skills/lqe-translator/scripts
 - `read --project <game>/<lang>`（如 `nrc/th`）：从 `projects/<game>/<lang>/profile.json` 带出。**用户只给游戏名时**，列出 `projects/<game>/` 下含 profile.json 的语言轨子目录供选择；该游戏尚无目标语言轨则走新轨建档（复制同游戏他轨 profile 改 language_pair/SG/术语，common 素材天然共享） SG/术语/词数基准/阈值/checks/adjudications，显式 CLI 参数优先
 - `projects/<game>/<lang>/` 结构（游戏级共享素材放 `projects/<game>/common/`）：
   - `profile.json`：`{name, language_pair, style_guide, terminology, checks, adjudications, wordcount_basis, threshold, lock_statuses}`（相对路径相对 profile 所在目录解析；`lock_statuses`=哪些术语 status 算锁定，空数组=确认无锁定）
-  - `checks.json`：项目专属确定性检查。`builtin` 开关内置项（键：`untranslated_cjk/em_dash/color_tags/variables/newline_count/length/locale_numbers/terminology/pos_placeholder/numbers_consistency/whitespace/fullwidth_punct/empty_target`，默认全开）；`custom` 数组：`{id, pattern(regex), where(target|source|both), category, severity, comment}`，每段命中一次报一条
+  - `checks.json`：项目专属确定性检查。`builtin` 开关内置项（键：`untranslated_cjk/em_dash/color_tags/variables/newline_count/length/locale_numbers/terminology/pos_placeholder/numbers_consistency/whitespace/fullwidth_punct/empty_target/terminal_punct/cn_numbers/word_repeat/intra_word_case/paired_punct/term_case/ellipsis_mix/tag_count`，默认全开，部分由语言属性自动推导关闭）；`custom` 数组：`{id, pattern(regex), where(target|source|both), category, severity, comment}`，每段命中一次报一条；加 `type: "count_match"` 则改为源↔译 findall 数量对账（项目专属标签精配用，`where` 失效）
   - `adjudications.md`：客户裁决/changelog 摘要——**Step 2 评估前必须 Read 注入上下文**，效力顺序通常为 实时更新要求 > Query 裁决 > SG，防止把已裁决项判成错误
-- 语言层 `languages/<code>/`（skill 根，与 projects/ 平级；已建 `en`/`th`，固定文件名 `attributes.json` + `eval_notes.md`，schema 与新语言接入指南见 `languages/README.md`）：按 profile `language_pair` 后缀自动挂载，或 `read --target-lang` 显式指定。**属性声明制**——只放语言学事实（`script`/`word_delim`/`sentence_terminator`/`numerals`/`wordcount_basis`），不放检查开关；pre-check 由属性推导检查适用性（如 `script: cjk` 自动关 `fullwidth_punct`），read 由属性防呆（`word_delim: none` 配 target-words 词数基准时警告）。`eval_notes.md` 为语言级 AI 评估关注点（泰语性别语尾/敬语/佛历等），存在即由 read 拷入 `job/lang_notes.md`。合并顺序：内置默认 < 属性推导 < 项目 checks.json < CLI 显式参数。风格取向（em_dash、省略号样式、引号样式）一律留项目 checks.json——同语言不同项目实证取向相反（wwm/en 禁破折号、nrc/en 允许）
+- 语言层 `languages/<code>/`（skill 根，与 projects/ 平级；已建 `en`/`th`，固定文件名 `attributes.json` + `eval_notes.md`，schema 与新语言接入指南见 `languages/README.md`）：按 profile `language_pair` 后缀自动挂载，或 `read --target-lang` 显式指定。**属性声明制**——只放语言学事实（`script`/`word_delim`/`sentence_terminator`/`numerals`/`wordcount_basis`），不放检查开关；pre-check 由属性推导检查适用性（`script: cjk` 关 `fullwidth_punct`；`sentence_terminator: none` 关 N5；`word_delim≠space` 关 N7；`script≠latin` 关 N8/#7），read 由属性防呆（`word_delim: none` 配 target-words 词数基准时警告）。`eval_notes.md` 为语言级 AI 评估关注点（泰语性别语尾/敬语/佛历等），存在即由 read 拷入 `job/lang_notes.md`。合并顺序：内置默认 < 属性推导 < 项目 checks.json < CLI 显式参数。风格取向（em_dash、省略号样式、引号样式）一律留项目 checks.json——同语言不同项目实证取向相反（wwm/en 禁破折号、nrc/en 允许）
 - 已建项目：`nrc/th`（洛克王国中→泰）、`nrc/en`（中→英）、`wwm/en`（燕云十六声中→英，28,534 条官方术语库）
 - 注意：SKILL.md 下文的"内置规则"（Title/Sentence Mode、禁破折号、文化术语映射等）实为 WWM 规则，仅在**无 SG 且无项目档案**时兜底；有项目档案时以其 SG/checks/adjudications 为准
 
@@ -135,8 +135,16 @@ python "$SCRIPTS/lqe_io.py" pre-check \
 | 千位分隔符缺失 | Locale convention | Minor |
 | **首尾空白 / 双空格 / 译文含全角 CJK 标点（含「」『』；CJK 目标语言在语言层关）[R5]** | Punctuation | Minor |
 | 术语表 source 命中但 target 缺译 | Terminology | Major |
+| **句尾终止标点不对齐**（源有译无 / 源无译加 `.`）**[N5]** | Punctuation | Minor |
+| **中文数字+量词漏译**（三次→译无 3/three；泰文数字/数词均认）**[N6]** | Mistranslation | Major |
+| **单词连续重复**（the the；白名单豁免 had had 等）**[N7]** | Grammar | Minor |
+| **词内大小写混乱**（AppLe；TB 词形/iPhone/PvP/Mc 豁免）**[N8]** | Spelling | Minor |
+| **半角成对标点不完整** `()[]"` （源平衡译不平衡才报；`'` 撇号豁免）**[N9]** | Punctuation | Minor |
+| **通用标签数量对账** `<…>`/`[…]`（项目特殊格式用 custom count_match）**[#3]** | Markup | Major |
+| **术语全大写缩写大小写错**（TB 含 HP 而译 hp）**[#7]** | Company style | Major |
+| **省略号样式混用**（文件内 `…` 与 `...` 并存，少数派段报）**[#10]** | Inconsistency | Minor |
 
-`max-length` 列自动识别表头：`maxlen/max_length/char_limit/限长/字符上限` 等。输出作为本轮 `errors.json` 的基底。项目档案的 `checks.json` 在此生效：`builtin` 开关可关闭与项目规范冲突的内置项（如 Em-dash 允许的项目关 `em_dash`），`custom` regex 追加项目专属检查；术语报错带 `[TB:status]` 注记；带 `[LOCKED]`（profile `lock_statuses` 命中，见「术语锁定确认」）的跳过二次 review——不可移除、不可改判，corrected 必须采用锁定译法；**其余术语报错无论 status（含 Approved）评估时均可按语境甄别**。pre-check 术语匹配最长词条优先：长词条命中且译法正确时不报被包含子词。若 pre-check 命中 locked segment，Agent 评估时必须移除该段 actionable error，保持 `errors=[]`, `corrected=null`。R6 数值检查仅在源含阿拉伯数字时触发（中文数字不误报）；Agent 评估时可移除上下文误报。
+`max-length` 列自动识别表头：`maxlen/max_length/char_limit/限长/字符上限` 等。输出作为本轮 `errors.json` 的基底。项目档案的 `checks.json` 在此生效：`builtin` 开关可关闭与项目规范冲突的内置项（如 Em-dash 允许的项目关 `em_dash`），`custom` regex 追加项目专属检查；术语报错带 `[TB:status]` 注记；带 `[LOCKED]`（profile `lock_statuses` 命中，见「术语锁定确认」）的跳过二次 review——不可移除、不可改判，corrected 必须采用锁定译法；**其余术语报错无论 status（含 Approved）评估时均可按语境甄别**。pre-check 术语匹配最长词条优先：长词条命中且译法正确时不报被包含子词。若 pre-check 命中 locked segment，Agent 评估时必须移除该段 actionable error，保持 `errors=[]`, `corrected=null`。R6 数值检查仅在源含阿拉伯数字时触发；N6 中文数字仅在「中文数字+量词」强模式触发（一起/三思类虚用不报）。语言属性自动推导：泰语等无句号/无空格分词/非拉丁语言自动关闭 N5/N7/N8/#7（见 languages/README.md）。全部确定性报错 Agent 评估时均可按上下文甄别移除（locked 除外）。
 
 ### Step 2：评估所有段落
 
