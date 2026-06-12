@@ -143,6 +143,31 @@ def _project_path(prof: dict, val: str) -> str:
     return str(q if q.is_absolute() else Path(prof["_dir"]) / q)
 
 
+# 语言层：languages/<lang>.json（skill 根，锚定脚本位置而非 CWD）。
+# 仅放语言学事实型默认（不可能被项目 SG 推翻的：分词方式、句号体系、数词映射）；
+# 风格取向（em_dash/省略号样式等）一律留项目 checks.json。
+# 合并顺序：内置默认 < 语言层 < 项目 checks.json < CLI 显式参数。
+_LANG_DIR = Path(__file__).resolve().parent.parent / "languages"
+
+
+def _target_lang(state_or_pair) -> str:
+    if isinstance(state_or_pair, dict):
+        lang = state_or_pair.get("target_lang", "")
+        pair = state_or_pair.get("language_pair", "")
+    else:
+        lang, pair = "", state_or_pair or ""
+    if not lang and pair and "-" in pair:
+        lang = pair.rsplit("-", 1)[-1]
+    return lang.strip().lower()
+
+
+def _load_lang(lang: str) -> dict:
+    if not lang:
+        return {}
+    p = _LANG_DIR / f"{lang}.json"
+    return read_json(p) if p.exists() else {}
+
+
 def _load_style_guide(path: str) -> str:
     p = Path(path)
     if not p.exists():
@@ -297,7 +322,15 @@ def cmd_read(args):
             terms_path = str(terms_file)
             print(f"[lqe_io] terminology: {len(terms)} entries → {terms_file}")
 
-    basis = getattr(args, "wordcount_basis", None) or (prof.get("wordcount_basis") if prof else None) or "target-words"
+    lang = (getattr(args, "target_lang", None) or "").strip().lower() \
+        or _target_lang(prof.get("language_pair", "") if prof else "")
+    lang_cfg = _load_lang(lang)
+    if lang_cfg:
+        print(f"[lqe_io] language defaults: languages/{lang}.json")
+
+    basis = getattr(args, "wordcount_basis", None) \
+        or (prof.get("wordcount_basis") if prof else None) \
+        or lang_cfg.get("wordcount_basis") or "target-words"
     if basis == "source-chars":
         wordcount = sum(
             len(_RE_CJK.findall(s["source"])) + len(re.findall(r"[A-Za-z0-9]+", s["source"]))
@@ -322,6 +355,7 @@ def cmd_read(args):
         "aipe_url": None,
         "project": prof.get("name", "") if prof else "",
         "language_pair": prof.get("language_pair", "") if prof else "",
+        "target_lang": lang,
         "checks_path": checks_path,
         "adjudications_path": adjud_path,
         "threshold": prof.get("threshold", 98) if prof else 98,
@@ -934,15 +968,24 @@ def _norm_nums(text: str):
 
 def _load_checks(state: dict):
     toggles, custom = {}, []
-    p = state.get("checks_path", "")
-    if p and Path(p).exists():
-        cfg = read_json(p)
-        toggles = cfg.get("builtin", {})
+
+    def _absorb(cfg: dict, label: str):
+        toggles.update(cfg.get("builtin", {}))
         for c in cfg.get("custom", []):
             try:
                 custom.append((re.compile(c["pattern"]), c))
             except (re.error, KeyError) as e:
-                print(f"[warn] bad custom check {c.get('id', '?')}: {e}", file=sys.stderr)
+                print(f"[warn] bad custom check {c.get('id', '?')} in {label}: {e}", file=sys.stderr)
+
+    lang = _target_lang(state)
+    lang_cfg = _load_lang(lang)
+    if lang_cfg:
+        _absorb(lang_cfg, f"languages/{lang}.json")
+        print(f"[pre-check] language layer: languages/{lang}.json")
+
+    p = state.get("checks_path", "")
+    if p and Path(p).exists():
+        _absorb(read_json(p), "project checks.json")  # 项目层后合并，覆盖语言层同名开关
         print(f"[pre-check] checks profile: {len(toggles)} toggles, {len(custom)} custom rules")
     return toggles, custom
 
@@ -1158,6 +1201,8 @@ def main():
     r.add_argument("--no-header", action="store_true", dest="no_header", help="文件无表头行，source-col/target-col 为整数索引")
     r.add_argument("--terminology", default=None, help="术语表文件路径（.csv/.tsv/.json/.xlsx）")
     r.add_argument("--style-guide", default=None, dest="style_guide", help="风格指南文件路径（.txt/.md/.docx/.xlsx）")
+    r.add_argument("--target-lang", default=None, dest="target_lang",
+                   help="目标语言代码（en/th 等）；挂载 languages/<lang>.json 语言层默认。方式 C 自动从 profile language_pair 解析，无需传")
     r.add_argument("--wordcount-basis", default=None, choices=["target-words", "source-chars"],
                    dest="wordcount_basis",
                    help="词数基准：target-words=译文空格分词（EN 等）；source-chars=源文 CJK 字符数+拉丁词数（泰语等无空格译文用）")
