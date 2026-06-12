@@ -1,4 +1,4 @@
-"""Shared scoring constants for lqe_calc.py and lqe_io.py."""
+"""Shared constants & language-attribute layer for lqe_io.py / lqe_checks.py / lqe_calc.py."""
 
 # 父维度对齐 MQM-Core / ISO 5060:2024 七个一级维度：
 #   Terminology, Accuracy, Linguistic Conventions, Style,
@@ -82,3 +82,51 @@ def load_style_guide(state: dict) -> str:
     if path and Path(path).exists():
         return Path(path).read_text(encoding="utf-8")
     return state.get("style_guide", "")
+
+
+import re
+
+RE_CJK = re.compile(r'[一-鿿]')
+
+# 语言属性层：languages/<code>/（skill 根，锚定脚本位置而非 CWD）。
+# 每语言一个文件夹，固定文件名：attributes.json（语言学事实声明）+ eval_notes.md（语言级
+# AI 评估关注点，存在即挂载）。属性不放检查开关；开关由 _lang_toggle_defaults 从属性推导。
+# 入层标准：项目 SG 可能推翻的不是属性（em_dash/省略号/引号样式=项目取向，留 checks.json）。
+# 合并顺序：内置默认 < 属性推导 < 项目 checks.json < CLI 显式参数。schema 见 languages/README.md。
+_SKILL_ROOT = Path(__file__).resolve().parent.parent
+_LANG_DIR = _SKILL_ROOT / "languages"
+
+
+def _target_lang(state_or_pair) -> str:
+    if isinstance(state_or_pair, dict):
+        lang = state_or_pair.get("target_lang", "")
+        pair = state_or_pair.get("language_pair", "")
+    else:
+        lang, pair = "", state_or_pair or ""
+    if not lang and pair and "-" in pair:
+        lang = pair.rsplit("-", 1)[-1]
+    return lang.strip().lower()
+
+
+def _load_lang(lang: str) -> dict:
+    if not lang:
+        return {}
+    p = _LANG_DIR / lang / "attributes.json"
+    return read_json(p) if p.exists() else {}
+
+
+def _lang_toggle_defaults(attrs: dict) -> dict:
+    """属性 → 内置检查适用性推导（项目 checks.json 仍可覆盖最终开关）。"""
+    if not attrs:
+        return {}
+    d = {}
+    if attrs.get("script") == "cjk":
+        d["fullwidth_punct"] = False  # CJK 目标语言（ja 等）全角标点合法
+    if attrs.get("sentence_terminator", ".") == "none":
+        d["terminal_punct"] = False   # N5：无句号体系语言（th）
+    if attrs.get("word_delim", "space") != "space":
+        d["word_repeat"] = False      # N7：非空格分词语言（th，重复另有 ๆ 体系）
+    if attrs.get("script", "latin") != "latin":
+        d["intra_word_case"] = False  # N8：非拉丁字母语言无大小写
+        d["term_case"] = False        # #7 同理
+    return d

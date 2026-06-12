@@ -12,8 +12,9 @@ Language Quality Evaluation pipeline for AI-generated ZH→EN translations (燕�
 lqe-translator/
 ├── scripts/
 │   ├── lqe_engine.py    # Shared constants (weights, severities, categories)
-│   ├── lqe_calc.py      # Score calculator
+│   ├── lqe_calc.py      # Score calculator (N4 repeat dedup)
 │   ├── lqe_io.py        # All I/O subcommands
+│   ├── lqe_checks.py    # Deterministic pre-check engine (23 builtin checks)
 │   ├── lqe_batch.py     # Batch orchestration + resumable runs (plan/merge)
 │   ├── lqe_feedback.py  # Client QAFeedback table export
 │   └── gen_*.py         # docs/ xlsx report generators

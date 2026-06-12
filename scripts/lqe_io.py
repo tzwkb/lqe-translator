@@ -24,7 +24,7 @@ from openpyxl.styles import PatternFill, Font, Alignment
 from openpyxl.utils import get_column_letter
 
 from lqe_engine import (
-    read_json,
+    read_json, RE_CJK as _RE_CJK, _target_lang, _load_lang, _LANG_DIR,
     CATEGORY_ORDER as _ALL_CATS, CATEGORY_PARENT as _PARENT,
     VALID_CATEGORIES as _VALID_CATEGORIES, VALID_SEVERITIES as _VALID_SEVERITIES,
     apply_severity, load_terms as _load_terms, load_style_guide as _load_sg,
@@ -145,50 +145,6 @@ def _project_path(prof: dict, val: str) -> str:
     return str(q if q.is_absolute() else Path(prof["_dir"]) / q)
 
 
-# 语言属性层：languages/<code>/（skill 根，锚定脚本位置而非 CWD）。
-# 每语言一个文件夹，固定文件名：attributes.json（语言学事实声明）+ eval_notes.md（语言级
-# AI 评估关注点，存在即挂载）。属性不放检查开关；开关由 _lang_toggle_defaults 从属性推导。
-# 入层标准：项目 SG 可能推翻的不是属性（em_dash/省略号/引号样式=项目取向，留 checks.json）。
-# 合并顺序：内置默认 < 属性推导 < 项目 checks.json < CLI 显式参数。schema 见 languages/README.md。
-_SKILL_ROOT = Path(__file__).resolve().parent.parent
-_LANG_DIR = _SKILL_ROOT / "languages"
-
-
-def _target_lang(state_or_pair) -> str:
-    if isinstance(state_or_pair, dict):
-        lang = state_or_pair.get("target_lang", "")
-        pair = state_or_pair.get("language_pair", "")
-    else:
-        lang, pair = "", state_or_pair or ""
-    if not lang and pair and "-" in pair:
-        lang = pair.rsplit("-", 1)[-1]
-    return lang.strip().lower()
-
-
-def _load_lang(lang: str) -> dict:
-    if not lang:
-        return {}
-    p = _LANG_DIR / lang / "attributes.json"
-    return read_json(p) if p.exists() else {}
-
-
-def _lang_toggle_defaults(attrs: dict) -> dict:
-    """属性 → 内置检查适用性推导（项目 checks.json 仍可覆盖最终开关）。"""
-    if not attrs:
-        return {}
-    d = {}
-    if attrs.get("script") == "cjk":
-        d["fullwidth_punct"] = False  # CJK 目标语言（ja 等）全角标点合法
-    if attrs.get("sentence_terminator", ".") == "none":
-        d["terminal_punct"] = False   # N5：无句号体系语言（th）
-    if attrs.get("word_delim", "space") != "space":
-        d["word_repeat"] = False      # N7：非空格分词语言（th，重复另有 ๆ 体系）
-    if attrs.get("script", "latin") != "latin":
-        d["intra_word_case"] = False  # N8：非拉丁字母语言无大小写
-        d["term_case"] = False        # #7 同理
-    return d
-
-
 def _load_style_guide(path: str) -> str:
     p = Path(path)
     if not p.exists():
@@ -293,6 +249,15 @@ def cmd_read(args):
     if mi is not None:
         print(f"[lqe_io] max-length column detected: '{headers[mi]}' (col {mi})")
 
+    gi = None
+    if getattr(args, "group_col", None):
+        g = args.group_col
+        gi = int(g) if str(g).isdigit() else (headers.index(g) if g in headers else None)
+        if gi is None:
+            print(f"[warn] group column '{g}' not found; grouping disabled", file=sys.stderr)
+        else:
+            print(f"[lqe_io] group column: '{headers[gi]}' (col {gi})")
+
     segments, rows_raw = [], []
     for i, row in enumerate(ws.iter_rows(min_row=start_row, values_only=True)):
         if any(c is not None for c in row):
@@ -303,6 +268,7 @@ def cmd_read(args):
                 "corrected": None,
                 "content_type": None,
                 "max_len": _parse_maxlen(row[mi]) if mi is not None and mi < len(row) else None,
+                "group": (str(row[gi]).strip() if gi is not None and gi < len(row) and row[gi] is not None and str(row[gi]).strip() else None),
                 "iter": 0,
             })
             rows_raw.append(list(row))
@@ -674,6 +640,10 @@ def _build_xlsx(state, history, score, threshold, out_path):
         cat: {"Neutral": 0, "Minor": 0, "Major": 0, "Critical": 0}
         for cat in _ALL_CATS
     }
+    rep_counts: dict[str, dict[str, int]] = {
+        cat: {"Neutral": 0, "Minor": 0, "Major": 0, "Critical": 0}
+        for cat in _ALL_CATS
+    }
     detail_rows: list[dict] = []
     all_locked_ids = set()
     for entry in history:
@@ -693,7 +663,10 @@ def _build_xlsx(state, history, score, threshold, out_path):
             for e in e_seg.get("errors", []):
                 cat = e.get("category", "Other")
                 sev = apply_severity(cat, e.get("severity", "Minor"))
-                if cat in cat_counts:
+                if e.get("repeated"):
+                    if cat in rep_counts:
+                        rep_counts[cat][sev] = rep_counts[cat].get(sev, 0) + 1
+                elif cat in cat_counts:
                     cat_counts[cat][sev] = cat_counts[cat].get(sev, 0) + 1
                 detail_rows.append({
                     "filename": Path(state["input_path"]).stem,
@@ -705,14 +678,18 @@ def _build_xlsx(state, history, score, threshold, out_path):
                     "category": cat,
                     "severity": sev,
                     "iteration": f"Iter {entry['iteration']}",
-                    "comment":  e.get("comment", ""),
+                    "comment":  ("[Repeated] " if e.get("repeated") else "") + e.get("comment", ""),
                     "fixed":    fixed,
                 })
 
     total_counts = {"Neutral": 0, "Minor": 0, "Major": 0, "Critical": 0}
+    total_rep    = {"Neutral": 0, "Minor": 0, "Major": 0, "Critical": 0}
     for c in cat_counts.values():
         for sev, n in c.items():
             total_counts[sev] += n
+    for c in rep_counts.values():
+        for sev, n in c.items():
+            total_rep[sev] += n
     total_raw      = sum(raw_points(c) for c in cat_counts.values())
     total_weighted = sum(weighted_points(cat, c) for cat, c in cat_counts.items())
 
@@ -837,10 +814,10 @@ def _build_xlsx(state, history, score, threshold, out_path):
     ws.row_dimensions[cur_row].height = 14.25
     for col, val in [
         (1,"TOTAL"),(2,None),
-        (3,total_counts.get("Neutral",0)),(4,0),
-        (5,total_counts.get("Minor",0)),  (6,0),
-        (7,total_counts.get("Major",0)),  (8,0),
-        (9,total_counts.get("Critical",0)),(10,0),
+        (3,total_counts.get("Neutral",0)),(4,total_rep.get("Neutral",0)),
+        (5,total_counts.get("Minor",0)),  (6,total_rep.get("Minor",0)),
+        (7,total_counts.get("Major",0)),  (8,total_rep.get("Major",0)),
+        (9,total_counts.get("Critical",0)),(10,total_rep.get("Critical",0)),
         (11,total_raw),(12,round(total_weighted,2)),
     ]:
         c = ws.cell(row=cur_row, column=col, value=val)
@@ -852,12 +829,13 @@ def _build_xlsx(state, history, score, threshold, out_path):
         r = raw_points(counts)
         w = weighted_points(cat, counts)
         ws.row_dimensions[cur_row].height = 14.25
+        rep = rep_counts[cat]
         for col, val in [
             (1,cat),(2,weighted_points(cat, {"Minor": 1})),
-            (3,counts.get("Neutral",0)),(4,0),
-            (5,counts.get("Minor",0)),  (6,0),
-            (7,counts.get("Major",0)),  (8,0),
-            (9,counts.get("Critical",0)),(10,0),
+            (3,counts.get("Neutral",0)),(4,rep.get("Neutral",0)),
+            (5,counts.get("Minor",0)),  (6,rep.get("Minor",0)),
+            (7,counts.get("Major",0)),  (8,rep.get("Major",0)),
+            (9,counts.get("Critical",0)),(10,rep.get("Critical",0)),
             (11,r),(12,round(w,2)),
         ]:
             c = ws.cell(row=cur_row, column=col, value=val)
@@ -978,371 +956,11 @@ def cmd_write(args):
     _build_xlsx(state, history, score, args.threshold, out_path)
 
 
-# ── pre-check ────────────────────────────────────────────────────────────────
-
-_RE_CJK      = re.compile(r'[一-鿿]')
-_RE_DASH     = re.compile(r'—')
-_RE_NUM      = re.compile(r'(?<!\d)(\d{4,})(?!\d)')
-_RE_COLOR    = {c: re.compile(rf'#{c}[^#]*?#E') for c in 'GCY'}  # count-only, content translatable
-_RE_VARS     = [re.compile(r'\{[^}]*\}'), re.compile(r'%[sd]')]   # exact match
-# R1: 位置占位符顺序（无索引 %s/%d 顺序敏感；命名/带索引占位符允许重排）
-# 注：颜色标签的开闭配对不做独立计数——`#` 在部分项目兼作叙述标记（#Enter/#Camera），
-# `#E/#C/#G/#Y` 会误匹配英文词首；颜色标签数量异常由下方整对 `#X...#E` 源译比对负责。
-_RE_POS_PH   = re.compile(r'%(?![0-9]+\$)[sd]')
-# R6: 数值一致性（提取阿拉伯数字 token，归一去千位分隔符）
-_RE_NUMTOK   = re.compile(r'\d[\d,]*(?:\.\d+)?')
-# R3 回退门控/长度比对前剥离标记（标签会稀释 CJK 占比、虚增长度）
-_RE_MARKUP   = re.compile(r'<[^>]*>|\{[^}]*\}|%[sd]')
-# R5: 译文中不应出现的全角/CJK 标点与全角空格（适用 EN/TH 等非 CJK 目标语言；
-# CJK 目标语言如 ja 在语言层关闭 fullwidth_punct）
-_FORBIDDEN_FW = '，。！？；：、（）【】《》「」『』“”‘’　'
-
-# ── N5-N9 / #3 / #7 / #10（PM 批准 2026-06-12）────────────────────────────────
-# N5: 句尾终止标点（sentence_terminator=none 的语言由属性推导关闭）
-_SRC_TERMINAL = '。！？…!?.'
-_TGT_TERMINAL = '.!?…'
-_RE_TAIL_TRIM = re.compile(r'(\\n|\s|["\'」』）)】＞>]+)+$')
-# N6: 中文数字+量词强模式（PM：仅带量词触发，含「一」；泰语数词本期纳入）
-_CN_DIG  = {'〇': 0, '一': 1, '二': 2, '两': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9}
-_CN_UNIT = {'十': 10, '百': 100, '千': 1000}
-_CN_BIG  = {'万': 10000, '亿': 100000000}
-_CN_NUMCHARS = '〇一二两三四五六七八九十百千万亿'
-_CN_CLASSIFIERS = ('次|个|名|位|只|层|级|阶|天|日|年|月|周|秒|分钟|小时|章|节|卷|倍|件|枚|颗|点|张|条|把|块|回合|回|局|场|轮|波|瓶|组|份|步|人|匹|头|发|道|座|项|种|句|字|页|关')
-_RE_CN_NUM = re.compile(rf'(第)?([{_CN_NUMCHARS}]+)(?:{_CN_CLASSIFIERS})')
-_EN_ONES = {0: 'zero', 1: 'one', 2: 'two', 3: 'three', 4: 'four', 5: 'five', 6: 'six', 7: 'seven',
-            8: 'eight', 9: 'nine', 10: 'ten', 11: 'eleven', 12: 'twelve', 13: 'thirteen', 14: 'fourteen',
-            15: 'fifteen', 16: 'sixteen', 17: 'seventeen', 18: 'eighteen', 19: 'nineteen', 20: 'twenty'}
-_EN_TENS = {20: 'twenty', 30: 'thirty', 40: 'forty', 50: 'fifty', 60: 'sixty', 70: 'seventy', 80: 'eighty', 90: 'ninety'}
-_EN_BIG  = {100: 'hundred', 1000: 'thousand', 10000: 'ten thousand', 1000000: 'million'}
-_EN_ORD  = {1: 'first', 2: 'second', 3: 'third', 4: 'fourth', 5: 'fifth', 6: 'sixth', 7: 'seventh',
-            8: 'eighth', 9: 'ninth', 10: 'tenth'}
-_TH_WORDS = {1: 'หนึ่ง', 2: 'สอง', 3: 'สาม', 4: 'สี่', 5: 'ห้า', 6: 'หก', 7: 'เจ็ด', 8: 'แปด', 9: 'เก้า',
-             10: 'สิบ', 20: 'ยี่สิบ', 100: 'ร้อย', 1000: 'พัน', 10000: 'หมื่น', 100000: 'แสน', 1000000: 'ล้าน'}
-_TH_DIGIT = {ord(c): str(i) for i, c in enumerate('๐๑๒๓๔๕๖๗๘๙')}
-# N7: 单词连续重复（word_delim≠space 的语言由属性推导关闭）
-_RE_WORD_REPEAT = re.compile(r'\b([A-Za-z]+)\s+\1\b', re.IGNORECASE)
-_REPEAT_WHITELIST = {'had', 'that', 'so', 'no', 'very', 'really', 'many', 'ha', 'heh', 'hee', 'yo', 'ho', 'la'}
-# N8: 词内大小写转折（script≠latin 由属性推导关闭）
-_RE_MIXED_CASE = re.compile(r'\b[A-Za-z]*[a-z][A-Z][A-Za-z]*\b')
-_RE_CASE_EXEMPT = re.compile(r'^(Mc|Mac)[A-Z]|^[a-z]{1,2}[A-Z][a-z]+$')  # McDonald / iPhone / eSports
-# N9: 半角成对标点（全角/弯引号已由 R5「出现即报」拦截）
-_N9_PAIRS = [('(', ')'), ('[', ']')]
-# #3: 通用标签模式集兜底（{} 归 variables、#G..#E 归 color_tags，不重复）
-_TAG_PATTERNS = [('angle', re.compile(r'<[^<>]+>')), ('square', re.compile(r'\[[^\[\]]+\]'))]
-# #10: 省略号样式（文件内不混用；…… 计入 unicode 风格）
-_RE_ELLIPSIS_DOTS = re.compile(r'\.{3,}')
-
-
-def _cn_parse(s: str):
-    """中文数字串 → int；解析失败返回 None（保守不报）。"""
-    if not s:
-        return None
-    total, section, num = 0, 0, 0
-    for ch in s:
-        if ch in _CN_DIG:
-            num = _CN_DIG[ch]
-        elif ch in _CN_UNIT:
-            section += (num or 1) * _CN_UNIT[ch]
-            num = 0
-        elif ch in _CN_BIG:
-            total = (total + section + num) * _CN_BIG[ch]
-            section, num = 0, 0
-        else:
-            return None
-    return total + section + num
-
-
-def _num_in_target(n: int, tgt: str, numerals: list) -> bool:
-    t = tgt.lower().translate(_TH_DIGIT)
-    if str(n) in {m.group(0).replace(',', '') for m in _RE_NUMTOK.finditer(t)}:
-        return True
-    words = set()
-    if n in _EN_ONES: words.add(_EN_ONES[n])
-    if n in _EN_TENS: words.add(_EN_TENS[n])
-    if n in _EN_BIG:  words.add(_EN_BIG[n])
-    if n in _EN_ORD:  words.add(_EN_ORD[n])
-    if n == 1: words.add('once')
-    if n == 2: words.update(('twice', 'double'))
-    if 20 < n < 100 and n % 10 and n // 10 * 10 in _EN_TENS and n % 10 in _EN_ONES:
-        words.update((f"{_EN_TENS[n // 10 * 10]}-{_EN_ONES[n % 10]}",
-                      f"{_EN_TENS[n // 10 * 10]} {_EN_ONES[n % 10]}"))
-    words.add(f"{n}th"); words.update((f"{n}st", f"{n}nd", f"{n}rd"))
-    if 'thai' in (numerals or []) and n in _TH_WORDS:
-        words.add(_TH_WORDS[n].lower())
-    return any(w in t for w in words)
-
-
-def _norm_nums(text: str):
-    return Counter(m.group(0).replace(',', '') for m in _RE_NUMTOK.finditer(text))
-
-
-def _load_checks(state: dict):
-    toggles, custom = {}, []
-
-    def _absorb(cfg: dict, label: str):
-        toggles.update(cfg.get("builtin", {}))
-        for c in cfg.get("custom", []):
-            try:
-                custom.append((re.compile(c["pattern"]), c))
-            except (re.error, KeyError) as e:
-                print(f"[warn] bad custom check {c.get('id', '?')} in {label}: {e}", file=sys.stderr)
-
-    lang = _target_lang(state)
-    derived = _lang_toggle_defaults(_load_lang(lang))
-    if derived:
-        toggles.update(derived)
-        print(f"[pre-check] language attrs ({lang}) derived: {derived}")
-
-    p = state.get("checks_path", "")
-    if p and Path(p).exists():
-        _absorb(read_json(p), "project checks.json")  # 项目层后合并，覆盖语言层同名开关
-        print(f"[pre-check] checks profile: {len(toggles)} toggles, {len(custom)} custom rules")
-    return toggles, custom
-
+# ── pre-check（实现在 lqe_checks.py）─────────────────────────────────────────
 
 def cmd_pre_check(args):
-    state_path = Path(args.state)
-    state = read_json(state_path)
-    segments = state["segments"]
-
-    terms = _load_terms(state)
-    term_map = {
-        t["source"].strip(): (t["target"].strip(), t["target"].strip().lower(), t.get("status", ""), bool(t.get("locked")))
-        for t in terms
-        if t.get("source") and t.get("target")
-        and len(t["source"].strip()) >= (2 if _RE_CJK.search(t["source"]) else 3)
-    }
-
-    toggles, custom = _load_checks(state)
-    on = lambda key: toggles.get(key, True)
-
-    lang_attrs = _load_lang(_target_lang(state))
-    numerals = lang_attrs.get("numerals", [])
-    # N8 豁免：术语表译法中出现过的词形（官方 CamelCase 名不报）
-    term_tokens = {w for orig, *_ in term_map.values() for w in re.findall(r'[A-Za-z]+', orig)}
-
-    # #10: 省略号样式预扫——文件内两种风格并存时，少数派段报 Inconsistency
-    uni_ids, dots_ids = set(), set()
-    for seg in segments:
-        t = seg.get("corrected") or seg["target"]
-        if '…' in t:
-            uni_ids.add(seg["id"])
-        if _RE_ELLIPSIS_DOTS.search(t):
-            dots_ids.add(seg["id"])
-    ellipsis_minority = set()
-    if uni_ids and dots_ids:
-        ellipsis_minority = uni_ids if len(uni_ids) <= len(dots_ids) else dots_ids
-
-    results = []
-    total = 0
-
-    for seg in segments:
-        src = seg["source"]
-        tgt = seg.get("corrected") or seg["target"]
-        errs = []
-
-        tgt_has_cjk = bool(_RE_CJK.search(tgt))
-        src_cjk     = len(_RE_CJK.findall(src))
-
-        # R7: 空译文（仅报一条，跳过其余检查避免堆叠噪音）
-        if on("empty_target") and src.strip() and not tgt.strip():
-            results.append({"id": seg["id"], "errors": [
-                {"category": "Untranslated", "severity": "Major",
-                 "comment": "Target is empty"}], "corrected": None})
-            total += 1
-            continue
-
-        if on("untranslated_cjk") and tgt_has_cjk and src.strip():
-            errs.append({"category": "Untranslated", "severity": "Major",
-                         "comment": "Target contains Chinese characters"})
-
-        if on("em_dash") and _RE_DASH.search(tgt):
-            errs.append({"category": "Punctuation", "severity": "Minor",
-                         "comment": "Em dash '—' found; use ' - '"})
-
-        for c, pat in (_RE_COLOR.items() if on("color_tags") else ()):
-            sc, tc = len(pat.findall(src)), len(pat.findall(tgt))
-            if sc != tc:
-                errs.append({"category": "Markup", "severity": "Major",
-                             "comment": f"#{c}...#E count: source={sc}, target={tc}"})
-
-        for pat in (_RE_VARS if on("variables") else ()):
-            s_hits, t_hits = set(pat.findall(src)), set(pat.findall(tgt))
-            for m in s_hits - t_hits:
-                errs.append({"category": "Markup", "severity": "Major",
-                             "comment": f"Missing variable: {m!r}"})
-            for m in t_hits - s_hits:
-                errs.append({"category": "Markup", "severity": "Major",
-                             "comment": f"Extra variable: {m!r}"})
-
-        src_nl, tgt_nl = src.count(r'\n'), tgt.count(r'\n')
-        if on("newline_count") and src_nl != tgt_nl:
-            errs.append({"category": "Markup", "severity": "Major",
-                         "comment": f"\\n count: source={src_nl}, target={tgt_nl}"})
-
-        max_len = seg.get("max_len") if on("length") else None
-        if max_len:
-            # R3: 有真实 UI 字段宽度上限 → 硬截断检查（优先于 1.5× 启发式）
-            if len(tgt) > max_len:
-                errs.append({"category": "Length", "severity": "Major",
-                             "comment": f"Target {len(tgt)} chars exceeds max-length {max_len}"})
-        elif on("length"):
-            src_plain = _RE_MARKUP.sub('', src)
-            tgt_plain = _RE_MARKUP.sub('', tgt)
-            if len(_RE_CJK.findall(src_plain)) <= len(src_plain) * 0.3:
-                src_len = len(src_plain.replace(" ", ""))
-                tgt_len = len(tgt_plain.replace(" ", ""))
-                if src_len > 0 and tgt_len > src_len * 1.5:
-                    errs.append({"category": "Length", "severity": "Major",
-                                 "comment": f"Target {tgt_len} chars > 1.5× source {src_len} (markup stripped)"})
-
-        for m in (_RE_NUM.finditer(tgt) if on("locale_numbers") else ()):
-            num = int(m.group(1))
-            if not (1900 <= num <= 2099):
-                errs.append({"category": "Locale convention", "severity": "Minor",
-                             "comment": f"{m.group(1)} → {num:,} (thousands separator)"})
-                break
-
-        tgt_lower = tgt.lower()
-        if on("terminology"):
-            hit_srcs = [ts for ts in term_map if ts in src]
-            for term_src in hit_srcs:
-                term_orig, term_tgt, term_status, term_locked = term_map[term_src]
-                # 复合术语优先：更长词条命中且其译法已在译文中 → 跳过被包含的子词条
-                covered = any(other != term_src and term_src in other
-                              and term_map[other][1] in tgt_lower for other in hit_srcs)
-                if covered:
-                    continue
-                if term_tgt not in tgt_lower:
-                    note = f" [TB:{term_status}]" if term_status else ""
-                    if term_locked:
-                        note += " [LOCKED]"
-                    errs.append({"category": "Terminology", "severity": "Major",
-                                 "comment": f"'{term_src}' → expected '{term_orig}'{note}"})
-                elif on("term_case"):
-                    # #7: 全大写缩写词条精确大小写（PM 2026-06-12：仅查缩写、判严重）
-                    for acro in re.findall(r'\b[A-Z]{2,}\b', term_orig):
-                        if acro.lower() in tgt_lower and acro not in tgt:
-                            errs.append({"category": "Company style", "severity": "Major",
-                                         "comment": f"Acronym case: expected '{acro}' ('{term_src}' → '{term_orig}')"})
-                            break
-
-        # R1: 无索引位置占位符 %s/%d 顺序（数量相同但顺序错位 → 参数错位）
-        src_pos, tgt_pos = _RE_POS_PH.findall(src), _RE_POS_PH.findall(tgt)
-        if on("pos_placeholder") and sorted(src_pos) == sorted(tgt_pos) and src_pos != tgt_pos:
-            errs.append({"category": "Markup", "severity": "Major",
-                         "comment": f"Positional placeholder order changed: {src_pos} → {tgt_pos}"})
-
-        # R6: 数值一致性（仅当源含阿拉伯数字；漏译/改值是游戏 Critical 级隐患）
-        if on("numbers_consistency") and _RE_NUMTOK.search(src):
-            missing = _norm_nums(src) - _norm_nums(tgt)
-            if missing:
-                miss = ", ".join(sorted(missing.elements()))
-                errs.append({"category": "Mistranslation", "severity": "Major",
-                             "comment": f"Source number(s) missing/changed in target: {miss}"})
-
-        # R5: 空白规范化 + EN 译文全角标点
-        if on("whitespace") and tgt.strip() and tgt != tgt.strip():
-            errs.append({"category": "Punctuation", "severity": "Minor",
-                         "comment": "Leading/trailing whitespace in target"})
-        if on("whitespace") and '  ' in tgt.strip():
-            errs.append({"category": "Punctuation", "severity": "Minor",
-                         "comment": "Double space in target"})
-        fw = sorted({ch for ch in tgt if ch in _FORBIDDEN_FW}) if on("fullwidth_punct") else []
-        if fw:
-            errs.append({"category": "Punctuation", "severity": "Minor",
-                         "comment": f"Full-width punctuation in target: {''.join(fw)}"})
-
-        # N5: 句尾终止标点对齐（sentence_terminator=none 的语言已由属性推导关闭）
-        if on("terminal_punct") and src.strip() and tgt.strip():
-            s_tail = _RE_TAIL_TRIM.sub('', src.strip())
-            t_tail = _RE_TAIL_TRIM.sub('', tgt.strip())
-            if s_tail and t_tail:
-                s_term, t_term = s_tail[-1] in _SRC_TERMINAL, t_tail[-1] in _TGT_TERMINAL
-                if s_term and not t_term:
-                    errs.append({"category": "Punctuation", "severity": "Minor",
-                                 "comment": f"Source ends with terminal punctuation '{s_tail[-1]}'; target does not"})
-                elif not s_term and t_tail[-1] == '.':
-                    errs.append({"category": "Punctuation", "severity": "Minor",
-                                 "comment": "Target adds terminal '.' absent in source"})
-
-        # N6: 中文数字+量词强模式 → 译侧须有对应数值/数词（含泰文数字与数词）
-        if on("cn_numbers"):
-            for m in _RE_CN_NUM.finditer(src):
-                n = _cn_parse(m.group(2))
-                if n is not None and not _num_in_target(n, tgt, numerals):
-                    errs.append({"category": "Mistranslation", "severity": "Major",
-                                 "comment": f"Chinese numeral '{m.group(0)}' ({n}) has no counterpart in target"})
-                    break
-
-        # N7: 单词连续重复（白名单豁免合法重复；非空格分词语言已关闭）
-        if on("word_repeat"):
-            for m in _RE_WORD_REPEAT.finditer(tgt):
-                if m.group(1).lower() not in _REPEAT_WHITELIST:
-                    errs.append({"category": "Grammar", "severity": "Minor",
-                                 "comment": f"Repeated word: '{m.group(0)}'"})
-                    break
-
-        # N8: 词内大小写转折（豁免 TB 词形 / Mc/Mac / iPhone 型 / PvP 型 / 标签变量内容）
-        if on("intra_word_case"):
-            plain = _RE_MARKUP.sub('', tgt)
-            bad = sorted({w for w in _RE_MIXED_CASE.findall(plain)
-                          if w not in term_tokens and not _RE_CASE_EXEMPT.match(w)
-                          and not (len(w) <= 4 and w[0].isupper() and w[-1].isupper())})
-            if bad:
-                errs.append({"category": "Spelling", "severity": "Minor",
-                             "comment": f"Mixed case within word: {', '.join(bad[:3])}"})
-
-        # N9: 半角成对标点（源侧配对完整而译侧不完整才报；' 豁免撇号；{} 归 variables）
-        if on("paired_punct"):
-            for o, cl in _N9_PAIRS:
-                if src.count(o) == src.count(cl) and tgt.count(o) != tgt.count(cl):
-                    errs.append({"category": "Punctuation", "severity": "Minor",
-                                 "comment": f"Unbalanced '{o}{cl}' in target ({tgt.count(o)} open / {tgt.count(cl)} close)"})
-            if src.count('"') % 2 == 0 and tgt.count('"') % 2 == 1:
-                errs.append({"category": "Punctuation", "severity": "Minor",
-                             "comment": "Odd number of straight double quotes in target"})
-
-        # #3: 通用标签模式集源译对账（项目特殊格式另用 custom count_match 精配）
-        if on("tag_count"):
-            for name, pat in _TAG_PATTERNS:
-                sc_, tc_ = len(pat.findall(src)), len(pat.findall(tgt))
-                if sc_ != tc_:
-                    errs.append({"category": "Markup", "severity": "Major",
-                                 "comment": f"{name}-bracket tag count: source={sc_}, target={tc_}"})
-
-        # #10: 省略号样式与文件主流不一致（PM：一个项目只用一种，不混用）
-        if on("ellipsis_mix") and seg["id"] in ellipsis_minority:
-            errs.append({"category": "Inconsistency", "severity": "Minor",
-                         "comment": "Ellipsis style differs from file majority ('…' vs '...'); one style per project"})
-
-        for pat, c in custom:
-            if c.get("type") == "count_match":
-                sc_, tc_ = len(pat.findall(src)), len(pat.findall(tgt))
-                if sc_ != tc_:
-                    errs.append({"category": c.get("category", "Markup"),
-                                 "severity": c.get("severity", "Major"),
-                                 "comment": f"{c.get('comment', c.get('id', 'custom check'))} [source={sc_}, target={tc_}]"})
-                continue
-            where = c.get("where", "target")
-            hay = src if where == "source" else (src + "\n" + tgt if where == "both" else tgt)
-            m = pat.search(hay)
-            if m:
-                errs.append({"category": c.get("category", "Company style"),
-                             "severity": c.get("severity", "Minor"),
-                             "comment": f"{c.get('comment', c.get('id', 'custom check'))} [match: {m.group(0)[:30]}]"})
-
-        total += len(errs)
-        results.append({"id": seg["id"], "errors": errs, "corrected": None})
-
-    out = Path(args.out) if args.out else state_path.parent / "errors_precheck.json"
-    out.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
-
-    dist = Counter(e["category"] for r in results for e in r["errors"])
-    flagged = sum(1 for r in results if r["errors"])
-    print(f"[pre-check] {total} issues / {flagged} segments → {out}")
-    for cat, n in dist.most_common():
-        print(f"  {n:>4}x  {cat}")
+    from lqe_checks import run_pre_check
+    run_pre_check(Path(args.state), Path(args.out) if args.out else None)
 
 
 # ── export ───────────────────────────────────────────────────────────────────
@@ -1403,6 +1021,7 @@ def main():
     r.add_argument("--source-col", required=True, dest="source_col", help="列名或列索引（0-based，配合 --no-header）")
     r.add_argument("--target-col", required=True, dest="target_col", help="列名或列索引（0-based，配合 --no-header）")
     r.add_argument("--no-header", action="store_true", dest="no_header", help="文件无表头行，source-col/target-col 为整数索引")
+    r.add_argument("--group-col", default=None, dest="group_col", help="成组文本（对联/题目）的组标识列名或索引；同组段落 Step 2 合并评估")
     r.add_argument("--terminology", default=None, help="术语表文件路径（.csv/.tsv/.json/.xlsx）")
     r.add_argument("--style-guide", default=None, dest="style_guide", help="风格指南文件路径（.txt/.md/.docx/.xlsx）")
     r.add_argument("--target-lang", default=None, dest="target_lang",

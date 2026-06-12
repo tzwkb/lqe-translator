@@ -34,7 +34,7 @@ SCRIPTS=~/.claude/skills/lqe-translator/scripts
 - `read --project <game>/<lang>`（如 `nrc/th`）：从 `projects/<game>/<lang>/profile.json` 带出。**用户只给游戏名时**，列出 `projects/<game>/` 下含 profile.json 的语言轨子目录供选择；该游戏尚无目标语言轨则走新轨建档（复制同游戏他轨 profile 改 language_pair/SG/术语，common 素材天然共享） SG/术语/词数基准/阈值/checks/adjudications，显式 CLI 参数优先
 - `projects/<game>/<lang>/` 结构（游戏级共享素材放 `projects/<game>/common/`）：
   - `profile.json`：`{name, language_pair, style_guide, terminology, checks, adjudications, wordcount_basis, threshold, lock_statuses}`（相对路径相对 profile 所在目录解析；`lock_statuses`=哪些术语 status 算锁定，空数组=确认无锁定）
-  - `checks.json`：项目专属确定性检查。`builtin` 开关内置项（键：`untranslated_cjk/em_dash/color_tags/variables/newline_count/length/locale_numbers/terminology/pos_placeholder/numbers_consistency/whitespace/fullwidth_punct/empty_target/terminal_punct/cn_numbers/word_repeat/intra_word_case/paired_punct/term_case/ellipsis_mix/tag_count`，默认全开，部分由语言属性自动推导关闭）；`custom` 数组：`{id, pattern(regex), where(target|source|both), category, severity, comment}`，每段命中一次报一条；加 `type: "count_match"` 则改为源↔译 findall 数量对账（项目专属标签精配用，`where` 失效）
+  - `checks.json`：项目专属确定性检查。`builtin` 开关内置项（键：`untranslated_cjk/em_dash/color_tags/variables/newline_count/length/locale_numbers/terminology/pos_placeholder/numbers_consistency/whitespace/fullwidth_punct/empty_target/terminal_punct/cn_numbers/word_repeat/intra_word_case/paired_punct/term_case/ellipsis_mix/tag_count/pinyin_residue/intra_consistency`，默认全开，部分由语言属性自动推导关闭）；`custom` 数组：`{id, pattern(regex), where(target|source|both), category, severity, comment}`，每段命中一次报一条；加 `type: "count_match"` 则改为源↔译 findall 数量对账（项目专属标签精配用，`where` 失效）
   - `adjudications.md`：客户裁决/changelog 摘要——**Step 2 评估前必须 Read 注入上下文**，效力顺序通常为 实时更新要求 > Query 裁决 > SG，防止把已裁决项判成错误
 - 语言层 `languages/<code>/`（skill 根，与 projects/ 平级；已建 `en`/`th`，固定文件名 `attributes.json` + `eval_notes.md`，schema 与新语言接入指南见 `languages/README.md`）：按 profile `language_pair` 后缀自动挂载，或 `read --target-lang` 显式指定。**属性声明制**——只放语言学事实（`script`/`word_delim`/`sentence_terminator`/`numerals`/`wordcount_basis`），不放检查开关；pre-check 由属性推导检查适用性（`script: cjk` 关 `fullwidth_punct`；`sentence_terminator: none` 关 N5；`word_delim≠space` 关 N7；`script≠latin` 关 N8/#7），read 由属性防呆（`word_delim: none` 配 target-words 词数基准时警告）。`eval_notes.md` 为语言级 AI 评估关注点（泰语性别语尾/敬语/佛历等），存在即由 read 拷入 `job/lang_notes.md`。合并顺序：内置默认 < 属性推导 < 项目 checks.json < CLI 显式参数。风格取向（em_dash、省略号样式、引号样式）一律留项目 checks.json——同语言不同项目实证取向相反（wwm/en 禁破折号、nrc/en 允许）
 - 已建项目：`nrc/th`（洛克王国中→泰）、`nrc/en`（中→英）、`wwm/en`（燕云十六声中→英，28,534 条官方术语库）
@@ -143,6 +143,8 @@ python "$SCRIPTS/lqe_io.py" pre-check \
 | **通用标签数量对账** `<…>`/`[…]`（项目特殊格式用 custom count_match）**[#3]** | Markup | Major |
 | **术语全大写缩写大小写错**（TB 含 HP 而译 hp）**[#7]** | Company style | Major |
 | **省略号样式混用**（文件内 `…` 与 `...` 并存，少数派段报）**[#10]** | Inconsistency | Minor |
+| **拼音残留**（专名大写头+≥2音节+强特征 zh/x/q 或撇号分隔；弱信号交 AI）**[N1]** | Mistranslation | Critical |
+| **同源异译 / 异源同译**（后者涉及源文须全部 ≥20 字；首段为基准不报）**[N2]** | Inconsistency | Minor |
 
 `max-length` 列自动识别表头：`maxlen/max_length/char_limit/限长/字符上限` 等。输出作为本轮 `errors.json` 的基底。项目档案的 `checks.json` 在此生效：`builtin` 开关可关闭与项目规范冲突的内置项（如 Em-dash 允许的项目关 `em_dash`），`custom` regex 追加项目专属检查；术语报错带 `[TB:status]` 注记；带 `[LOCKED]`（profile `lock_statuses` 命中，见「术语锁定确认」）的跳过二次 review——不可移除、不可改判，corrected 必须采用锁定译法；**其余术语报错无论 status（含 Approved）评估时均可按语境甄别**。pre-check 术语匹配最长词条优先：长词条命中且译法正确时不报被包含子词。若 pre-check 命中 locked segment，Agent 评估时必须移除该段 actionable error，保持 `errors=[]`, `corrected=null`。R6 数值检查仅在源含阿拉伯数字时触发；N6 中文数字仅在「中文数字+量词」强模式触发（一起/三思类虚用不报）。语言属性自动推导：泰语等无句号/无空格分词/非拉丁语言自动关闭 N5/N7/N8/#7（见 languages/README.md）。全部确定性报错 Agent 评估时均可按上下文甄别移除（locked 除外）。
 
@@ -218,6 +220,14 @@ python "$SCRIPTS/lqe_io.py" pre-check \
 
 > **Critical 门（可选）**：`lqe_calc.py --critical-gate` 开启后，任一 Critical 错误直接 FAIL（MQM/ISO 5060/LISA 行业硬规则）；默认关，向后兼容。`--severity-scale mqm` 切换 0/1/5/25 指数严重度档。
 
+#### 评估关注点全集（事项5）
+
+首轮评估前 Read `docs/质量检查项清单.md` 一次：17 子类逐项关注点（拼音残留、规则文本从严、平行句式统一、不得自创术语）、三点法则、Word Choice 判定边界、严重度三级基准、成组文本评估。效力顺序：客户裁决 > SG > 清单关注点。
+
+#### 成组文本评估（事项6）
+
+segment 带 `group` 字段（`read --group-col` 注入）时，同组段落**合并评估**：对联看对仗押韵、题目与答案看对应关系，逐句独立直译破坏成组结构是 0512 报告 26 条 Critical 的主因。无 group 字段时，相邻成对短句（祝词/对联特征）自行按组判断。
+
 #### 归类决策规则
 
 **单一归属**：每条错误只记一个类别（避免重复计分）。同一处可落多类时，按下表取最具体 / 最严的一个（对齐 MQM 决策树单维度归属）。
@@ -282,7 +292,9 @@ python "$SCRIPTS/lqe_calc.py" \
   --state "$JOB/state.json" --errors "$JOB/errors.json" --threshold 98
 ```
 
-输出：`SCORE=XX.XX STATUS=PASS/FAIL ERRORS=N WORDCOUNT=N`，以及错误分布。
+输出：`SCORE=XX.XX STATUS=PASS/FAIL ERRORS=N WORDCOUNT=N CRITICAL=N REPEATED=N NPT/1000=X`，以及错误分布。
+
+**N4 重复错误计分**（默认开，`--no-repeat-dedup` 关）：相同源译文段的同类同级错误仅首段计分，其余自动标 `repeated`（写回 errors.json，报表 repeated 列呈现、罚分不计）——客户评分卡口径。
 
 ### Step 5：判断与处理
 

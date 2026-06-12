@@ -16,6 +16,14 @@
       "category": "Company style",
       "severity": "Minor",
       "comment": "WWM SG: 物品数量=Item ×N（×前空格、×后无空格）"
+    },
+    {
+      "id": "wwm-roman-numeral",
+      "pattern": "\\b(?:Vol\\.?|Volume|Chapter|Part|Act|Tier|Phase)\\s+[IVX]+\\b|\\b(?:II|III|IV|VI{1,3}|IX|XI{1,2})\\b",
+      "where": "target",
+      "category": "Company style",
+      "severity": "Minor",
+      "comment": "0512裁决: 序号/卷号用 Unicode 罗马数字（Ⅰ Ⅱ Ⅲ），不用 ASCII 字母拼写"
     }
   ]
 }
