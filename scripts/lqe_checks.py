@@ -145,11 +145,16 @@ def _num_in_target(n: int, tgt: str, numerals: list) -> bool:
     return any(w in t for w in words)
 
 
+def _count_mismatch(pat, src: str, tgt: str):
+    sc, tc = len(pat.findall(src)), len(pat.findall(tgt))
+    return (sc, tc) if sc != tc else None
+
+
 def _norm_nums(text: str):
     return Counter(m.group(0).replace(',', '') for m in _RE_NUMTOK.finditer(text))
 
 
-def _load_checks(state: dict):
+def _load_checks(state: dict, lang_attrs: dict):
     toggles, custom = {}, []
 
     def _absorb(cfg: dict, label: str):
@@ -160,11 +165,10 @@ def _load_checks(state: dict):
             except (re.error, KeyError) as e:
                 print(f"[warn] bad custom check {c.get('id', '?')} in {label}: {e}", file=sys.stderr)
 
-    lang = _target_lang(state)
-    derived = _lang_toggle_defaults(_load_lang(lang))
+    derived = _lang_toggle_defaults(lang_attrs)
     if derived:
         toggles.update(derived)
-        print(f"[pre-check] language attrs ({lang}) derived: {derived}")
+        print(f"[pre-check] language attrs derived: {derived}")
 
     p = state.get("checks_path", "")
     if p and Path(p).exists():
@@ -185,38 +189,38 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
         and len(t["source"].strip()) >= (2 if _RE_CJK.search(t["source"]) else 3)
     }
 
-    toggles, custom = _load_checks(state)
+    lang_attrs = _load_lang(_target_lang(state))
+    toggles, custom = _load_checks(state, lang_attrs)
     on = lambda key: toggles.get(key, True)
 
-    lang_attrs = _load_lang(_target_lang(state))
     numerals = lang_attrs.get("numerals", [])
     # N8 豁免：术语表译法中出现过的词形（官方 CamelCase 名不报）
     term_tokens = {w for orig, *_ in term_map.values() for w in re.findall(r'[A-Za-z]+', orig)}
+    # 术语扫描首字符分桶：每段只扫源文出现过首字符的词条（段数×全表 → 段数×命中桶）
+    term_first: dict = defaultdict(list)
+    for ts in term_map:
+        term_first[ts[0]].append(ts)
 
-    # #10: 省略号样式预扫——文件内两种风格并存时，少数派段报 Inconsistency
+    # 单遍预扫：#10 省略号样式（文件内混用→少数派段报）+ N2 同文件一致性
     uni_ids, dots_ids = set(), set()
-    for seg in segments:
-        t = seg.get("corrected") or seg["target"]
-        if '…' in t:
-            uni_ids.add(seg["id"])
-        if _RE_ELLIPSIS_DOTS.search(t):
-            dots_ids.add(seg["id"])
-    ellipsis_minority = set()
-    if uni_ids and dots_ids:
-        ellipsis_minority = uni_ids if len(uni_ids) <= len(dots_ids) else dots_ids
-
-    # N2: 同文件一致性预扫——同源异译（任意长度）；异源同译（涉及源文须全部 ≥20 字，PM 拍板）
     src_first, src_variants = {}, defaultdict(set)
     tgt_first, tgt_sources = {}, defaultdict(set)
     for seg in segments:
-        s_ = seg["source"].strip()
-        t_ = (seg.get("corrected") or seg["target"]).strip()
+        t_ = seg.get("corrected") or seg["target"]
+        if '…' in t_:
+            uni_ids.add(seg["id"])
+        if _RE_ELLIPSIS_DOTS.search(t_):
+            dots_ids.add(seg["id"])
+        s_, t_ = seg["source"].strip(), t_.strip()
         if not s_ or not t_:
             continue
         src_first.setdefault(s_, seg["id"])
         src_variants[s_].add(t_)
         tgt_first.setdefault(t_, seg["id"])
         tgt_sources[t_].add(s_)
+    ellipsis_minority = set()
+    if uni_ids and dots_ids:
+        ellipsis_minority = uni_ids if len(uni_ids) <= len(dots_ids) else dots_ids
     div_src = {s for s, ts in src_variants.items() if len(ts) > 1}
     conv_tgt = {t for t, ss in tgt_sources.items() if len(ss) > 1 and all(len(x) >= 20 for x in ss)}
 
@@ -248,10 +252,10 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
                          "comment": "Em dash '—' found; use ' - '"})
 
         for c, pat in (_RE_COLOR.items() if on("color_tags") else ()):
-            sc, tc = len(pat.findall(src)), len(pat.findall(tgt))
-            if sc != tc:
+            mm = _count_mismatch(pat, src, tgt)
+            if mm:
                 errs.append({"category": "Markup", "severity": "Major",
-                             "comment": f"#{c}...#E count: source={sc}, target={tc}"})
+                             "comment": f"#{c}...#E count: source={mm[0]}, target={mm[1]}"})
 
         for pat in (_RE_VARS if on("variables") else ()):
             s_hits, t_hits = set(pat.findall(src)), set(pat.findall(tgt))
@@ -292,7 +296,7 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
 
         tgt_lower = tgt.lower()
         if on("terminology"):
-            hit_srcs = [ts for ts in term_map if ts in src]
+            hit_srcs = [ts for ch in set(src) for ts in term_first.get(ch, ()) if ts in src]
             for term_src in hit_srcs:
                 term_orig, term_tgt, term_status, term_locked = term_map[term_src]
                 # 复合术语优先：更长词条命中且其译法已在译文中 → 跳过被包含的子词条
@@ -370,10 +374,12 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
                                  "comment": f"Repeated word: '{m.group(0)}'"})
                     break
 
+        # N8/N1 共用：剥离标签变量后的译文
+        plain_tgt = _RE_MARKUP.sub('', tgt) if (on("intra_word_case") or on("pinyin_residue")) else tgt
+
         # N8: 词内大小写转折（豁免 TB 词形 / Mc/Mac / iPhone 型 / PvP 型 / 标签变量内容）
         if on("intra_word_case"):
-            plain = _RE_MARKUP.sub('', tgt)
-            bad = sorted({w for w in _RE_MIXED_CASE.findall(plain)
+            bad = sorted({w for w in _RE_MIXED_CASE.findall(plain_tgt)
                           if w not in term_tokens and not _RE_CASE_EXEMPT.match(w)
                           and not (len(w) <= 4 and w[0].isupper() and w[-1].isupper())})
             if bad:
@@ -393,10 +399,10 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
         # #3: 通用标签模式集源译对账（项目特殊格式另用 custom count_match 精配）
         if on("tag_count"):
             for name, pat in _TAG_PATTERNS:
-                sc_, tc_ = len(pat.findall(src)), len(pat.findall(tgt))
-                if sc_ != tc_:
+                mm = _count_mismatch(pat, src, tgt)
+                if mm:
                     errs.append({"category": "Markup", "severity": "Major",
-                                 "comment": f"{name}-bracket tag count: source={sc_}, target={tc_}"})
+                                 "comment": f"{name}-bracket tag count: source={mm[0]}, target={mm[1]}"})
 
         # #10: 省略号样式与文件主流不一致（PM：一个项目只用一种，不混用）
         if on("ellipsis_mix") and seg["id"] in ellipsis_minority:
@@ -405,7 +411,7 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
 
         # N1: 拼音残留（Critical；TB 词形/白名单豁免，AI 评估重点甄别）
         if on("pinyin_residue"):
-            for w in re.findall(r"\b[A-Za-z]+(?:'[A-Za-z]+)?\b", _RE_MARKUP.sub('', tgt)):
+            for w in re.findall(r"\b[A-Za-z]+(?:'[A-Za-z]+)?\b", plain_tgt):
                 if not w[0].isupper() or w.lower() in _PY_ENGLISH or w in term_tokens:
                     continue
                 if "'" in w:
@@ -433,11 +439,11 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
 
         for pat, c in custom:
             if c.get("type") == "count_match":
-                sc_, tc_ = len(pat.findall(src)), len(pat.findall(tgt))
-                if sc_ != tc_:
+                mm = _count_mismatch(pat, src, tgt)
+                if mm:
                     errs.append({"category": c.get("category", "Markup"),
                                  "severity": c.get("severity", "Major"),
-                                 "comment": f"{c.get('comment', c.get('id', 'custom check'))} [source={sc_}, target={tc_}]"})
+                                 "comment": f"{c.get('comment', c.get('id', 'custom check'))} [source={mm[0]}, target={mm[1]}]"})
                 continue
             where = c.get("where", "target")
             hay = src if where == "source" else (src + "\n" + tgt if where == "both" else tgt)

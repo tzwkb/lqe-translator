@@ -15,7 +15,6 @@ import io
 import json
 import re
 import sys
-from collections import Counter
 from datetime import date
 from pathlib import Path
 
@@ -24,10 +23,10 @@ from openpyxl.styles import PatternFill, Font, Alignment
 from openpyxl.utils import get_column_letter
 
 from lqe_engine import (
-    read_json, RE_CJK as _RE_CJK, _target_lang, _load_lang, _LANG_DIR,
+    read_json, RE_CJK as _RE_CJK, _target_lang, _load_lang, _LANG_DIR, _SKILL_ROOT,
     CATEGORY_ORDER as _ALL_CATS, CATEGORY_PARENT as _PARENT,
     VALID_CATEGORIES as _VALID_CATEGORIES, VALID_SEVERITIES as _VALID_SEVERITIES,
-    apply_severity, load_terms as _load_terms, load_style_guide as _load_sg,
+    apply_severity, load_terms as _load_terms,
     raw_points, weighted_points,
 )
 
@@ -888,10 +887,6 @@ def _build_xlsx(state, history, score, threshold, out_path):
 
     _WRAP_TOP = Alignment(wrap_text=True, vertical="top")
 
-    current_seg_errors = {
-        e["id"]: e.get("errors", [])
-        for e in history[-1].get("errors", [])
-    } if history else {}
     current_entries = {e["id"]: e for e in history[-1].get("errors", [])} if history else {}
     is_final_report = "_lqe_iter" not in out_path.name
     translation_col = "Final Translation" if is_final_report else "Suggested Correction"
@@ -903,7 +898,7 @@ def _build_xlsx(state, history, score, threshold, out_path):
     ws2.row_dimensions[1].height = 15.0
 
     for ri, (raw_row, seg) in enumerate(zip(state["rows_raw"], segments), start=2):
-        errs = current_seg_errors.get(seg["id"], [])
+        errs = current_entries.get(seg["id"], {}).get("errors", [])
         has_error = bool(errs)
         row_fill = _ORANGE if has_error else _GREEN_LIGHT if seg.get("corrected") else None
         row_data = list(raw_row) + [

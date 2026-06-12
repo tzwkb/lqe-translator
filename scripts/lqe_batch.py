@@ -15,7 +15,7 @@ import json
 import re
 from pathlib import Path
 
-_RE_CJK = re.compile(r'[一-鿿]')
+from lqe_engine import RE_CJK as _RE_CJK
 
 
 def _est_output_chars(seg, term_hits):

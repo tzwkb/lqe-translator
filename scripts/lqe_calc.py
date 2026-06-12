@@ -30,9 +30,7 @@ def main():
     args = p.parse_args()
 
     sev_points = SEVERITY_POINTS_MQM if args.severity_scale == "mqm" else SEVERITY_POINTS
-    locked = set()
-    if args.locked_ids:
-        locked = {int(x.strip()) for x in args.locked_ids.split(",") if x.strip()}
+    locked = {int(x.strip()) for x in (args.locked_ids or "").split(",") if x.strip()}
 
     state  = read_json(args.state)
     errors = read_json(args.errors)
