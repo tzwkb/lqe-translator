@@ -6,6 +6,5 @@
   "terminology": "terms_en.json",
   "checks": "checks.json",
   "adjudications": "adjudications.md",
-  "wordcount_basis": "target-words",
   "threshold": 98
 }

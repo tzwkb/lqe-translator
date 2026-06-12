@@ -1,11 +1,21 @@
 {
-  "builtin": {
-    "em_dash": true,
-    "fullwidth_punct": true
-  },
+  "builtin": {},
   "custom": [
-    {"id": "th-multi-punct", "pattern": "(!{2,}|\\?{2,}|！{2,}|？{2,})", "where": "target", "category": "Punctuation", "severity": "Minor", "comment": "TH SG: 禁连续同种感叹/问号 (??? → ?)；混合 ?!/!? 不算 (审校裁决 2026-06-11)"},
-    {"id": "th-cjk-ellipsis", "pattern": "……|。。。|…", "where": "target", "category": "Punctuation", "severity": "Minor", "comment": "TH SG: 省略号用三个英文点 ..."},
-    {"id": "th-cjk-quotes", "pattern": "[「」『』]", "where": "target", "category": "Punctuation", "severity": "Minor", "comment": "TH SG: 对话用半角双引号，禁中文引号"}
+    {
+      "id": "th-multi-punct",
+      "pattern": "(!{2,}|\\?{2,}|！{2,}|？{2,})",
+      "where": "target",
+      "category": "Punctuation",
+      "severity": "Minor",
+      "comment": "TH SG: 禁连续同种感叹/问号 (??? → ?)；混合 ?!/!? 不算 (审校裁决 2026-06-11)"
+    },
+    {
+      "id": "th-cjk-ellipsis",
+      "pattern": "……|。。。|…",
+      "where": "target",
+      "category": "Punctuation",
+      "severity": "Minor",
+      "comment": "TH SG: 省略号用三个英文点 ..."
+    }
   ]
 }

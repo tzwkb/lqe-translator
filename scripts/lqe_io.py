@@ -958,8 +958,9 @@ _RE_POS_PH   = re.compile(r'%(?![0-9]+\$)[sd]')
 _RE_NUMTOK   = re.compile(r'\d[\d,]*(?:\.\d+)?')
 # R3 回退门控/长度比对前剥离标记（标签会稀释 CJK 占比、虚增长度）
 _RE_MARKUP   = re.compile(r'<[^>]*>|\{[^}]*\}|%[sd]')
-# R5: EN 译文中不应出现的全角标点 / 全角空格
-_FORBIDDEN_FW = '，。！？；：、（）【】《》「」“”‘’　'
+# R5: 译文中不应出现的全角/CJK 标点与全角空格（适用 EN/TH 等非 CJK 目标语言；
+# CJK 目标语言如 ja 在语言层关闭 fullwidth_punct）
+_FORBIDDEN_FW = '，。！？；：、（）【】《》「」『』“”‘’　'
 
 
 def _norm_nums(text: str):
@@ -1117,7 +1118,7 @@ def cmd_pre_check(args):
         fw = sorted({ch for ch in tgt if ch in _FORBIDDEN_FW}) if on("fullwidth_punct") else []
         if fw:
             errs.append({"category": "Punctuation", "severity": "Minor",
-                         "comment": f"Full-width punctuation in EN target: {''.join(fw)}"})
+                         "comment": f"Full-width punctuation in target: {''.join(fw)}"})
 
         for pat, c in custom:
             where = c.get("where", "target")
