@@ -1,6 +1,8 @@
 {
-  "_说明": "语言层默认——仅语言学事实：泰语译文无空格分词、无句号体系，词数基准必须 source-chars（target-words 低估数倍致 98 阈值失真）。风格取向留项目 checks.json。N5-N9 批准落码后在此关闭不适用项（句尾标点/词重复/词内大小写等）。",
+  "script": "thai",
+  "word_delim": "none",
+  "sentence_terminator": "none",
+  "numerals": ["arabic", "thai"],
   "wordcount_basis": "source-chars",
-  "builtin": {},
-  "custom": []
+  "eval_notes": "eval_th.md"
 }

@@ -1,6 +1,8 @@
 {
-  "_说明": "语言层默认——仅语言学事实（不可能被项目 SG 推翻的）；风格取向（em_dash/省略号样式/引号样式）一律留项目 checks.json。合并顺序：内置默认 < 语言层 < 项目 checks.json < CLI 显式参数。builtin/custom 与 checks.json 同构；N5-N9 批准落码后在此填语言开关。",
+  "script": "latin",
+  "word_delim": "space",
+  "sentence_terminator": ".!?…",
+  "numerals": ["arabic"],
   "wordcount_basis": "target-words",
-  "builtin": {},
-  "custom": []
+  "eval_notes": "eval_en.md"
 }

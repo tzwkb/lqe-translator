@@ -143,10 +143,11 @@ def _project_path(prof: dict, val: str) -> str:
     return str(q if q.is_absolute() else Path(prof["_dir"]) / q)
 
 
-# 语言层：languages/<lang>.json（skill 根，锚定脚本位置而非 CWD）。
-# 仅放语言学事实型默认（不可能被项目 SG 推翻的：分词方式、句号体系、数词映射）；
-# 风格取向（em_dash/省略号样式等）一律留项目 checks.json。
-# 合并顺序：内置默认 < 语言层 < 项目 checks.json < CLI 显式参数。
+# 语言属性层：languages/<lang>.json（skill 根，锚定脚本位置而非 CWD）。
+# 属性声明制——文件只描述语言学事实（script/word_delim/sentence_terminator/numerals/
+# wordcount_basis/eval_notes），不放检查开关；开关由 _lang_toggle_defaults 从属性推导。
+# 入层标准：项目 SG 可能推翻的不是属性（em_dash/省略号/引号样式=项目取向，留 checks.json）。
+# 合并顺序：内置默认 < 属性推导 < 项目 checks.json < CLI 显式参数。schema 见 languages/README.md。
 _LANG_DIR = Path(__file__).resolve().parent.parent / "languages"
 
 
@@ -166,6 +167,20 @@ def _load_lang(lang: str) -> dict:
         return {}
     p = _LANG_DIR / f"{lang}.json"
     return read_json(p) if p.exists() else {}
+
+
+def _lang_toggle_defaults(attrs: dict) -> dict:
+    """属性 → 内置检查适用性推导（项目 checks.json 仍可覆盖最终开关）。"""
+    if not attrs:
+        return {}
+    d = {}
+    if attrs.get("script") == "cjk":
+        d["fullwidth_punct"] = False  # CJK 目标语言（ja 等）全角标点合法
+    # N5-N9 批准落码后在此追加推导：
+    #   sentence_terminator == "none" → terminal_punct 关（N5）
+    #   word_delim != "space"         → word_repeat 关（N7）
+    #   script != "latin"             → intra_word_case/术语大小写 关（N8/#7）
+    return d
 
 
 def _load_style_guide(path: str) -> str:
@@ -326,11 +341,24 @@ def cmd_read(args):
         or _target_lang(prof.get("language_pair", "") if prof else "")
     lang_cfg = _load_lang(lang)
     if lang_cfg:
-        print(f"[lqe_io] language defaults: languages/{lang}.json")
+        print(f"[lqe_io] language attributes: languages/{lang}.json")
+
+    # 语言级评估关注点 → 拷入 job，Step 2 注入（效力低于项目 SG/裁决）
+    lang_notes_path = ""
+    if lang_cfg.get("eval_notes"):
+        np = _LANG_DIR / lang_cfg["eval_notes"]
+        if np.exists():
+            dst = job_dir / "lang_notes.md"
+            dst.write_text(np.read_text(encoding="utf-8"), encoding="utf-8")
+            lang_notes_path = str(dst)
+            print(f"[lqe_io] language eval notes → {dst}")
 
     basis = getattr(args, "wordcount_basis", None) \
         or (prof.get("wordcount_basis") if prof else None) \
         or lang_cfg.get("wordcount_basis") or "target-words"
+    if lang_cfg.get("word_delim") == "none" and basis == "target-words":
+        print("[warn] target language has no word delimiter — 'target-words' basis will "
+              "undercount severely; use source-chars", file=sys.stderr)
     if basis == "source-chars":
         wordcount = sum(
             len(_RE_CJK.findall(s["source"])) + len(re.findall(r"[A-Za-z0-9]+", s["source"]))
@@ -356,6 +384,7 @@ def cmd_read(args):
         "project": prof.get("name", "") if prof else "",
         "language_pair": prof.get("language_pair", "") if prof else "",
         "target_lang": lang,
+        "lang_notes_path": lang_notes_path,
         "checks_path": checks_path,
         "adjudications_path": adjud_path,
         "threshold": prof.get("threshold", 98) if prof else 98,
@@ -979,10 +1008,10 @@ def _load_checks(state: dict):
                 print(f"[warn] bad custom check {c.get('id', '?')} in {label}: {e}", file=sys.stderr)
 
     lang = _target_lang(state)
-    lang_cfg = _load_lang(lang)
-    if lang_cfg:
-        _absorb(lang_cfg, f"languages/{lang}.json")
-        print(f"[pre-check] language layer: languages/{lang}.json")
+    derived = _lang_toggle_defaults(_load_lang(lang))
+    if derived:
+        toggles.update(derived)
+        print(f"[pre-check] language attrs ({lang}) derived: {derived}")
 
     p = state.get("checks_path", "")
     if p and Path(p).exists():

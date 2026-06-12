@@ -28,7 +28,7 @@ SCRIPTS=~/.claude/skills/lqe-translator/scripts
 - 风格指南路径（`.docx`/`.txt`/`.md`/`.xlsx`，可选；xlsx 多 sheet 自动转 markdown：sheet=章节、行=规则、空表头首列=分类前向填充）
 - 术语表路径（`.xlsx`/`.csv`/`.tsv`/`.json`，可选；词条零宽字符自动清理；含 CJK 的 2 字词条参与 pre-check 匹配；json 词条可带 `status` 字段透传到报错注记）
 - 词数基准 `--wordcount-basis`：`target-words`（默认，译文空格分词，适用 EN）/ `source-chars`（源文 CJK 字符+拉丁词，**泰语等无空格译文必选**，否则词数低估数倍、98 阈值失真）
-- 目标语言 `--target-lang`（可选，`en`/`th`）：挂载 `languages/<lang>.json` 语言层默认（含词数基准），见方式 C 语言层说明
+- 目标语言 `--target-lang`（可选，`en`/`th`）：挂载 `languages/<lang>.json` 语言属性（词数基准默认、检查适用性推导、评估关注点），见方式 C 语言层说明
 
 **方式 C：项目档案（同项目多文件复用，优先推荐）**
 - `read --project <项目名>`：从 `projects/<项目名>/profile.json` 带出 SG/术语/词数基准/阈值/checks/adjudications，显式 CLI 参数优先
@@ -36,7 +36,7 @@ SCRIPTS=~/.claude/skills/lqe-translator/scripts
   - `profile.json`：`{name, language_pair, style_guide, terminology, checks, adjudications, wordcount_basis, threshold, lock_statuses}`（相对路径相对 profile 所在目录解析；`lock_statuses`=哪些术语 status 算锁定，空数组=确认无锁定）
   - `checks.json`：项目专属确定性检查。`builtin` 开关内置项（键：`untranslated_cjk/em_dash/color_tags/variables/newline_count/length/locale_numbers/terminology/pos_placeholder/numbers_consistency/whitespace/fullwidth_punct/empty_target`，默认全开）；`custom` 数组：`{id, pattern(regex), where(target|source|both), category, severity, comment}`，每段命中一次报一条
   - `adjudications.md`：客户裁决/changelog 摘要——**Step 2 评估前必须 Read 注入上下文**，效力顺序通常为 实时更新要求 > Query 裁决 > SG，防止把已裁决项判成错误
-- 语言层 `languages/<lang>.json`（skill 根，与 projects/ 平级；已建 `en`/`th`）：按 profile `language_pair` 后缀自动挂载，或 `read --target-lang` 显式指定。**仅放语言学事实型默认**（不可能被项目 SG 推翻的：泰语词数基准 source-chars、无句号/无空格分词语言的检查开关）；与 checks.json 同构（builtin/custom）外加 `wordcount_basis`。合并顺序：内置默认 < 语言层 < 项目 checks.json < CLI 显式参数。风格取向（em_dash、省略号样式、引号样式）一律留项目 checks.json——同语言不同项目实证取向相反（wwm 禁破折号、nrc-en 允许）
+- 语言层 `languages/<lang>.json`（skill 根，与 projects/ 平级；已建 `en`/`th`，schema 与新语言接入指南见 `languages/README.md`）：按 profile `language_pair` 后缀自动挂载，或 `read --target-lang` 显式指定。**属性声明制**——只放语言学事实（`script`/`word_delim`/`sentence_terminator`/`numerals`/`wordcount_basis`/`eval_notes`），不放检查开关；pre-check 由属性推导检查适用性（如 `script: cjk` 自动关 `fullwidth_punct`），read 由属性防呆（`word_delim: none` 配 target-words 词数基准时警告）。`eval_notes` 指向语言级 AI 评估关注点（泰语性别语尾/敬语/佛历等），read 拷入 `job/lang_notes.md`。合并顺序：内置默认 < 属性推导 < 项目 checks.json < CLI 显式参数。风格取向（em_dash、省略号样式、引号样式）一律留项目 checks.json——同语言不同项目实证取向相反（wwm 禁破折号、nrc-en 允许）
 - 已建项目：`nrc-th`（洛克王国中→泰）、`nrc-en`（中→英）、`wwm`（燕云十六声中→英，28,534 条官方术语库）
 - 注意：SKILL.md 下文的"内置规则"（Title/Sentence Mode、禁破折号、文化术语映射等）实为 WWM 规则，仅在**无 SG 且无项目档案**时兜底；有项目档案时以其 SG/checks/adjudications 为准
 
@@ -93,6 +93,7 @@ Read `$JOB/state.json`，提取：
 - `wordcount`：固定词数（迭代不变）
 - `iteration`：当前轮次
 - `adjudications_path`（项目档案带入，可空）：**非空必须 Read**，裁决内容优先于 SG，已裁决项不得判错
+- `lang_notes_path`（语言层带入，可空）：非空必须 Read，作为语言级评估关注点注入（效力低于项目 SG/裁决）
 - `threshold`：评分阈值（项目档案可改，默认 98），传给 lqe_calc/write/apply-fixes 的 `--threshold`
 
 ### Step 1.2：RAG 100% match 保护
@@ -327,7 +328,8 @@ L_per_category  = weight × K
 ## 文件结构
 
 ```
-languages/<lang>.json     语言层默认（语言学事实；已建 en/th）
+languages/<lang>.json     语言属性声明（语言学事实；en/th 已建，schema 见其 README.md）
+languages/eval_*.md       语言级 AI 评估关注点（read 拷入 job/lang_notes.md）
 projects/<项目名>/        项目档案（可复用，方式 C）
 ├── profile.json        SG/术语/词数基准/阈值/checks/adjudications 配置
 ├── checks.json         内置检查开关 + 自定义 regex 检查
@@ -337,6 +339,7 @@ projects/<项目名>/        项目档案（可复用，方式 C）
 jobs/<文件名>/
 ├── state.json          初始化一次；跨轮持久化（译文、词数、迭代历史）
 ├── sg.txt              风格指南全文
+├── lang_notes.md       语言级评估关注点（语言层带入，可无）
 ├── terms.json          术语表
 ├── errors.json         当前轮评估结果（每轮覆盖）
 ├── errors_precheck.json  pre-check 输出（首轮自动生成）
