@@ -24,6 +24,10 @@ languages/<code>/
 | `numerals` | 数字系统数组 | 〔待批 N6 中文数字：译侧可接受的数词体系〕 |
 | `wordcount_basis` | `target-words` / `source-chars` | read 词数链：CLI 显式 > profile > 此处 > 内置 `target-words` |
 
+## 为什么按单语言而非语言对建层
+
+属性描述的是**目标语言文本本身**的语言学事实（泰语无句号，与源是什么语言无关），按语言对建层会组合爆炸（N源×M目标）且内容重复。语言对信息在 profile `language_pair` 里，运行时解析（源, 目标）各取所需。当前源恒为中文（ZHCN），源侧假设（CJK 残留检测、中文数字解析、CJK 长度门控）硬编码于代码；将来出现非中文源时的演化方向是把源侧也属性化（解析 language_pair 前缀挂源语言包），目录结构不变。
+
 ## 新语言接入（agent 自助，无需改代码）
 
 1. 建 `languages/<code>/attributes.json`，按上表填属性
