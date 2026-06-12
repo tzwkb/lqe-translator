@@ -1,6 +1,6 @@
 # projects/ 文件地图
 
-每个 LQE 项目一个目录，`read --project <目录名>` 即用。开发仓（Langlobal，GitHub 私有）跟踪客户数据；skills 测试副本侧 gitignored。
+布局 `<game>/<lang>/`（语言轨）+ `<game>/common/`（游戏级共享素材），`read --project <game>/<lang>` 即用（skill 根解析，CWD 无关）。语言学事实另见 `../languages/<code>/`。开发仓（Langlobal，GitHub 私有）跟踪客户数据；skills 测试副本侧 gitignored。
 
 ## 通用结构（每个项目）
 | 文件 | 角色 | 谁读 |
@@ -13,9 +13,9 @@
 | `sources/` | 客户原始交付件（SG/TB xlsx 原件及其工作副本） | profile 引用 / 溯源 |
 | `inputs/` | 待评估的原始交付文件 | 人工指定给 read --input |
 
-语言学事实型默认（词数基准、语言级检查开关）不在项目层——见 `../languages/<lang>.json`，按 profile `language_pair` 自动挂载；合并顺序 内置默认 < 语言层 < 项目 checks.json < CLI。
+语言学事实型默认（词数基准、检查适用性）不在项目层——见 `../languages/<code>/attributes.json`，按 profile `language_pair` 自动挂载；合并顺序 内置默认 < 属性推导 < 项目 checks.json < CLI。
 
-## nrc-th/ —— 洛克王国《世界》中→泰【本次 QA 项目】
+## nrc/th/ —— 洛克王国《世界》中→泰【本次 QA 项目】
 - `sources/Style Guide Translation TH_20260430.xlsx` = 客户泰语 SG **原件**（企微 6/9 收，本次 QA 用这份）
 - `sources/ROCO_Working TB - TH(1).xlsx` = 客户术语表**原件**（本次 QA 权威术语源，3,131 条）
 - `sources/Working_TB_THTH.xlsx` = WorkingTB 状态子集工作副本（457 条，terms_th.json 上游工件）
@@ -24,11 +24,11 @@
 - `inputs/普老师SourceTarget.xlsx`（1,614 段，86 空译文）、`inputs/夏老师SourceTargetFinal.xlsx`（~4,384 段，178 空译文）= 待评估译员文件
 - `inputs/LOC_FILE-…QAFeedback.xlsx` = 客户反馈回填模板（5 列格式）
 
-## nrc-en/ —— 同项目中→英轨
+## nrc/en/ —— 同游戏中→英轨
 - `sg_en.md` = NRC 主表 EN-SG tab 全量转录
 - `terms_en.json` = 主库 EN 列 2,945 条（586 Approved）
 
-## nrc-common/ —— NRC 两轨共享参考（出自 NRC-Mastersheet_LB 在线表，6/10 提取）
+## nrc/common/ —— NRC 全语言轨共享参考（出自 NRC-Mastersheet_LB 在线表，6/10 提取）
 - `NRC_extract_rules_all.md` = 14 tab 规则合集（Checklist/字符限制/更新要求/富文本/Lore 术语对照）
 - `NRC_extract_Glossary_multilang.tsv` = 多语主术语库（ZHCN→11 语种+状态），terms_*.json 的上游
 - `NRC_extract_Query.txt` = 60+ 客户裁决摘要（adjudications 的上游）
@@ -38,11 +38,8 @@
 - `NRC_extract_CharacterVoice.tsv` / `NRC_extract_JiniFactions.tsv` = 角色圣经 / 精灵谱系
 - `LQA_template_extract.txt` = 客户 LQA 模板拆解（Error Log 7 列 + 计数制评分卡）——**归属哪条线待确认**
 
-## wwm/ —— 燕云十六声中→英（历史项目，随时可复跑）
+## wwm/en/ —— 燕云十六声中→英（历史项目，随时可复跑）
 - `sg.txt` = 权威整合版 SG；`sources/terminology_0509.xlsx` = 官方 28,534 条术语库（自包含副本）
-
-## xiuxiu/ —— 咻咻勇者（非 LQE 项目，仅存参考）
-- `咻咻勇者_内部SG_Query_extract.txt` = 内部 SG 32 条 regex 检查清单 + Query 表（建档时可直接转 checks.json）
 
 ## 运行产物
 `../jobs/<输入文件名>/` —— read 初始化生成，state.json/sg.txt/terms.json/报告/修正稿都在里面，与 projects 互不污染。

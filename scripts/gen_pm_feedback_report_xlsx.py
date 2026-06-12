@@ -47,8 +47,8 @@ ROWS = [
      "新增内置检查（拟编 N5，句尾子集）＋ AI 评估关注点（句中数量）",
      "句尾比对不必用 AI 计数，确定性代码即可：源文以「。！？…」结尾而译文句尾无终止标点（.!?…），或源文无句尾标点而译文擅自添加 → Punctuation Minor。"
      "句中句号不做 1:1 数量对账——中英句子合法拆合（一句中文译成两句英文）会大量误报，该部分写入 AI 评估关注点，由 AI 结合语义判断是否漏句。"
-     "泰语等无句号体系语言由语言属性（languages/th.json：sentence_terminator=none）自动判定不适用，无需逐项目配置。",
-     "scripts/lqe_io.py；languages/th.json（属性自动判定）；清单文档",
+     "泰语等无句号体系语言由语言属性（languages/th/：sentence_terminator=none）自动判定不适用，无需逐项目配置。",
+     "scripts/lqe_io.py；languages/th/（属性自动判定）；清单文档",
      "无"],
     ["2", "中文数字对应（如「三次」→ 3/three）",
      "需要",

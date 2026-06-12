@@ -1,6 +1,6 @@
 # NRC 裁决记录（EN 轨）— 评估前必读，防止把已裁决项判成错误
 来源: NRC-Mastersheet_LB (2026-06-10)。效力顺序: **CN-EN更新要求 > Query 裁决 > EN-SG**（实证: 6/1 press 废止 Query 的 Click/Tap）。
-全量参考: `../nrc-common/NRC_extract_rules_all.md`
+全量参考: `../common/NRC_extract_rules_all.md`
 
 ## 术语状态语义（terms_en.json）
 Approved=严格执行(偏离=Major)；New=待审核(soft，按语境甄别)；Updated=按新译统改；Pending/Denied=不可硬判；?=列对齐噪音忽略

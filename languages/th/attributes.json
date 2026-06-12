@@ -1,0 +1,10 @@
+{
+  "script": "thai",
+  "word_delim": "none",
+  "sentence_terminator": "none",
+  "numerals": [
+    "arabic",
+    "thai"
+  ],
+  "wordcount_basis": "source-chars"
+}

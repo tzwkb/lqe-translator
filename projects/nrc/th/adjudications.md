@@ -1,6 +1,6 @@
 # NRC 裁决记录（TH 轨）— 评估前必读，防止把已裁决项判成错误
 来源: NRC-Mastersheet_LB (2026-06-10 提取)。效力顺序: **CN-EN更新要求 > Query 裁决 > SG**。
-全量参考: `../nrc-common/NRC_extract_rules_all.md`
+全量参考: `../common/NRC_extract_rules_all.md`
 
 ## 术语状态语义（terms_th.json 的 status 字段）
 - **New**（主库 TH 列）: 待审核——偏离时报 Terminology 但注明 soft，评估时按语境甄别

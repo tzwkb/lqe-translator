@@ -123,9 +123,11 @@ def _load_terminology(path: str) -> list:
 
 
 def _load_project(name_or_path: str) -> dict:
+    # 项目名 = <game>/<lang>（如 nrc/th、wwm/en），在 skill 根 projects/ 下解析（CWD 无关）；
+    # 带后缀或绝对路径按字面处理（支持任意位置的 profile.json）。
     p = Path(name_or_path)
-    if "/" not in str(name_or_path) and not p.suffix:
-        p = Path("projects") / name_or_path
+    if not p.suffix and not p.is_absolute():
+        p = _SKILL_ROOT / "projects" / p
     if p.is_dir():
         p = p / "profile.json"
     if not p.exists():
@@ -143,12 +145,13 @@ def _project_path(prof: dict, val: str) -> str:
     return str(q if q.is_absolute() else Path(prof["_dir"]) / q)
 
 
-# 语言属性层：languages/<lang>.json（skill 根，锚定脚本位置而非 CWD）。
-# 属性声明制——文件只描述语言学事实（script/word_delim/sentence_terminator/numerals/
-# wordcount_basis/eval_notes），不放检查开关；开关由 _lang_toggle_defaults 从属性推导。
+# 语言属性层：languages/<code>/（skill 根，锚定脚本位置而非 CWD）。
+# 每语言一个文件夹，固定文件名：attributes.json（语言学事实声明）+ eval_notes.md（语言级
+# AI 评估关注点，存在即挂载）。属性不放检查开关；开关由 _lang_toggle_defaults 从属性推导。
 # 入层标准：项目 SG 可能推翻的不是属性（em_dash/省略号/引号样式=项目取向，留 checks.json）。
 # 合并顺序：内置默认 < 属性推导 < 项目 checks.json < CLI 显式参数。schema 见 languages/README.md。
-_LANG_DIR = Path(__file__).resolve().parent.parent / "languages"
+_SKILL_ROOT = Path(__file__).resolve().parent.parent
+_LANG_DIR = _SKILL_ROOT / "languages"
 
 
 def _target_lang(state_or_pair) -> str:
@@ -165,7 +168,7 @@ def _target_lang(state_or_pair) -> str:
 def _load_lang(lang: str) -> dict:
     if not lang:
         return {}
-    p = _LANG_DIR / f"{lang}.json"
+    p = _LANG_DIR / lang / "attributes.json"
     return read_json(p) if p.exists() else {}
 
 
@@ -341,12 +344,12 @@ def cmd_read(args):
         or _target_lang(prof.get("language_pair", "") if prof else "")
     lang_cfg = _load_lang(lang)
     if lang_cfg:
-        print(f"[lqe_io] language attributes: languages/{lang}.json")
+        print(f"[lqe_io] language attributes: languages/{lang}/attributes.json")
 
-    # 语言级评估关注点 → 拷入 job，Step 2 注入（效力低于项目 SG/裁决）
+    # 语言级评估关注点（固定名 eval_notes.md，存在即挂载）→ 拷入 job，Step 2 注入（效力低于项目 SG/裁决）
     lang_notes_path = ""
-    if lang_cfg.get("eval_notes"):
-        np = _LANG_DIR / lang_cfg["eval_notes"]
+    if lang:
+        np = _LANG_DIR / lang / "eval_notes.md"
         if np.exists():
             dst = job_dir / "lang_notes.md"
             dst.write_text(np.read_text(encoding="utf-8"), encoding="utf-8")
