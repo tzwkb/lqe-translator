@@ -48,6 +48,11 @@ lqe-translator/
 pip install openpyxl requests python-docx -q
 ```
 
+Regression suite (all 23 builtin checks, profiles, batch/feedback smoke):
+```bash
+python scripts/run_tests.py
+```
+
 ```bash
 SCRIPTS=~/.claude/skills/lqe-translator/scripts
 ```
