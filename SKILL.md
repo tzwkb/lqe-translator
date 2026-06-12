@@ -31,7 +31,7 @@ SCRIPTS=~/.claude/skills/lqe-translator/scripts
 - 目标语言 `--target-lang`（可选，`en`/`th`）：挂载 `languages/<code>/` 语言属性（词数基准默认、检查适用性推导、评估关注点），见方式 C 语言层说明
 
 **方式 C：项目档案（同项目多文件复用，优先推荐）**
-- `read --project <game>/<lang>`（如 `nrc/th`）：从 `projects/<game>/<lang>/profile.json` 带出 SG/术语/词数基准/阈值/checks/adjudications，显式 CLI 参数优先
+- `read --project <game>/<lang>`（如 `nrc/th`）：从 `projects/<game>/<lang>/profile.json` 带出。**用户只给游戏名时**，列出 `projects/<game>/` 下含 profile.json 的语言轨子目录供选择；该游戏尚无目标语言轨则走新轨建档（复制同游戏他轨 profile 改 language_pair/SG/术语，common 素材天然共享） SG/术语/词数基准/阈值/checks/adjudications，显式 CLI 参数优先
 - `projects/<game>/<lang>/` 结构（游戏级共享素材放 `projects/<game>/common/`）：
   - `profile.json`：`{name, language_pair, style_guide, terminology, checks, adjudications, wordcount_basis, threshold, lock_statuses}`（相对路径相对 profile 所在目录解析；`lock_statuses`=哪些术语 status 算锁定，空数组=确认无锁定）
   - `checks.json`：项目专属确定性检查。`builtin` 开关内置项（键：`untranslated_cjk/em_dash/color_tags/variables/newline_count/length/locale_numbers/terminology/pos_placeholder/numbers_consistency/whitespace/fullwidth_punct/empty_target`，默认全开）；`custom` 数组：`{id, pattern(regex), where(target|source|both), category, severity, comment}`，每段命中一次报一条
