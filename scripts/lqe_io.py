@@ -978,30 +978,20 @@ def cmd_export(args):
             print(f"[export] cannot locate target column '{state['target_col']}'", file=sys.stderr)
             sys.exit(1)
 
-    # optional error detail for audit columns
-    err_map = {}
-    err_path = Path(args.errors) if getattr(args, "errors", None) else (state_path.parent / "errors.json")
-    if err_path.exists():
-        try:
-            for e in read_json(err_path):
-                err_map[e["id"]] = e.get("errors", [])
-        except Exception:
-            pass
-
     src_path = Path(state["input_path"])
     wb = openpyxl.load_workbook(str(src_path))
     ws = wb.active
     ncol = ws.max_column
 
+    # 成品文件：只在原结构后加一列「修正状态」（AI修正/未改/RAG保护）。
+    # 「为什么改/原译/类别」属审计证据，归报告 sheet2，不在此重复。
     from openpyxl.styles import Font, PatternFill
-    audit_hdr = ["原译文 Original", "修正状态 Status", "错误类别 Categories", "错误数"]
-    fill_fixed = PatternFill("solid", fgColor="FFF3CD")   # 改动行：浅琥珀
-    fill_lock = PatternFill("solid", fgColor="D1E7DD")    # RAG 保护：浅绿
+    fill_fixed = PatternFill("solid", fgColor="FFF3CD")   # AI修正：浅琥珀
+    fill_lock = PatternFill("solid", fgColor="D1E7DD")    # RAG保护：浅绿
 
     start_row = 1 if no_header else 2
     if not no_header:
-        for j, h in enumerate(audit_hdr):
-            ws.cell(row=1, column=ncol + 1 + j, value=h).font = Font(bold=True)
+        ws.cell(row=1, column=ncol + 1, value="修正状态 Status").font = Font(bold=True)
 
     n_fixed = n_lock = n_same = 0
     for i, row_cells in enumerate(ws.iter_rows(min_row=start_row)):
@@ -1018,13 +1008,9 @@ def cmd_export(args):
             final_text, status, fill = orig, "未改", None; n_same += 1
         if ti < len(row_cells):
             row_cells[ti].value = final_text
-        errs = err_map.get(i, [])
-        cats = "; ".join(sorted({er.get("category", "") for er in errs})) if errs else ""
-        rno = row_cells[0].row
-        for j, v in enumerate([orig if status == "AI修正" else "", status, cats, len(errs) or ""]):
-            c = ws.cell(row=rno, column=ncol + 1 + j, value=v)
-            if fill is not None:
-                c.fill = fill
+        c = ws.cell(row=row_cells[0].row, column=ncol + 1, value=status)
+        if fill is not None:
+            c.fill = fill
 
     out_path = state_path.parent / (src_path.stem + "_corrected.xlsx")
     wb.save(str(out_path))
@@ -1089,7 +1075,6 @@ def main():
 
     ex = sub.add_parser("export")
     ex.add_argument("--state", required=True)
-    ex.add_argument("--errors", default=None, help="错误 JSON（默认 {job}/errors.json）：用于附审计列 错误类别/数")
 
     ic = sub.add_parser("ingest-corpus")
     ic.add_argument("--state",    required=True)
