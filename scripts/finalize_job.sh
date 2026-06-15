@@ -11,10 +11,10 @@ if ! python3 "$SK/scripts/lqe_chunk.py" merge --state "$JOB/state.json" \
      --errors "$JOB/errors_precheck.json" --outdir "$JOB/chunks" --out "$JOB/errors.json"; then
   echo "MERGE-INCOMPLETE $1 (some ids uncovered; see above) — not finalizing"; exit 3
 fi
-OUT=$(python3 "$SK/scripts/lqe_calc.py" --state "$JOB/state.json" --errors "$JOB/errors.json" --threshold 98)
-echo "$OUT"
-SCORE=$(printf '%s' "$OUT" | grep -oE 'SCORE=[0-9.]+' | head -1 | cut -d= -f2)
-STATUS=$(printf '%s' "$OUT" | grep -oE 'STATUS=[A-Z]+' | head -1 | cut -d= -f2)
+RES=$(python3 "$SK/scripts/lqe_calc.py" --state "$JOB/state.json" --errors "$JOB/errors.json" --threshold 98 --json)
+echo "  calc: $RES"
+SCORE=$(printf '%s' "$RES" | python3 -c "import json,sys;print(json.load(sys.stdin)['score'])")
+STATUS=$(printf '%s' "$RES" | python3 -c "import json,sys;print(json.load(sys.stdin)['status'])")
 if [ "$STATUS" = "PASS" ]; then
   python3 "$SK/scripts/lqe_io.py" write --state "$JOB/state.json" --errors "$JOB/errors.json" --score "$SCORE" --threshold 98
 else

@@ -319,7 +319,7 @@ Agent 识别到 RAG/TM/memory 100% match 后，必须通过 `--locked-ids` 或 `
 
 ## 大文件分块评估 + 聚合 + 边界处理（标准流程）
 
-段数多（≳300）时 Step 2 改用 subagent 分块并行，避免单上下文爆窗。脚本：`lqe_chunk.py`（split/merge）、`lqe_aggregate.py`、`finalize_job.sh`、`mastertb_to_terms.py`（Master TB→terms）。
+段数多（≳300）时 Step 2 改用 subagent 分块并行，避免单上下文爆窗。脚本：`lqe_chunk.py`（split 去重+覆盖过滤 / merge 广播）、`finalize_job.sh`、`mastertb_to_terms.py`（Master TB→terms）。
 
 **流程**：
 1. pre-check（同 Step 1.5）→ errors.json 基底

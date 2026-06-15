@@ -27,6 +27,8 @@ def main():
                    help="逗号分隔的 locked seg id，其错误不计入 Critical 门")
     p.add_argument("--no-repeat-dedup", action="store_true", dest="no_repeat_dedup",
                    help="关闭 N4 重复错误去重（重复全额计分，旧行为）。默认：相同源译文段的同类同级错误仅首段计分，其余标 repeated（客户评分卡口径）")
+    p.add_argument("--json", action="store_true",
+                   help="只输出结构化 JSON（score/status/…）供编排脚本解析，不打印人读行")
     args = p.parse_args()
 
     sev_points = SEVERITY_POINTS_MQM if args.severity_scale == "mqm" else SEVERITY_POINTS
@@ -37,7 +39,9 @@ def main():
 
     wordcount = state["wordcount"]
     if wordcount == 0:
-        print("SCORE=100.00 STATUS=PASS CRITICAL=0")
+        print(json.dumps({"score": 100.0, "status": "PASS", "errors": 0, "wordcount": 0,
+                          "critical": 0, "repeated": 0, "npt": 0.0, "critical_gate": False})
+              if args.json else "SCORE=100.00 STATUS=PASS CRITICAL=0")
         return
 
     cat_raw = defaultdict(float)
@@ -79,6 +83,12 @@ def main():
     gate_fail = args.critical_gate and critical_count > 0
     status = "FAIL" if (gate_fail or score < args.threshold) else "PASS"
 
+    if args.json:
+        print(json.dumps({"score": round(score, 2), "status": status, "errors": total_errors,
+                          "wordcount": wordcount, "critical": critical_count,
+                          "repeated": repeated_count, "npt": round(npt, 2),
+                          "critical_gate": gate_fail}, ensure_ascii=False))
+        return
     gate_note = " (CRITICAL_GATE)" if gate_fail else ""
     print(f"SCORE={score:.2f} STATUS={status}{gate_note} ERRORS={total_errors} "
           f"WORDCOUNT={wordcount} CRITICAL={critical_count} REPEATED={repeated_count} NPT/1000={npt:.2f}")
