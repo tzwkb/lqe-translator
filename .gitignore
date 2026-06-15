@@ -7,3 +7,10 @@ input/
 .env
 .~*
 ~$*
+
+# client project data — config-only repo (keep profile/checks/adjudications/sg)
+projects/**/terms*.json
+projects/**/locked_*.json
+projects/**/sources/
+projects/**/inputs/
+projects/nrc/common/
