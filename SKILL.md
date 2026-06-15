@@ -324,7 +324,7 @@ Agent 识别到 RAG/TM/memory 100% match 后，必须通过 `--locked-ids` 或 `
 **流程**：
 1. pre-check（同 Step 1.5）→ errors.json 基底
 2. `lqe_chunk.py split`：① 按 (源,译) **去重**——完全相同句段只评一次（写 `dedup_map.json`），省冗余 + 杜绝同句异判；② term_hits **最长匹配覆盖过滤**——被同位置更长术语覆盖的子词不喂（如 `绒光优优` 不带 `优优`）。每块 ~200 段 → `chunks/chunk_NN.json`
-3. 每块派 1 subagent，读共享 `jobs/EVAL_SPEC.md`（评估规范：本节口径 + LQE 分类 + 范围口径，首次建后复用）+ 各自 sg/lang_notes + chunk，写 `chunk_NN.out.json`。**先 pilot 1 块验证格式再 fan-out**
+3. 每块派 1 subagent，读评估规范 `docs/EVAL_SPEC.md`（模板，可复制进 job 复用）+ 各自 sg/lang_notes/adjudications + chunk，写 `chunk_NN.out.json`。**先 pilot 1 块验证格式再 fan-out**
 4. `lqe_chunk.py merge`：按 dedup_map 把代表判定**套到同组所有段**；校验全 id 覆盖（缺 id 退回 pre-check）
 5. `finalize_job.sh <job> <nchunks>` 一键 merge→calc→apply-fixes→export（幂等，齐了才跑）
 
