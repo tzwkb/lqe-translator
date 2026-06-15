@@ -328,7 +328,7 @@ Agent 识别到 RAG/TM/memory 100% match 后，必须通过 `--locked-ids` 或 `
 4. `lqe_chunk.py merge`：按 dedup_map 把代表判定**套到同组所有段**；校验全 id 覆盖（缺 id 退回 pre-check）
 5. `finalize_job.sh <job> <nchunks>` 一键 merge→calc→apply-fixes→export（幂等，齐了才跑）
 
-**边界处理（段触发，不做全库扫描；完整决策表见 `docs/lqe_boundary_cases.md`）**：
+**边界处理（段触发，不做全库扫描；操作规则见下，完整决策表见 dev 仓 Langlobal `docs/lqe_boundary_cases.md`）**：
 - **范围口径（PM 0615 定）**：凡不一致或错误**一律列出**——含 ① 不在 TB 的术语各段译法不一致（→ Inconsistency）② TB 占位符/垃圾值（如 `音碟吼→ตัวสัตว์`）③ TB 自身错误。不静默、不只 FYI。
 - **整词在 TB**：最长匹配——与最长那条 TB 比，一致判对、不一致报 Terminology + 给 TB 译法（M1/M2/M3/M5）。被包含子词若与整词译法不一（如 `优优` in `绒光优优`）**不报**，属客户库自身问题。
 - **整词不在 TB**：缺词（M9）或被含部件在 TB 内冲突（M7）→ AI 出最佳但标"缺词"，**关键专名或出现分歧 → 拦人工裁决**；部件自洽（M6）→ 用部件译法拼整词 + 标待入库。
