@@ -15,7 +15,10 @@ entry preferred); differing-target duplicates are kept-first with a warning.
 import argparse
 import json
 import sys
+from collections import Counter
 from pathlib import Path
+
+from lqe_engine import read_json
 
 import openpyxl
 
@@ -93,7 +96,7 @@ def main():
 
     backfilled = 0
     if args.backfill:
-        old = json.loads(Path(args.backfill).read_text(encoding="utf-8"))
+        old = read_json(args.backfill)
         for t in old:
             s = clean(t.get("source"))
             g = clean(t.get("target"))
@@ -110,9 +113,8 @@ def main():
     Path(args.out).write_text(
         json.dumps(terms, ensure_ascii=False, indent=1), encoding="utf-8")
 
-    n_status = sum(1 for t in terms if t.get("status"))
-    from collections import Counter
     dist = Counter(t.get("status", "(none)") for t in terms)
+    n_status = len(terms) - dist.get("(none)", 0)
     print(f"[ok] wrote {len(terms)} unique terms -> {args.out}")
     print(f"     master-filled: {len(terms) - backfilled}  backfilled (待填充 gap): {backfilled}")
     print(f"     master empty-target rows: {dropped_empty}")

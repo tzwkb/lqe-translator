@@ -12,8 +12,7 @@ import sys
 from pathlib import Path
 
 
-def load(p):
-    return json.loads(Path(p).read_text(encoding="utf-8"))
+from lqe_engine import read_json as load
 
 
 def _term_hits(src_txt, titems, cap=15):
@@ -54,19 +53,14 @@ def cmd_split(a):
 
     # dedup identical (source,target): evaluate each unique pair once;
     # merge broadcasts the verdict back to every id in the group.
-    seg_by_id = {s["id"]: s for s in segs}
     groups = {}
     for seg in segs:
-        groups.setdefault((seg.get("source", ""), seg.get("target", "")), []).append(seg["id"])
-    reps, dedup_map, seen = [], {}, set()
-    for seg in segs:
-        key = (seg.get("source", ""), seg.get("target", ""))
-        if key in seen:
-            continue
-        seen.add(key)
-        rep = min(groups[key])
-        reps.append(rep)
-        dedup_map[rep] = groups[key]
+        groups.setdefault((seg.get("source", ""), seg.get("target", "")), []).append(seg)
+    reps, dedup_map = [], {}
+    for gsegs in groups.values():          # dict 保序：组按首次出现序
+        rep = min(gsegs, key=lambda s: s["id"])
+        reps.append(rep)                    # 存 seg 本身，省一张 id→seg 表
+        dedup_map[rep["id"]] = [s["id"] for s in gsegs]
 
     outdir = Path(a.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
@@ -78,14 +72,13 @@ def cmd_split(a):
     nchunks = (len(reps) + size - 1) // size
     for ci in range(nchunks):
         rows = []
-        for rid in reps[ci * size:(ci + 1) * size]:
-            seg = seg_by_id[rid]
+        for seg in reps[ci * size:(ci + 1) * size]:
             src_txt = seg.get("source", "")
             rows.append({
-                "id": rid,
+                "id": seg["id"],
                 "source": src_txt,
                 "target": seg.get("target", ""),
-                "precheck": pre_by_id.get(rid, []),
+                "precheck": pre_by_id.get(seg["id"], []),
                 "term_hits": _term_hits(src_txt, titems),
             })
         (outdir / f"chunk_{ci:02d}.json").write_text(
@@ -118,7 +111,7 @@ def cmd_merge(a):
             if rep in merged:
                 v = merged[rep]
                 for i in group:
-                    merged[i] = {"id": i, "errors": v["errors"], "corrected": v["corrected"]}
+                    merged[i] = {**v, "id": i}
     missing = [i for i in ids if i not in merged]
     out = []
     for i in ids:

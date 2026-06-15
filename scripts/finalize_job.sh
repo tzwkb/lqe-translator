@@ -1,7 +1,7 @@
 #!/bin/bash
 # finalize_job.sh <jobname> <nchunks>
 # Idempotent: only finalizes when all chunk out.json exist AND coverage is complete.
-SK="$HOME/.claude/skills/lqe-translator"
+SK="$(cd "$(dirname "$0")/.." && pwd)"   # skill 根（脚本位置锚定，与 HOME/CWD 无关）
 JOB="$SK/jobs/$1"; N="$2"
 have=$(ls "$JOB"/chunks/*.out.json 2>/dev/null | wc -l | tr -d ' ')
 if [ "$have" -lt "$N" ]; then echo "INCOMPLETE $1: $have/$N out.json"; exit 0; fi

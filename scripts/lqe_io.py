@@ -997,7 +997,6 @@ def cmd_export(args):
 
     # 成品文件：只在原结构后加一列「修正状态」（AI修正/未改/RAG保护）。
     # 「为什么改/原译/类别」属审计证据，归报告 sheet2，不在此重复。
-    from openpyxl.styles import Font, PatternFill
     fill_fixed = PatternFill("solid", fgColor="FFF3CD")   # AI修正：浅琥珀
     fill_lock = PatternFill("solid", fgColor="D1E7DD")    # RAG保护：浅绿
 
