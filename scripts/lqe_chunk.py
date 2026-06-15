@@ -16,48 +16,84 @@ def load(p):
     return json.loads(Path(p).read_text(encoding="utf-8"))
 
 
+def _term_hits(src_txt, titems, cap=15):
+    """Longest-match, coverage-filtered term hits. Keep a TB term only if it has
+    an occurrence NOT fully inside a longer term's occurrence — so 优优 inside
+    绒光优优 is dropped (the longer term already covers it), but a separate
+    standalone 优优 elsewhere in the segment is still kept."""
+    occ = []  # (start, end, src, th, status)
+    for ts, th, st in titems:               # titems is sorted longest-first
+        i = src_txt.find(ts)
+        while i >= 0:
+            occ.append((i, i + len(ts), ts, th, st))
+            i = src_txt.find(ts, i + 1)
+    occ.sort(key=lambda o: -(o[1] - o[0]))  # longest span first
+    accepted = []                           # spans claimed by longer terms
+    kept = {}                               # src -> hit (one entry per term)
+    for s, e, ts, th, st in occ:
+        if any(a <= s and e <= b for a, b in accepted):
+            continue                        # covered by a longer term -> drop
+        accepted.append((s, e))
+        if ts not in kept:
+            h = {"src": ts, "th": th}
+            if st:
+                h["status"] = st
+            kept[ts] = h
+    return list(kept.values())[:cap]
+
+
 def cmd_split(a):
     state = load(a.state)
     pre = load(a.errors)
     terms = load(a.terms)
     segs = state["segments"]
     pre_by_id = {e["id"]: e.get("errors", []) for e in pre}
-    # term hits: longest source-substring matches present in each segment source
     titems = [(t["source"], t.get("target", ""), t.get("status", ""))
               for t in terms if len(t.get("source", "")) >= 2]
     titems.sort(key=lambda x: -len(x[0]))
+
+    # dedup identical (source,target): evaluate each unique pair once;
+    # merge broadcasts the verdict back to every id in the group.
+    seg_by_id = {s["id"]: s for s in segs}
+    groups = {}
+    for seg in segs:
+        groups.setdefault((seg.get("source", ""), seg.get("target", "")), []).append(seg["id"])
+    reps, dedup_map, seen = [], {}, set()
+    for seg in segs:
+        key = (seg.get("source", ""), seg.get("target", ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        rep = min(groups[key])
+        reps.append(rep)
+        dedup_map[rep] = groups[key]
+
     outdir = Path(a.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
+    (outdir / "dedup_map.json").write_text(
+        json.dumps({str(k): v for k, v in dedup_map.items()}, ensure_ascii=False),
+        encoding="utf-8")
+
     size = a.size
-    n = len(segs)
-    nchunks = (n + size - 1) // size
+    nchunks = (len(reps) + size - 1) // size
     for ci in range(nchunks):
         rows = []
-        for seg in segs[ci * size:(ci + 1) * size]:
-            sid = seg["id"]
-            src = seg.get("corrected") or seg.get("source") or ""
+        for rid in reps[ci * size:(ci + 1) * size]:
+            seg = seg_by_id[rid]
             src_txt = seg.get("source", "")
-            tgt = seg.get("target", "")
-            hits = []
-            for ts, th, st in titems:
-                if ts in src_txt:
-                    h = {"src": ts, "th": th}
-                    if st:
-                        h["status"] = st
-                    hits.append(h)
-                    if len(hits) >= 15:
-                        break
             rows.append({
-                "id": sid,
+                "id": rid,
                 "source": src_txt,
-                "target": tgt,
-                "precheck": pre_by_id.get(sid, []),
-                "term_hits": hits,
+                "target": seg.get("target", ""),
+                "precheck": pre_by_id.get(rid, []),
+                "term_hits": _term_hits(src_txt, titems),
             })
         (outdir / f"chunk_{ci:02d}.json").write_text(
             json.dumps({"chunk_id": ci, "segments": rows},
                        ensure_ascii=False, indent=1), encoding="utf-8")
-    print(f"[split] {n} segments -> {nchunks} chunks (size {size}) in {outdir}")
+    dup = len(segs) - len(reps)
+    print(f"[split] {len(segs)} segments -> {len(reps)} unique (deduped {dup}) "
+          f"-> {nchunks} chunks (size {size}) in {outdir}")
 
 
 def cmd_merge(a):
@@ -74,6 +110,15 @@ def cmd_merge(a):
                 "errors": e.get("errors", []),
                 "corrected": e.get("corrected"),
             }
+    # broadcast each representative's verdict to all ids in its dedup group
+    dmap_path = Path(a.outdir) / "dedup_map.json"
+    if dmap_path.exists():
+        for rep_str, group in load(dmap_path).items():
+            rep = int(rep_str)
+            if rep in merged:
+                v = merged[rep]
+                for i in group:
+                    merged[i] = {"id": i, "errors": v["errors"], "corrected": v["corrected"]}
     missing = [i for i in ids if i not in merged]
     out = []
     for i in ids:
@@ -83,8 +128,9 @@ def cmd_merge(a):
             out.append({"id": i, "errors": pre_by_id.get(i, []), "corrected": None})
     Path(a.out).write_text(json.dumps(out, ensure_ascii=False, indent=1),
                            encoding="utf-8")
+    cov = sum(1 for i in ids if i in merged)
     print(f"[merge] {len(files)} chunk outputs -> {a.out}")
-    print(f"[merge] covered {len(merged)}/{len(ids)} ids; MISSING {len(missing)}: {missing[:20]}")
+    print(f"[merge] covered {cov}/{len(ids)} ids (after broadcast); MISSING {len(missing)}: {missing[:20]}")
     if missing:
         sys.exit(2)
 
