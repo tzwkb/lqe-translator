@@ -317,6 +317,27 @@ Agent 识别到 RAG/TM/memory 100% match 后，必须通过 `--locked-ids` 或 `
 
 ---
 
+## 大文件分块评估 + 聚合 + 边界处理（标准流程）
+
+段数多（≳300）时 Step 2 改用 subagent 分块并行，避免单上下文爆窗。脚本：`lqe_chunk.py`（split/merge）、`lqe_aggregate.py`、`finalize_job.sh`、`mastertb_to_terms.py`（Master TB→terms）。
+
+**流程**：
+1. pre-check（同 Step 1.5）→ errors.json 基底
+2. `lqe_chunk.py split`：① 按 (源,译) **去重**——完全相同句段只评一次（写 `dedup_map.json`），省冗余 + 杜绝同句异判；② term_hits **最长匹配覆盖过滤**——被同位置更长术语覆盖的子词不喂（如 `绒光优优` 不带 `优优`）。每块 ~200 段 → `chunks/chunk_NN.json`
+3. 每块派 1 subagent，读共享 `jobs/EVAL_SPEC.md`（评估规范：本节口径 + LQE 分类 + 范围口径，首次建后复用）+ 各自 sg/lang_notes + chunk，写 `chunk_NN.out.json`。**先 pilot 1 块验证格式再 fan-out**
+4. `lqe_chunk.py merge`：按 dedup_map 把代表判定**套到同组所有段**；校验全 id 覆盖（缺 id 退回 pre-check）
+5. `finalize_job.sh <job> <nchunks>` 一键 merge→calc→apply-fixes→export（幂等，齐了才跑）
+
+**边界处理（段触发，不做全库扫描；完整决策表见 `docs/lqe_boundary_cases.md`）**：
+- **范围口径（PM 0615 定）**：凡不一致或错误**一律列出**——含 ① 不在 TB 的术语各段译法不一致（→ Inconsistency）② TB 占位符/垃圾值（如 `音碟吼→ตัวสัตว์`）③ TB 自身错误。不静默、不只 FYI。
+- **整词在 TB**：最长匹配——与最长那条 TB 比，一致判对、不一致报 Terminology + 给 TB 译法（M1/M2/M3/M5）。被包含子词若与整词译法不一（如 `优优` in `绒光优优`）**不报**，属客户库自身问题。
+- **整词不在 TB**：缺词（M9）或被含部件在 TB 内冲突（M7）→ AI 出最佳但标"缺词"，**关键专名或出现分歧 → 拦人工裁决**；部件自洽（M6）→ 用部件译法拼整词 + 标待入库。
+- **同源同译重复** → 去重套用（D2）；**同源异译** → 报 Inconsistency（D4）；**聚合后仍分歧** → 不自动取 severity 最高者、一律人工核（D5，防 AI 幻觉错译被当结果）。
+- **severity 口径**：表面拼写（叠声调/缺字符等）= Minor（S1）。
+- **人工裁决回填**：拦下的项出 `待人工裁决_<job>.xlsx` 给 PM；PM 定后 → 写 `terms_*.json`（status=Approved）+ `adjudications.md` → 下次直接命中、不再问。
+
+---
+
 ## 辅助命令
 
 **导出修正译文**（PASS 后）：

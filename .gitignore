@@ -13,4 +13,5 @@ projects/**/terms*.json
 projects/**/locked_*.json
 projects/**/sources/
 projects/**/inputs/
-projects/nrc/common/
+projects/nrc/common/*
+!projects/nrc/common/adjudications_common.md

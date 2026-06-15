@@ -342,8 +342,20 @@ def cmd_read(args):
     if prof:
         cp = Path(_project_path(prof, prof.get("checks", "checks.json")))
         checks_path = str(cp) if cp.exists() else ""
+        # adjudications = game 级共通(<game>/common/adjudications_common.md) + 语言专有，拼成 job 内一份
         ap = Path(_project_path(prof, prof.get("adjudications", "adjudications.md")))
-        adjud_path = str(ap) if ap.exists() else ""
+        common_ap = ap.parent.parent / "common" / "adjudications_common.md"
+        parts = []
+        if common_ap.exists():
+            parts.append(f"<!-- ===== 共通裁决 (game级): {common_ap.name} ===== -->\n" + common_ap.read_text(encoding="utf-8"))
+        if ap.exists():
+            parts.append(f"<!-- ===== 语言专有裁决: {ap} ===== -->\n" + ap.read_text(encoding="utf-8"))
+        if parts:
+            combined = Path(args.out).parent / "adjudications.md"
+            combined.parent.mkdir(parents=True, exist_ok=True)
+            combined.write_text("\n\n".join(parts), encoding="utf-8")
+            adjud_path = str(combined)
+            print(f"[lqe_io] adjudications: {'共通+' if common_ap.exists() else ''}语言专有 → {combined}")
 
     state = {
         "input_path": str(Path(args.input).resolve()),
