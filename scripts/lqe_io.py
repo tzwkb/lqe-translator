@@ -290,23 +290,31 @@ def cmd_read(args):
             sg_path = str(sg_file)
             print(f"[lqe_io] style_guide: {len(sg_text)} chars → {sg_file}")
 
-    # ── Terminology → 独立 JSON 文件 ──────────────────────────────────────
+    # ── Terminology ───────────────────────────────────────────────────────
+    # 优化：项目模式下源已是干净 JSON 且无锁定标记 → terms_path 直接指向项目权威 TB，
+    # 不在每个 job 里复制一份（项目 terms_*.json 由 mastertb_to_terms 产出、已清理）。
+    # 需格式转换(xlsx/csv) 或要打 locked 标时，才落一份 job 副本。
     terms_path = ""
     if args.terminology:
-        terms = _load_terminology(args.terminology)
         lock_statuses = {str(s).lower() for s in (prof.get("lock_statuses") or [])} if prof else set()
-        if terms and lock_statuses:
-            n_locked = 0
-            for t in terms:
-                if str(t.get("status", "")).lower() in lock_statuses:
-                    t["locked"] = True
-                    n_locked += 1
-            print(f"[lqe_io] locked terms: {n_locked} (lock_statuses: {sorted(lock_statuses)})")
-        if terms:
-            terms_file = job_dir / "terms.json"
-            terms_file.write_text(json.dumps(terms, ensure_ascii=False, indent=2), encoding="utf-8")
-            terms_path = str(terms_file)
-            print(f"[lqe_io] terminology: {len(terms)} entries → {terms_file}")
+        src = Path(args.terminology)
+        if prof and src.suffix.lower() == ".json" and not lock_statuses and src.exists():
+            terms_path = str(src)
+            print(f"[lqe_io] terminology: 引用项目 TB（不复制）→ {src}")
+        else:
+            terms = _load_terminology(args.terminology)
+            if terms and lock_statuses:
+                n_locked = 0
+                for t in terms:
+                    if str(t.get("status", "")).lower() in lock_statuses:
+                        t["locked"] = True
+                        n_locked += 1
+                print(f"[lqe_io] locked terms: {n_locked} (lock_statuses: {sorted(lock_statuses)})")
+            if terms:
+                terms_file = job_dir / "terms.json"
+                terms_file.write_text(json.dumps(terms, ensure_ascii=False, indent=2), encoding="utf-8")
+                terms_path = str(terms_file)
+                print(f"[lqe_io] terminology: {len(terms)} entries → {terms_file}")
 
     lang = (getattr(args, "target_lang", None) or "").strip().lower() \
         or _target_lang(prof.get("language_pair", "") if prof else "")

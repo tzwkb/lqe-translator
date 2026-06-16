@@ -380,7 +380,7 @@ jobs/<文件名>/
 ├── state.json          初始化一次；跨轮持久化（译文、词数、迭代历史）
 ├── sg.txt              风格指南全文
 ├── lang_notes.md       语言级评估关注点（语言层带入，可无）
-├── terms.json          术语表
+├── terms.json          术语表（仅当源需转换 xlsx/csv、或要打锁定标时才落此副本；**项目 json 源 + 无锁定 → terms_path 直接引用项目 TB，不复制**）
 ├── errors.json         当前轮评估结果（每轮覆盖）
 ├── errors_precheck.json  pre-check 输出（首轮自动生成）
 ├── errors_iter{N}.json   各 FAIL 轮存档（apply-fixes 自动生成）
