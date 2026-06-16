@@ -16,7 +16,6 @@ lqe-translator/
 │   ├── lqe_io.py        # All I/O subcommands
 │   ├── lqe_checks.py    # Deterministic pre-check engine (23 builtin checks)
 │   ├── lqe_batch.py     # Batch orchestration + resumable runs (plan/merge)
-│   ├── lqe_feedback.py  # Client QAFeedback table export
 │   └── gen_*.py         # docs/ xlsx report generators
 ├── languages/<code>/    # Language attribute layer (linguistic facts; en/th)
 │   ├── attributes.json  # script/word_delim/sentence_terminator/numerals/wordcount_basis
@@ -222,9 +221,4 @@ python "$SCRIPTS/lqe_io.py" from-aipe \
 ```bash
 python "$SCRIPTS/lqe_batch.py" plan  --job "jobs/<stem>" [--output-budget 24000]
 python "$SCRIPTS/lqe_batch.py" merge --job "jobs/<stem>"
-```
-
-**Client QAFeedback export** (actionable errors only):
-```bash
-python "$SCRIPTS/lqe_feedback.py" --job "jobs/<stem>"
 ```

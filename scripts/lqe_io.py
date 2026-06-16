@@ -717,6 +717,35 @@ def _build_xlsx(state, history, score, threshold, out_path):
     ws.title = "LQA Scorecard"
     status   = "PASS" if score >= threshold else "FAIL"
 
+    # ── 导读 sheet（插最前）：说明后两个 sheet 的用处 + 建议使用思路 ──
+    intro = wb.create_sheet("说明·导读", 0)
+    _wrap = Alignment(wrap_text=True, vertical="top")
+    for r in [
+        ("LQE 质检报告 · 导读", "", "", ""),
+        ("", "", "", ""),
+        (f"本报告 3 个 sheet：本「说明·导读」+ 后两个正文。阈值 {threshold}；本次 {status}（{score:.2f} 分）。", "", "", ""),
+        ("", "", "", ""),
+        ("Sheet", "是什么", "给谁看", "怎么用"),
+        ("LQA Scorecard（第 2 个）", "计分卡：过/不过 + 分数 + 错误(类别×严重度)分布 + 罚分", "PM / 客户", f"先看这里拿整体判定：是否达标(阈值 {threshold})、差在哪类"),
+        ("LQE Results（第 3 个）", "逐段明细：原文 / 译文 / 建议修正(Suggest translation) / 错误详情 / 状态", "审校 / 译员", "逐段改稿：照「Suggest translation」列改、看「错误详情」知原因"),
+        ("", "", "", ""),
+        ("建议使用思路：", "", "", ""),
+        ("1. PM 先看「LQA Scorecard」拿整体判定（分数 / 状态 / 错误分布）。", "", "", ""),
+        ("2. 审校/译员到「LQE Results」，只处理有「错误详情」的行，照「Suggest translation」列改稿。", "", "", ""),
+        ("3. 「Suggest translation」留空 = 该段正确、无需改。", "", "", ""),
+        ("4. 修正若要落地，按项目流程（如改在线 memoQ）。", "", "", ""),
+    ]:
+        intro.append(r)
+        for c in intro[intro.max_row]:
+            c.alignment = _wrap
+    intro["A1"].font = Font(bold=True, size=13, color="073763")
+    for c in intro[5]:                       # 表头行
+        c.fill = _DARK_BLUE; c.font = _WHITE_FONT
+    intro["A9"].font = Font(bold=True)
+    for col, w in zip("ABCD", [22, 50, 12, 46]):
+        intro.column_dimensions[col].width = w
+    wb.active = intro
+
     def _db_row(row, height=14.25):
         ws.row_dimensions[row].height = height
         for col in range(1, 11):
@@ -909,7 +938,7 @@ def _build_xlsx(state, history, score, threshold, out_path):
 
     current_entries = {e["id"]: e for e in history[-1].get("errors", [])} if history else {}
     is_final_report = "_lqe_iter" not in out_path.name
-    translation_col = "Final Translation" if is_final_report else "Suggested Correction"
+    translation_col = "Suggest translation"   # 统一列名，对齐客户 QAFeedback 格式（iter/final 同名）
 
     ws2_headers = state["headers"] + [translation_col, "LQE_Error_Detail", "LQE_Status", "LQE_Iter", "RAG Protected", "RAG Evidence"]
     for ci, h in enumerate(ws2_headers, start=1):

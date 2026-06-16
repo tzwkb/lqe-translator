@@ -3,7 +3,7 @@
 Run:  python scripts/run_tests.py
 Covers: all 23 builtin pre-checks, language-attribute derivation, project
 profiles (method C), custom count_match, N4 repeat dedup in calc, wordcount
-chain + guard, and smoke tests for lqe_batch / lqe_feedback.
+chain + guard, and a smoke test for lqe_batch.
 Fixtures are built in a temp dir; nothing is written into the repo.
 """
 import json
@@ -244,20 +244,8 @@ def t7():
     check("T7 merge content", merged[0]["corrected"] == "Hello." and merged[1]["errors"] == [])
 
 
-# ── T8: lqe_feedback smoke ────────────────────────────────────────────────────
-def t8():
-    job = TMP / "j1"
-    r = run("lqe_feedback.py", "--job", str(job))
-    check("T8 feedback rc", r.returncode == 0, r.stderr[-200:])
-    out = job / "en_main_QAFeedback.xlsx"
-    check("T8 output exists", out.exists())
-    if out.exists():
-        ws = openpyxl.load_workbook(out).active
-        check("T8 row count", ws.max_row == 2, f"rows={ws.max_row}")  # header + seg 0 (the one merged error)
-
-
 if __name__ == "__main__":
-    for t in (t1, t2, t3, t4, t5, t6, t7, t8):
+    for t in (t1, t2, t3, t4, t5, t6, t7):
         t()
     total = len(PASS) + len(FAIL)
     print(f"\n{len(PASS)}/{total} passed" + (f"  FAILED: {FAIL}" if FAIL else "  — all green"))
