@@ -3,7 +3,7 @@
   "language_pair": "ZHCN-EN",
   "game": "Where Winds Meet (燕云十六声)",
   "style_guide": "sg.txt",
-  "terminology": "sources/terminology_0509.xlsx",
+  "terminology": "sources/terminology_0618.json",
   "checks": "checks.json",
   "adjudications": "adjudications.md",
   "threshold": 98

@@ -74,7 +74,15 @@ python "$SCRIPTS/lqe_io.py" read \
 - 未定义且术语带 status/状态类列 → 列出全部取值问用户哪些算锁定；答案写回 profile.json（确认「无」写 `[]`）持久化，下批不再问；方式 B 无 profile 时把 `locked: true` 直接写进 `jobs/<名>/terms.json` 对应词条
 - 术语表无任何状态信息 → 全部术语 review 时可甄别、可修改，不存在硬判级
 
-初始化完成后告知：段落数、词数、是否加载 SG 和术语表、锁定术语数（或「全部可 review」），提示运行 `/loop`。
+初始化完成后告知：段落数、词数、是否加载 SG 和术语表、锁定术语数（或「全部可 review」）。
+
+### 4. 迭代模式确认（运行评估前必问，不得擅自迭代）
+
+初始化告知后、首轮评估前，**必须明确询问用户是否启用自动迭代**，禁止默认进入多轮：
+- **不启用（默认）**：只跑第一轮——pre-check + 评估 + 计分 + `write` 出报告与建议修正，**不执行 apply-fixes 迭代循环**，首轮后即停。首轮分数即为对该译文的质量裁决。
+- **启用**：`STATUS=FAIL` 时自动 `apply-fixes` 回写修正并继续迭代至 `SCORE≥阈值`（由 `/loop` 或自驱动多轮）。
+
+用户未明确选择前按「不启用」处理；大文件分块流程同受此开关约束。确认后提示运行 `/loop`。
 
 ---
 
@@ -306,7 +314,7 @@ python "$SCRIPTS/lqe_io.py" write \
 ```
 报告输出文件路径，**停止 /loop**。
 
-**STATUS=FAIL：**
+**STATUS=FAIL：**（仅当用户在「迭代模式确认」选了**启用自动迭代**时，才执行下列 apply-fixes 循环；若**不启用**，改为：用 `write` 出首轮报告 + 导出建议修正后**停止**，不回写迭代）
 ```bash
 python "$SCRIPTS/lqe_io.py" apply-fixes \
   --state "$JOB/state.json" --errors "$JOB/errors.json" \
