@@ -384,7 +384,7 @@ projects/<game>/<lang>/   语言轨档案（方式 C；游戏级共享素材在 
 ├── adjudications.md    客户裁决记录（评估前必读）
 └── terms_*.json        项目术语（可带 status）
 
-jobs/<文件名>/
+jobs/<文件名>/                  单文件任务（多 sheet/需拆分见下「多 sheet」）
 ├── state.json          初始化一次；跨轮持久化（译文、词数、迭代历史）
 ├── sg.txt              风格指南全文
 ├── lang_notes.md       语言级评估关注点（语言层带入，可无）
@@ -392,7 +392,14 @@ jobs/<文件名>/
 ├── errors.json         当前轮评估结果（每轮覆盖）
 ├── errors_precheck.json  pre-check 输出（首轮自动生成）
 ├── errors_iter{N}.json   各 FAIL 轮存档（apply-fixes 自动生成）
-├── *_lqe_iter{N}.xlsx    各 FAIL 轮报告
-├── *_corrected.xlsx       最终修正译文；locked 段保持原 target
-└── *_lqe.xlsx            最终 PASS 报告
+├── <job标签>_lqe_iter{N}.xlsx   各 FAIL 轮报告
+├── <job标签>_corrected.xlsx     最终修正译文；locked 段保持原 target
+└── <job标签>_lqe.xlsx           最终 PASS 报告
 ```
+
+**输出文件名必须标注任务来源**：`<job标签>` = 该 job 在 `jobs/` 下的子路径用 `_` 连接，由 `lqe_io._job_label()` 统一生成（单文件 `jobs/A/` → `A`；多 sheet `jobs/A/剧情/` → `A_剧情`）。apply-fixes/write/export 均据此命名，**禁止**再出现 `src_lqe_iter0.xlsx` 这种看不出来源的名字。
+
+**多 sheet / 需拆分的输入**：`read` 只读 active sheet，且各 sheet 列名/内容类别（剧情/功能/社媒…对应不同 SG 规则）常不同 → 按 sheet 拆为子 job：
+- 子 job 落 `jobs/<文件名>/<sheet>/`（各自 state/errors/报告，文件名自带 `<文件名>_<sheet>` 前缀）
+- 跨 sheet 的合并交付物（汇总报告、还原原结构的修正文件）放父目录 `jobs/<文件名>/`，**不得散落在 `jobs/` 根**
+- 还原的修正文件须镜像原始多 sheet 结构（含空行/全部列），仅替换译文列

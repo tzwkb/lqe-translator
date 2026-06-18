@@ -71,6 +71,19 @@ def _pick_col(keys: list, candidates: set) -> str | None:
     return None
 
 
+def _job_label(state_path) -> str:
+    """输出文件名前缀：标注产物来自哪个任务。取 jobs/ 下的子路径用 _ 连接
+    （如 jobs/LQE测试用/剧情/ → 'LQE测试用_剧情'），否则退回 job 目录名。
+    避免多文件/多 sheet 拆分时所有 job 都叫 src_*，看不出来源。"""
+    d = Path(state_path).resolve().parent
+    parts = d.parts
+    if "jobs" in parts:
+        sub = parts[parts.index("jobs") + 1:]
+        if sub:
+            return "_".join(sub)
+    return d.name
+
+
 def _load_terminology(path: str) -> list:
     p = Path(path)
     if not p.exists():
@@ -604,7 +617,7 @@ def cmd_apply_fixes(args):
     src = Path(state["input_path"])
     iter_score = cur_entry.get("score") or 0.0
     threshold = getattr(args, "threshold", 98.0)
-    iter_out = state_path.parent / (src.stem + f"_lqe_iter{cur_iter}.xlsx")
+    iter_out = state_path.parent / (_job_label(state_path) + f"_lqe_iter{cur_iter}.xlsx")
     _build_xlsx(state, [cur_entry], iter_score, threshold, iter_out)
 
 
@@ -996,7 +1009,7 @@ def cmd_write(args):
         state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
 
     src = Path(state["input_path"])
-    out_path = state_path.parent / (src.stem + "_lqe.xlsx")
+    out_path = state_path.parent / (_job_label(state_path) + "_lqe.xlsx")
     _build_xlsx(state, history, score, args.threshold, out_path)
 
 
@@ -1060,7 +1073,7 @@ def cmd_export(args):
         if fill is not None:
             c.fill = fill
 
-    out_path = state_path.parent / (src_path.stem + "_corrected.xlsx")
+    out_path = state_path.parent / (_job_label(state_path) + "_corrected.xlsx")
     wb.save(str(out_path))
     print(f"[export] AI修正 {n_fixed} / RAG保护 {n_lock} / 未改 {n_same} → {out_path}")
 
