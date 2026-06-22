@@ -964,7 +964,7 @@ def _build_xlsx(state, history, score, threshold, out_path):
         has_error = bool(errs)
         row_fill = _ORANGE if has_error else _GREEN_LIGHT if seg.get("corrected") else None
         row_data = list(raw_row) + [
-            (seg.get("corrected") or "") if is_final_report else (current_entries.get(seg["id"], {}).get("corrected") or ""),
+            (seg.get("corrected") or current_entries.get(seg["id"], {}).get("corrected") or "") if is_final_report else (current_entries.get(seg["id"], {}).get("corrected") or ""),
             _fmt_errors(errs),
             "Error" if has_error else ("Fixed" if seg.get("corrected") else "OK"),
             seg.get("iter", 0),
@@ -1027,6 +1027,16 @@ def cmd_export(args):
     state = read_json(state_path)
     segments = state["segments"]
     seg_map = {s["id"]: s for s in segments}
+
+    # 单轮无 apply-fixes 时 state.corrected 为空：可从 errors.json 取建议修正填充（仅本次导出，不写回 state）
+    if getattr(args, "errors", None):
+        n_overlay = 0
+        for e in read_json(args.errors):
+            seg = seg_map.get(e["id"])
+            if seg is not None and not seg.get("corrected") and e.get("corrected"):
+                seg["corrected"] = e["corrected"]; n_overlay += 1
+        if n_overlay:
+            print(f"[export] overlaid {n_overlay} suggested corrections from {args.errors}")
 
     no_header = isinstance(state.get("source_col"), int) or (
         isinstance(state.get("source_col"), str) and state["source_col"].isdigit()
@@ -1136,6 +1146,7 @@ def main():
 
     ex = sub.add_parser("export")
     ex.add_argument("--state", required=True)
+    ex.add_argument("--errors", default=None, help="可选 errors.json：state.corrected 为空时用其 corrected 填充建议修正（单轮 FAIL 导出用）")
 
     ic = sub.add_parser("ingest-corpus")
     ic.add_argument("--state",    required=True)

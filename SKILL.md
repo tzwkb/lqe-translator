@@ -327,14 +327,30 @@ Agent 识别到 RAG/TM/memory 100% match 后，必须通过 `--locked-ids` 或 `
 
 ## 大文件分块评估 + 聚合 + 边界处理（标准流程）
 
-段数多（≳300）时 Step 2 改用 subagent 分块并行，避免单上下文爆窗。脚本：`lqe_chunk.py`（split 去重+覆盖过滤 / merge 广播）、`finalize_job.sh`、`mastertb_to_terms.py`（Master TB→terms）。
+段数多（≳300）时 Step 2 改用 subagent 分块并行，避免单上下文爆窗。脚本：`lqe_chunk.py`（split 去重+覆盖过滤+`kind` 标记 / merge-lenses 合 lens / merge 广播）、`finalize_job.sh`、`mastertb_to_terms.py`（Master TB→terms）。
+
+**Step 2 改用多 lens（召回靠结构，非嘱咐）**：一个 agent「找所有类型错」会锚定显眼类（术语/名字），系统性漏挖语义/机制/语法（实证：何老师批，单轮漏 21 条含 5 Major 机制误译）。拆成 4 个**窄 lens** 各只管自己几类、互不可见，规范在 `docs/lenses/`（`_common.md` + `T/A/G/R.md`）：
+
+| lens | 类别 owner | 跑哪些段 | 输出 |
+|---|---|---|---|
+| **T 术语一致** | Terminology, Inconsistency, Company style + pre-check 甄别 | 全部段 | **全部段**（含无错段，merge 基准轴） |
+| **A 准确机制** | Mistranslation, Omission, Addition, Untranslated | 全部段 | 只命中段 |
+| **G 语法拼写** | Grammar, Spelling, Punctuation(语义) | `kind=desc` 段 | 只命中段 |
+| **R 语域自然** | Audience appropriateness, Culture specific reference, Unidiomatic | `kind=desc` 段 | 只命中段 |
+
+A 是召回命门（旧单轮的盲区）；门控由 `kind`（split 自动标 name/desc）决定，存疑偏 desc。
 
 **流程**：
 1. pre-check（同 Step 1.5）→ errors.json 基底
-2. `lqe_chunk.py split`：① 按 (源,译) **去重**——完全相同句段只评一次（写 `dedup_map.json`），省冗余 + 杜绝同句异判；② term_hits **最长匹配覆盖过滤**——被同位置更长术语覆盖的子词不喂（如 `绒光优优` 不带 `优优`）。每块 ~200 段 → `chunks/chunk_NN.json`
-3. 每块派 1 subagent，读评估规范 `docs/EVAL_SPEC.md`（模板，可复制进 job 复用）+ 各自 sg/lang_notes/adjudications + chunk，写 `chunk_NN.out.json`。**先 pilot 1 块验证格式再 fan-out**
-4. `lqe_chunk.py merge`：按 dedup_map 把代表判定**套到同组所有段**；校验全 id 覆盖（缺 id 退回 pre-check）
-5. `finalize_job.sh <job> <nchunks>` 一键 merge→calc→apply-fixes→export（幂等，齐了才跑）
+2. `lqe_chunk.py split`：① 按 (源,译) **去重**——完全相同句段只评一次（写 `dedup_map.json`），省冗余 + 杜绝同句异判；② term_hits **最长匹配覆盖过滤**——被同位置更长术语覆盖的子词不喂（如 `绒光优优` 不带 `优优`）；③ 每段标 `kind`（name/desc）供 lens 门控。每块 ~200 段 → `chunks/chunk_NN.json`
+3. **每块 × 每个适用 lens 派 1 subagent**，读 `docs/lenses/_common.md` + 自己的 lens 文件（`T/A/G/R.md`）+ 各自 sg/lang_notes/adjudications + chunk，写 `chunk_NN.<L>.json`（如 `chunk_03.A.json`）。lens 分工见上表（T/A 跑全部段，G/R 跑 desc 段）。**每个 lens 先 pilot 1 块验证格式再 fan-out**；T 是基准轴必须先齐。
+4. `lqe_chunk.py merge-lenses --outdir chunks`：以 T 为基准 union A/G/R 命中 → `chunk_NN.out.json`（**自动归并扁平 schema** lens 文件；多 lens 同段 corrected=null 交人工整合）
+5. `lqe_chunk.py validate-lenses --outdir chunks`（合并前结构守门：缺 id/坏类别/T 脊柱不全→非零退出，防静默丢数据）→ `reconcile --outdir chunks`（A_OWNED 类 Mistranslation/Omission/Addition/Untranslated 仅留 A 确认项、剔 T 透传并存档 `reconcile_dropped.json`）
+6. `lqe_chunk.py merge`：按 dedup_map 把代表判定**套到同组所有段**；校验全 id 覆盖（缺 id 退回 pre-check）
+7. `finalize_job.sh <job> <nchunks> [single|iterate]` 一键 merge-lenses→validate-lenses→reconcile→merge→calc→report→export（幂等，T 脊柱齐了才跑）；**单轮传 `single`**——FAIL 也只 write、不 apply-fixes（建议修正由 write 回退 errors.json + export `--errors` 显示）
+
+> **小文件（不分块）**：单 agent 一轮即可，但 prompt 须把 A 的「必查清单」（占位符角色/机制动词/数值/条件）+ G/R 关注点并入，否则同样锚定漏挖。
+> **finalize_job.sh 注**：已内置 merge-lenses→validate-lenses→reconcile→merge 全链（无需手动先跑）；第 3 参数 `single`=单轮、缺省=迭代。
 
 **边界处理（段触发，不做全库扫描；操作规则见下，完整决策表见 dev 仓 Langlobal `docs/lqe_boundary_cases.md`）**：
 - **范围口径（PM 0615 定）**：凡不一致或错误**一律列出**——含 ① 不在 TB 的术语各段译法不一致（→ Inconsistency）② TB 占位符/垃圾值（如 `音碟吼→ตัวสัตว์`）③ TB 自身错误。不静默、不只 FYI。

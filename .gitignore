@@ -5,13 +5,6 @@ __pycache__/
 jobs/
 input/
 .env
+projects/
 .~*
 ~$*
-
-# client project data — config-only repo (keep profile/checks/adjudications/sg)
-projects/**/terms*.json
-projects/**/locked_*.json
-projects/**/sources/
-projects/**/inputs/
-projects/nrc/common/*
-!projects/nrc/common/adjudications_common.md

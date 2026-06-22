@@ -18,6 +18,7 @@ from lqe_engine import (
 
 _RE_DASH     = re.compile(r'—')
 _RE_NUM      = re.compile(r'(?<!\d)(\d{4,})(?!\d)')
+_RE_HEXCOLOR = re.compile(r'#[0-9A-Fa-f]{3,8}')  # hex 色值 #c15100/#292929 — 数值/Locale 检查前屏蔽，否则其数字段被误报
 _RE_COLOR    = {c: re.compile(rf'#{c}[^#]*?#E') for c in 'GCY'}  # count-only, content translatable
 _RE_VARS     = [re.compile(r'\{[^}]*\}'), re.compile(r'%[sd]')]   # exact match
 # R1: 位置占位符顺序（无索引 %s/%d 顺序敏感；命名/带索引占位符允许重排）
@@ -287,7 +288,11 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
                     errs.append({"category": "Length", "severity": "Major",
                                  "comment": f"Target {tgt_len} chars > 1.5× source {src_len} (markup stripped)"})
 
-        for m in (_RE_NUM.finditer(tgt) if on("locale_numbers") else ()):
+        # 屏蔽 hex 色值（#c15100/#292929），其数字段不参与数值/千分位检查
+        src_nohex = _RE_HEXCOLOR.sub(' ', src)
+        tgt_nohex = _RE_HEXCOLOR.sub(' ', tgt)
+
+        for m in (_RE_NUM.finditer(tgt_nohex) if on("locale_numbers") else ()):
             num = int(m.group(1))
             if not (1900 <= num <= 2099):
                 errs.append({"category": "Locale convention", "severity": "Minor",
@@ -325,8 +330,8 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
                          "comment": f"Positional placeholder order changed: {src_pos} → {tgt_pos}"})
 
         # R6: 数值一致性（仅当源含阿拉伯数字；漏译/改值是游戏 Critical 级隐患）
-        if on("numbers_consistency") and _RE_NUMTOK.search(src):
-            missing = _norm_nums(src) - _norm_nums(tgt)
+        if on("numbers_consistency") and _RE_NUMTOK.search(src_nohex):
+            missing = _norm_nums(src_nohex) - _norm_nums(tgt_nohex)
             if missing:
                 miss = ", ".join(sorted(missing.elements()))
                 errs.append({"category": "Mistranslation", "severity": "Major",
