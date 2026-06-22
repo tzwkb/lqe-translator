@@ -15,7 +15,9 @@ lqe-translator/
 │   ├── lqe_calc.py      # Score calculator (N4 repeat dedup)
 │   ├── lqe_io.py        # All I/O subcommands
 │   ├── lqe_checks.py    # Deterministic pre-check engine (23 builtin checks)
-│   ├── lqe_batch.py     # Batch orchestration + resumable runs (plan/merge)
+│   ├── lqe_chunk.py     # Multi-lens fan-out (split/merge-lenses/validate-lenses/reconcile/merge)
+│   ├── finalize_job.sh  # Multi-lens one-shot finalize (single|iterate)
+│   ├── lqe_batch.py     # Output-budget batching + resumable runs (plan/merge)
 │   └── gen_*.py         # docs/ xlsx report generators
 ├── languages/<code>/    # Language attribute layer (linguistic facts; en/th)
 │   ├── attributes.json  # script/word_delim/sentence_terminator/numerals/wordcount_basis
@@ -25,6 +27,7 @@ lqe-translator/
 │   │                    #   + terms_*.json + sg_* + sources/ + inputs/
 │   └── common/          # Game-level shared reference (language-agnostic)
 ├── docs/                # Analysis & report documents
+│   └── lenses/          # Multi-lens specs (_common + T/A/G/R)
 ├── jobs/
 │   └── <file_stem>/     # One folder per translation job
 │       ├── state.json         # Job state (segments, history, paths)
@@ -160,6 +163,41 @@ python "$SCRIPTS/lqe_io.py" write \
 ```
 
 Generates `*_lqe.xlsx` with full iteration history.
+
+---
+
+## Large Files — Multi-Lens Fan-Out
+
+For jobs with many segments (≳300), Step 3 runs as parallel subagents split across **4 narrow lenses** — recall is guaranteed by structure, not by instruction. Lens specs live in `docs/lenses/` (`_common.md` + `T/A/G/R.md`).
+
+| Lens | Owns | Segments |
+|------|------|----------|
+| **T** terminology | Terminology, Inconsistency, Company style + pre-check triage | all (spine) |
+| **A** accuracy | Mistranslation, Omission, Addition, Untranslated | all |
+| **G** grammar | Grammar, Spelling, semantic Punctuation | desc |
+| **R** register | Audience appropriateness, Culture specific reference, Unidiomatic | desc |
+
+```bash
+# 1. split: dedup (source,target) + longest-match term coverage + kind tagging
+python "$SCRIPTS/lqe_chunk.py" split --state state.json --errors errors.json \
+  --terms terms.json --outdir chunks --size 200
+# 2. one subagent per chunk × lens → chunk_NN.<L>.json  (T/A all segs; G/R desc segs)
+# 3. union lenses → chunk_NN.out.json  (auto-normalizes flat-schema lens files)
+python "$SCRIPTS/lqe_chunk.py" merge-lenses   --outdir chunks
+# 4. structural gate: missing id / bad category / T-spine gap → non-zero exit
+python "$SCRIPTS/lqe_chunk.py" validate-lenses --outdir chunks
+# 5. category ownership: A-owned errors kept only if lens A confirms (archives reconcile_dropped.json)
+python "$SCRIPTS/lqe_chunk.py" reconcile      --outdir chunks
+# 6. broadcast dedup groups to every id → errors.json
+python "$SCRIPTS/lqe_chunk.py" merge --state state.json --errors errors_precheck.json \
+  --outdir chunks --out errors.json
+```
+
+One-shot (steps 3–6 + calc + report + export; idempotent, runs once all T spines exist):
+```bash
+bash "$SCRIPTS/finalize_job.sh" <job_stem> <nchunks> [single|iterate]
+```
+`single` = first-round report only (no apply-fixes); `iterate` (default) = apply-fixes loop while FAIL.
 
 ---
 
