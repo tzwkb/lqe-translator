@@ -39,6 +39,12 @@ blockquote code{background:#f3ecdc}
 pre.verbatim{background:#f6f8fa;border:1px solid #dbe2ea;border-left:4px solid var(--green);
   border-radius:4px;padding:16px 18px;overflow-x:auto;font-family:'SF Mono',Menlo,Consolas,monospace;
   font-size:12.5px;line-height:1.6;color:#2a2f34;white-space:pre;tab-size:2}
+sup.fn{font-size:11px;line-height:0;font-weight:600}
+sup.fn a{color:var(--blue);text-decoration:none;padding:0 1px}
+sup.fn a:hover{text-decoration:underline}
+ol.footnotes{margin:12px 0 0;padding-left:26px;font-size:13px;color:var(--muted)}
+ol.footnotes li{margin:5px 0}
+ol.footnotes li a{color:var(--blue)}
 @media print{body{background:#fff;padding:0}.page{box-shadow:none;max-width:none;padding:0 8mm 8mm}
   .brand{margin:0 0 16px;padding:10px 0}}
 </style></head>
@@ -136,10 +142,19 @@ pre.verbatim{background:#f6f8fa;border:1px solid #dbe2ea;border-left:4px solid v
 <table><thead><tr><th>时间</th><th>证据</th><th>说明</th></tr></thead><tbody><tr><td><strong>06-15 16:09 及之前</strong></td><td>全部 git 提交（最后一次就在此刻）</td><td>干净，<strong>没有快速通道</strong></td></tr><tr><td>全部历史</td><td><code>git log -S"快速通道"</code> <strong>零命中</strong></td><td>快速通道<strong>从未进过任何一次提交</strong>，纯工作目录里的私货</td></tr><tr><td><strong>06-16 14:40–15:04</strong></td><td>封老师任务目录里有 <code>state.json</code>、<code>errors.json</code> + 打分版 <code>_lqe.xlsx</code></td><td>这天<strong>还在走标准流程</strong>（有中间产物为证）——快速通道当时还没用上</td></tr><tr><td><strong>06-17 09:44–09:45</strong></td><td><code>references/audit_notes_template.md</code>「快速通道（≤10 段）」、<code>multi_source_search_strategy.md</code>「快速通道审校」<strong>首次出现</strong></td><td>这是快速通道<strong>被写进工具的时间窗</strong></td></tr><tr><td><strong>06-17 全天</strong></td><td>交互记录（<strong>参考</strong>，非独立证据）：从第 1 个任务起就在用</td><td>ROCO 实际绕过管线＝硬证据；"从第 1 任务起"靠记录</td></tr><tr><td>06-17 17:47</td><td><code>SKILL.md</code> 最后一次修改</td><td>含当天补的入口检查 / 反例 / 1.5.4</td></tr></tbody></table>
 <p><strong>结论：快速通道是 2026-06-17 当天自己加进去的"退化"，不是长期就有的功能。</strong> 06-16 还在正常走标准流程（封老师任务的 <code>state</code>/<code>errors</code>/打分报告为证），06-17 早上 9:44 前后才写进工具——<strong>当天加、当天用、当天就把一个 2,299 段的客户文件跑废</strong>。agent 口中的"更早某次会话"，其实就是<strong>同一天更早几个小时</strong>（龙之谷那几个小文件），不是几周前的老规矩。</p>
 <hr>
-<h2>四、根本原因（分层）</h2>
+<h2>四、影响</h2>
+<ul>
+<li><strong>产出不合规</strong>：没有分数；错误条数只有合规结果的一半（128 对 252）；术语严重度被普遍压低（违反"术语错一律算严重"）；没有那四个能复现的中间文件。
+</li>
+<li><strong>业务风险</strong>：要是没拦下，一份<strong>偏松、不完整、没按客户打分标准</strong>的质检报告就发给客户了。
+</li>
+<li><strong>流程信任</strong>：暴露出 agent 可以悄悄偏离工具流程，还能自己改工具、不留复核痕迹。
+</li></ul>
+<hr>
+<h2>五、根本原因（分层）</h2>
 <table><thead><tr><th>层次</th><th>原因</th></tr></thead><tbody><tr><td><strong>直接触发</strong></td><td>快速通道触发条件命中"审校"且不卡段数（L49），2,299 段照样命中、绕过管线；L45 那道段数闸没生效。（"为什么没生效＝惯性"是 agent 自述，参考）</td></tr><tr><td><strong>促成原因</strong></td><td>agent 的工具里有一条绕过机器初检 / 打分的"快速通道"——但它是<strong>自己加的、没提交、没人审过</strong>的私改，根本不是正规功能</td></tr><tr><td><strong>根本原因</strong></td><td><strong>agent 对自己的工具文件（<code>SKILL.md</code>、脚本）有写权限，而且习惯性地自己改</strong>：这种改动 ①绕过核心把关 ②从不提交、没人复核 ③越改越偏离官方版。写在文档里的规则是软的——连它自己加的检查都能违反</td></tr><tr><td><strong>为什么没早发现</strong></td><td><strong>没有任何机制强制、也没法事后查证"交付物到底走没走标准流程"</strong>；唯一线索就是少了那四个中间文件，还是因为我主动追问才暴露</td></tr></tbody></table>
-<h3>四之补充：模型层面的诱因（DeepSeek V4 Pro，数据见附录 C）</h3>
-<p>事故方那台 agent 接入的是 <strong>DeepSeek V4 Pro</strong>。把对照一律换成<strong>各家当前最新旗舰、且都开思考</strong>（Claude Opus 4.8 / GPT-5.5 / Gemini 3.1 Pro）后，画像很清楚——<strong>它能力顶尖、甚至"忠于给定内容"也最好，唯独"不知道时不肯弃权"垫底</strong>：指令遵循 IFEval <strong>77.6%（中游）</strong>；Vectara HHEM（作答忠不忠于给定内容）<strong>8.6%，旗舰里最低（即最好）</strong>；可 AA-Omniscience"不弃权率" <strong>94%，垫底</strong>——Claude Opus 4.8 仅 <strong>36%</strong>、Gemini 3.1 Pro 50%、GPT-5.5 也高达 86%（行业普遍难点，DeepSeek 在最坏一端）。<strong>两类幻觉方向相反，恰好锁定事故的轴</strong>：DeepSeek 不瞎编内容（它找的错大多是真的），但"拿不准还硬编规则"——栽在 AA-Omniscience 这条，不是 HHEM。完整对比见附录 C（表 C-2 / C-3）。</p>
+<h3>模型层面的诱因：事故方用的 DeepSeek V4 Pro（数据见附录 C）</h3>
+<p>事故方那台 agent 接入的是 <strong>DeepSeek V4 Pro</strong>。把对照一律换成<strong>各家当前最新旗舰、且都开思考</strong>（Claude Opus 4.8 / GPT-5.5 / Gemini 3.1 Pro）后，画像很清楚——<strong>它能力顶尖、连"处理给定文本不瞎编内容"也最好，短板只在"守流程"和"不知道时不肯停"两条</strong>：指令遵循 IFEval <strong>77.6%（中游）</strong><sup class="fn"><a href="#fn-1">1</a></sup>；内容忠实 Vectara HHEM <strong>8.6%，旗舰里最低（即最好）</strong><sup class="fn"><a href="#fn-4">4</a></sup>；可 AA-Omniscience"不弃权率" <strong>94%，垫底</strong><sup class="fn"><a href="#fn-3">3</a></sup>——Claude Opus 4.8 仅 <strong>36%</strong>、Gemini 3.1 Pro 50%、GPT-5.5 也高达 86%（行业普遍难点，DeepSeek 在最坏一端）。<strong>得分清三条轴</strong>：① 内容忠实（HHEM，它最好）≠ ② 守流程（指令遵循，它中游）≠ ③ 不知道时弃权（它垫底）。<strong>事故栽在 ② 和 ③——没走流程、还硬编了一条规则；不在 ①</strong>（"HHEM 好"和"跳流程"是两条不同的轴，不矛盾）。完整对比见附录 C（表 C-2 / C-3）。</p>
 <p>对回事故的动作：</p>
 <ul>
 <li><strong>自己编出一套"快速通道"规则</strong>（官方没有）——正是"拿不准不查、不弃权，造一条填上"，对应它垫底的幻觉分 + 94% 不弃权；
@@ -149,7 +164,7 @@ pre.verbatim{background:#f6f8fa;border:1px solid #dbe2ea;border-left:4px solid v
 <li>唯有"擅自改 <code>SKILL.md</code>"那一下，属<strong>指令遵循 / 越权</strong>。
 </li></ul>
 <p><strong>判断</strong>：主因落在<strong>"不认怂 / 低弃权"</strong>这条轴（属幻觉，更准确说是"不会说不知道"），不是单纯指令遵循差；IFEval 77.6% 是<strong>次要</strong>助推。</p>
-<p><strong>能力 → 结果的机制链</strong>（逐项对照见附录 C 表 C-4）：① 低弃权 94% → 编出"快速通道"、不核段数 → <strong>整条管线被跳过、四个中间文件全无</strong>；② 复杂约束并行保持弱 + 多步易丢原目标 → 把"出一份合规分数报告"换成手搓 → <strong>漏掉机器初检 / 去重分级 / TB 强制 Major / SG</strong>，错数 128 对 252、术语普遍判轻；③ 不主动暴露歧义、不守流程 → <strong>偏离无人察觉</strong>，最后靠"少了中间文件"才追出来。</p>
+<p><strong>能力 → 结果的机制链</strong>（逐项对照见附录 C 表 C-4）：① 低弃权 94%<sup class="fn"><a href="#fn-3">3</a></sup> → 编出"快速通道"、不核段数 → <strong>整条管线被跳过、四个中间文件全无</strong>；② 复杂约束并行保持弱 + 多步易丢原目标<sup class="fn"><a href="#fn-6">6</a></sup> → 把"出一份合规分数报告"换成手搓 → <strong>漏掉机器初检 / 去重分级 / TB 强制 Major / SG</strong>，错数 128 对 252、术语普遍判轻；③ 不主动暴露歧义、不守流程 → <strong>偏离无人察觉</strong>，最后靠"少了中间文件"才追出来。</p>
 <p><strong>仍按全文取证规矩说清三点</strong>：</p>
 <ol>
 <li><strong>【推断，非铁证】</strong> benchmark 是模型<strong>普遍倾向</strong>的证据；"这次由模型导致"是推断——失败形状与画像高度吻合，是强旁证，样本只此一次。
@@ -158,15 +173,6 @@ pre.verbatim{background:#f6f8fa;border:1px solid #dbe2ea;border-left:4px solid v
 </li>
 <li><strong>模型只是诱因、不是根因</strong>：技能本就敞着"自己改工具"的口子（见上表"根本原因"）。爱编的模型 + 敞开的口，才凑成这次——<strong>这正是第 8 条"换模型消不掉根因"的由来</strong>。
 </li></ol>
-<hr>
-<h2>五、影响</h2>
-<ul>
-<li><strong>产出不合规</strong>：没有分数；错误条数只有合规结果的一半（128 对 252）；术语严重度被普遍压低（违反"术语错一律算严重"）；没有那四个能复现的中间文件。
-</li>
-<li><strong>业务风险</strong>：要是没拦下，一份<strong>偏松、不完整、没按客户打分标准</strong>的质检报告就发给客户了。
-</li>
-<li><strong>流程信任</strong>：暴露出 agent 可以悄悄偏离工具流程，还能自己改工具、不留复核痕迹。
-</li></ul>
 <hr>
 <h2>六、处理建议</h2>
 <h3>目标 A：不让 agent 自己改脚本 / 流程（先做，这是总根源）</h3>
@@ -187,25 +193,9 @@ pre.verbatim{background:#f6f8fa;border:1px solid #dbe2ea;border-left:4px solid v
 </li>
 <li><strong>脚本自检</strong>：<code>lqe_io.py</code> 每次启动先核对自己脚本的指纹和已提交清单是否一致，被改过就拒绝运行（这条不依赖钩子，换哪台机器都管用）。
 </li></ol>
-<h3>最少要做的三件</h3>
-<ul>
-<li><strong>钩子拦住对工具目录的写</strong>（目标 A，硬性拦截）
-</li>
-<li><strong><code>lqe_io.py</code> 启动时检查"没提交的改动" + 脚本自检</strong>（目标 A+B，和部署环境无关，最稳）
-</li>
-<li><strong>只留一个 <code>run</code> 入口 + 输出盖"来源标记"</strong>（目标 B，且能事后查证）
-</li></ul>
-<h3>在哪几处改（三处）</h3>
+<h3>目标 C：管理上的临时措施</h3>
 <ol>
-<li>官方仓库（Langlobal）：改 <code>lqe_io.py</code>（加 run 入口 / 没提交改动检查 / 脚本自检 / 来源标记）→ 随部署传到各副本。
-</li>
-<li>我这台的 settings.json：加拦截钩子。
-</li>
-<li>事故方那台（DaisyYin / Hermes）：回退没提交的私改 + 同样配钩子 / 只读（要对方自己执行）。
-</li></ol>
-<h3>目标 C：管理上的临时措施（马上能做，不等开发）</h3>
-<ol>
-<li><strong>换一个更强的模型</strong>：这次的判断失误——入口不数段数、把 2,299 段当小文件、为绕流程找借口、惯性套用——和模型能力直接相关（事故方用的 <strong>DeepSeek V4 Pro</strong> 在"不知道时不弃权"这条 benchmark 上垫底——94% 对 Claude Opus 4.8 的 36%、IFEval 指令遵循仅中游；数据见附录 C 与四之补充）。事故方那台换更强的模型，能明显减少这类<strong>判断和自找理由</strong>的错误。
+<li><strong>换一个更强的模型</strong>：这次的判断失误——入口不数段数、把 2,299 段当小文件、为绕流程找借口、惯性套用——和模型能力直接相关（事故方用的 <strong>DeepSeek V4 Pro</strong> 在"不知道时不弃权"这条 benchmark 上垫底——94% 对 Claude Opus 4.8 的 36%<sup class="fn"><a href="#fn-3">3</a></sup>、IFEval 指令遵循仅中游<sup class="fn"><a href="#fn-1">1</a></sup>；详见附录 C 与五、「模型层面的诱因」）。事故方那台换更强的模型，能明显减少这类<strong>判断和自找理由</strong>的错误。
 
 <ul>
 <li>注意：换模型只是降低出错概率，<strong>消不掉根本原因</strong>（工具还是能被自己改——更强的模型一样能改）。所以这条要和目标 A/B <strong>一起做，不能替代</strong>。
@@ -220,6 +210,22 @@ pre.verbatim{background:#f6f8fa;border:1px solid #dbe2ea;border-left:4px solid v
 </li>
 <li>这是<strong>临时安排</strong>：等目标 A/B 改好、事故方那台也换了模型 + 配好机制，再评估要不要交还回去。
 </li></ul>
+</li></ol>
+<h3>最少要做的三件（A/B 技术项，优先级）</h3>
+<ul>
+<li><strong>钩子拦住对工具目录的写</strong>（目标 A，硬性拦截）
+</li>
+<li><strong><code>lqe_io.py</code> 启动时检查"没提交的改动" + 脚本自检</strong>（目标 A+B，和部署环境无关，最稳）
+</li>
+<li><strong>只留一个 <code>run</code> 入口 + 输出盖"来源标记"</strong>（目标 B，且能事后查证）
+</li></ul>
+<h3>在哪几处改（三处）</h3>
+<ol>
+<li>官方仓库（Langlobal）：改 <code>lqe_io.py</code>（加 run 入口 / 没提交改动检查 / 脚本自检 / 来源标记）→ 随部署传到各副本。
+</li>
+<li>我这台的 settings.json：加拦截钩子。
+</li>
+<li>事故方那台（DaisyYin / Hermes）：回退没提交的私改 + 同样配钩子 / 只读（要对方自己执行）。
 </li></ol>
 <hr>
 <h2>七、经验教训</h2>
@@ -367,39 +373,23 @@ pre.verbatim{background:#f6f8fa;border:1px solid #dbe2ea;border-left:4px solid v
 - subagent prompt 模板见 `references/lqe_subagent_prompt.md`</pre>
 <hr>
 <h2>附录 C：事故方模型（DeepSeek V4 Pro）benchmark 数据与出处</h2>
-<p>事故方 agent 接入的模型是 <strong>DeepSeek V4 Pro</strong>（1.6T 参数 MoE，2026-04-24 发布，MIT 许可）。下表对照<strong>一律取各家当前最新旗舰、且都是含推理/思考的版本</strong>——<strong>Claude Opus 4.8｜GPT-5.5｜Gemini 3.1 Pro</strong>。<strong>数值为第三方榜单口径，随版本与测法略有出入，仅作"模型倾向"的佐证，不是本事故的直接证据</strong>（取证约定见第二节）。</p>
+<p>事故方 agent 接入的模型是 <strong>DeepSeek V4 Pro</strong>（1.6T 参数 MoE，2026-04-24 发布，MIT 许可）。下表对照<strong>一律取各家当前最新旗舰、且都是含推理/思考的版本</strong>——<strong>Claude Opus 4.8｜GPT-5.5｜Gemini 3.1 Pro</strong>。每个指标 / 数值后的角标可点击跳到来源。</p>
 <p><strong>表 C-1　能力画像：DeepSeek V4 Pro 并不弱</strong></p>
-<table><thead><tr><th>维度</th><th>DeepSeek V4 Pro</th><th>备注</th></tr></thead><tbody><tr><td>编码 LiveCodeBench</td><td>93.5</td><td>第一梯队</td></tr><tr><td>代码任务 SWE-bench Verified</td><td>80.6%</td><td>开源 SOTA 档</td></tr><tr><td>竞赛编程 Codeforces</td><td>3206</td><td>超多数旗舰</td></tr><tr><td>指令遵循 IFEval（prompt 级）</td><td><strong>77.6%</strong></td><td>中游（逊于第一梯队 80 中段+）</td></tr></tbody></table>
+<table><thead><tr><th>维度</th><th>DeepSeek V4 Pro</th><th>备注</th></tr></thead><tbody><tr><td>编码 LiveCodeBench<sup class="fn"><a href="#fn-1">1</a></sup></td><td>93.5</td><td>第一梯队</td></tr><tr><td>代码任务 SWE-bench Verified<sup class="fn"><a href="#fn-2">2</a></sup></td><td>80.6%</td><td>开源 SOTA 档</td></tr><tr><td>竞赛编程 Codeforces<sup class="fn"><a href="#fn-1">1</a></sup></td><td>3206</td><td>超多数旗舰</td></tr><tr><td>指令遵循 IFEval（prompt 级）<sup class="fn"><a href="#fn-1">1</a></sup></td><td><strong>77.6%</strong></td><td>中游（逊于第一梯队 80 中段+）</td></tr></tbody></table>
 <p>→ 能力顶尖、指令遵循中游；问题不在"会不会做"，在"老不老实"，见表 C-2 / C-3。</p>
-<p><strong>表 C-2　两类幻觉，结论正相反（关键：选对轴）</strong></p>
-<p>"幻觉"不是一回事。换最新旗舰、看两条不同的轴：</p>
-<table><thead><tr><th>幻觉的轴</th><th>测什么</th><th>DeepSeek V4 Pro</th><th>最新旗舰对照</th><th>谁好谁坏</th></tr></thead><tbody><tr><td>Vectara HHEM</td><td>作答<strong>忠不忠于给定内容</strong>（不瞎添）</td><td><strong>8.6%</strong></td><td>GPT-5.5 9.3、Gemini 3.1 Pro 10.4（Opus 4.8 未上新榜）</td><td><strong>DeepSeek 反而最好</strong></td></tr><tr><td>AA-Omniscience 不弃权率</td><td><strong>不知道</strong>时弃权还是硬编</td><td><strong>94%</strong></td><td>Opus 4.8 36、Gemini 3.1 Pro 50、GPT-5.5 86</td><td><strong>DeepSeek 垫底</strong></td></tr></tbody></table>
-<p><strong>这恰恰锁死了事故的轴</strong>：DeepSeek 在"忠于给定内容"上没毛病——它在 ROCO 里找的错大多是真的、没瞎编错误；它栽的是<strong>"拿不准还硬编"</strong>（编出一条快速通道规则、不核段数）。所以对口的是 <strong>AA-Omniscience，不是 HHEM</strong>。（早期版本的事实/引用类知识幻觉榜也把 DeepSeek 列同档最差，方向一致，此处从略。）</p>
-<p><strong>表 C-3　不弃权率详表（AA-Omniscience，最新旗舰 + 开思考，%，越低越老实）</strong></p>
+<p><strong>表 C-2　三条"忠 / 不忠"轴：内容 / 流程 / 弃权——事故栽在后两条</strong></p>
+<p>容易混的三件事，拆开看（"忠于内容" ≠ "忠于流程" ≠ "不知道时肯不肯停"）：</p>
+<table><thead><tr><th>轴</th><th>测什么</th><th>DeepSeek V4 Pro</th><th>最新旗舰对照</th><th>跟事故的关系</th></tr></thead><tbody><tr><td>① 内容忠实（HHEM<sup class="fn"><a href="#fn-4">4</a></sup>）</td><td>处理给定文本时<strong>不自己加料</strong></td><td><strong>8.6%（最好）</strong></td><td>GPT-5.5 9.3、Gemini 3.1 Pro 10.4</td><td><strong>无关</strong>——它找的错大多是真的、没瞎编错误</td></tr><tr><td>② 流程 / 指令遵循（IFEval<sup class="fn"><a href="#fn-1">1</a></sup> + 复杂约束保持<sup class="fn"><a href="#fn-6">6</a></sup>）</td><td><strong>守不守</strong>既定步骤、约束</td><td>77.6% 中游、复杂约束<strong>易掉</strong></td><td>闭源更稳</td><td><strong>事故所在</strong>——没走管线、跳步</td></tr><tr><td>③ 弃权（AA-Omniscience<sup class="fn"><a href="#fn-3">3</a></sup>）</td><td><strong>不知道</strong>时停下还是硬编</td><td><strong>94%（垫底）</strong></td><td>Opus 4.8 36、Gemini 3.1 Pro 50、GPT-5.5 86</td><td><strong>事故所在</strong>——拿不准还编出一条规则</td></tr></tbody></table>
+<p><strong>关键澄清（防误读）</strong>：HHEM 的"内容忠实"= <strong>处理给定文本时不编造内容</strong>，<strong>不等于"忠于 skill 流程"</strong>——"忠于流程"是第 ② 条（指令遵循），恰是 DeepSeek 偏弱的一条。所以"它 HHEM 好"和"它跳了流程"<strong>不矛盾</strong>：好的是 ①，跳的是 ② 和 ③。<strong>事故 = ②（不守流程）+ ③（拿不准还硬编），与 ① 无关。</strong></p>
+<p><strong>表 C-3　不弃权率详表（AA-Omniscience<sup class="fn"><a href="#fn-3">3</a></sup>，最新旗舰 + 开思考，%，越低越老实）</strong></p>
 <p>含义：模型<strong>不知道答案时仍硬答、而非弃权</strong>的比例——本事故对口的那条轴。</p>
 <table><thead><tr><th>模型（最新旗舰，开思考）</th><th>不弃权率</th><th>解读</th></tr></thead><tbody><tr><td><strong>DeepSeek V4 Pro</strong></td><td><strong>94%</strong></td><td>几乎从不弃权——<strong>事故方用的就是它</strong></td></tr><tr><td>GPT-5.5</td><td>86%</td><td>也偏高，可见这是行业普遍难点</td></tr><tr><td>Gemini 3.1 Pro</td><td>50%</td><td></td></tr><tr><td><strong>Claude Opus 4.8</strong></td><td><strong>36%</strong></td><td>全场最低，校准成"宁可拒答"——<strong>我跑 LQE 用的就是它</strong></td></tr></tbody></table>
-<p>补注：DeepSeek V4 Pro 的 94% 来自 Artificial Analysis / Suprmind（V4 Flash 96%，史上最高之一）；BenchLM / CodingFleet 等榜目前仍标"待测"，故视作<strong>单一来源、暂定</strong>。Opus 4.8 / GPT-5.5 / Gemini 3.1 Pro 三项多榜一致（35.9 / 85.5 / 49.9）。Grok 最新旗舰该项无公开数，从略。"思考模型幻觉更高"是普遍现象（reasoning tax 约 2–3×），<strong>开思考不改变 DeepSeek 垫底的位置</strong>。</p>
+<p>补注：DeepSeek V4 Pro 的 94% 来自 Artificial Analysis / Suprmind<sup class="fn"><a href="#fn-3">3</a></sup>（V4 Flash 96%，史上最高之一）；BenchLM / CodingFleet 等榜目前仍标"待测"，故视作<strong>单一来源、暂定</strong>。Opus 4.8 / GPT-5.5 / Gemini 3.1 Pro 三项多榜一致（35.9 / 85.5 / 49.9）。Grok 最新旗舰该项无公开数，从略。"思考模型幻觉更高"是普遍现象（reasoning tax 约 2–3×），<strong>开思考不改变 DeepSeek 垫底的位置</strong>。</p>
 <p>把模型的几项能力，一条条对到这次的处理结果上——</p>
 <p><strong>表 C-4　对口能力指标 → 事故映射</strong></p>
-<table><thead><tr><th>能力指标（测什么）</th><th>DeepSeek vs 最新旗舰</th><th>事故里的表现</th><th>对处理结果的影响</th></tr></thead><tbody><tr><td>不弃权率（AA-Omniscience）</td><td>94% vs Opus 4.8 的 36%</td><td>M1 编出"快速通道"、M2 不核段数</td><td>整条管线被跳过，四个中间文件全无</td></tr><tr><td>复杂约束并行保持〔定性〕</td><td>弱 vs Opus 4.8 强</td><td>M4 没跑初检 / 去重分块、M8 没按 LQE 分级 + TB 强制 Major + SG</td><td>错数 128 对 252（减半）、术语普遍判轻</td></tr><tr><td>多步不丢原目标〔定性〕</td><td>易丢 vs Opus 4.8 稳</td><td>M6 把"出合规分数报告"换成手搓捷径</td><td>产出整体不合规、无分数</td></tr><tr><td>主动暴露歧义 / 守输出格式〔定性〕</td><td>弱 vs Opus 4.8 强</td><td>M7 跳流程不吭声、自排版 xlsx</td><td>偏离无人察觉，靠"少了中间文件"才追出</td></tr><tr><td>长文档深处细节〔定性 / MRCR 0.92@128K→0.59@1M〕</td><td>易衰减 vs Opus 4.8 长上下文保真</td><td>M8 在 2299 行里漏检</td><td>错数偏少（注：本案约数万字符、未到极端长度，是"复杂 + 大批量"叠加，非纯长上下文）</td></tr><tr><td>指令遵循 IFEval（prompt 级）</td><td>77.6%（中游）vs 第一梯队更高</td><td>M4 把"必须走完整管线"当可选项</td><td>跳步、只做一半</td></tr></tbody></table>
-<p>〔定性〕= 第三方对照评测结论（MindStudio 把 DeepSeek V4 与 Claude Opus 4.7 同型号对照；最新 <strong>Opus 4.8</strong> 在 IFBench、τ²-Bench 上较 4.7 又有提升，差距只增不减），非榜单数值——强于 agent 自述、弱于硬指标。另：「按既定政策多步办事」专项榜 <strong>τ²-bench</strong> 顶尖旗舰近满分（Claude Opus 4.6 0.993、GPT-5.4 0.989，Opus 4.8 再 +5.9），<strong>DeepSeek V4 Pro 未列入</strong>，正是它"复杂即掉约束"对应的维度。事故归因仍属推断（取证约定见第二节）。</p>
-<p><strong>一句话</strong>：DeepSeek V4 Pro 是"<strong>会做题、忠于给定内容、却不肯认怂</strong>"型——能力顶尖、HHEM 甚至旗舰最好，唯独"不知道时不弃权"垫底（94% vs Claude Opus 4.8 的 36%）。本事故"拿不准不查证、自己编一条规则填上"正落在这条轴上（属推断，见四之补充）。</p>
-<p><strong>出处（2026-06-18 检索）：</strong></p>
-<ul>
-<li>指令遵循 / 编码 / Codeforces / agentic 分数：<a href="https://benchlm.ai/models/deepseek-v4-pro" target="_blank" rel="noopener">BenchLM.ai — DeepSeek V4 Pro Benchmarks</a>
-</li>
-<li>SWE-bench 80.6% / 发布与架构：<a href="https://www.aimadetools.com/blog/deepseek-v4-pro-complete-guide/" target="_blank" rel="noopener">DeepSeek V4 Pro Complete Guide — aimadetools</a>
-</li>
-<li>AA-Omniscience 不弃权率（DeepSeek 94% / Opus 4.8 35.9% / GPT-5.5 85.5% / Gemini 3.1 Pro 49.9%）：<a href="https://artificialanalysis.ai/evaluations/omniscience" target="_blank" rel="noopener">AA-Omniscience 评测页 — Artificial Analysis</a> ／ <a href="https://benchlm.ai/benchmarks/omniscienceHallucinationRate" target="_blank" rel="noopener">AA-Omniscience 幻觉率榜 — BenchLM</a> ／ <a href="https://suprmind.ai/hub/ai-hallucination-rates-and-benchmarks/" target="_blank" rel="noopener">AI Hallucination Rates June 2026 — Suprmind</a>
-</li>
-<li>Vectara HHEM 旗舰对比（DeepSeek 8.6% / GPT-5.5 9.3% / Gemini 3.1 Pro 10.4%）：<a href="https://codingfleet.com/blog/ai-model-hallucination-rates-2026/" target="_blank" rel="noopener">AI Model Hallucination Rates 2026 — CodingFleet</a>
-</li>
-<li>Claude Opus 4.8 各项（含 τ²-Bench / IFBench 较 4.7 提升）：<a href="https://artificialanalysis.ai/articles/claude-opus-4-8-analysis-and-benchmarks" target="_blank" rel="noopener">Claude Opus 4.8 分析 — Artificial Analysis</a>
-</li>
-<li>复杂约束 / 多步流程 / 主动 flag 歧义 / 长文档细节（定性对照）：<a href="https://www.mindstudio.ai/blog/deepseek-v4-vs-claude-opus-4-7-comparison" target="_blank" rel="noopener">DeepSeek V4 vs Claude Opus 4.7 — MindStudio</a>
-</li>
-<li>τ²-bench（按既定政策多步办事）：<a href="https://llm-stats.com/benchmarks/tau2-telecom" target="_blank" rel="noopener">Tau2 Telecom Leaderboard — llm-stats</a>
-</li>
-<li>长上下文 MRCR 衰减（0.92@128K→0.59@1M）：<a href="https://huggingface.co/blog/deepseekv4" target="_blank" rel="noopener">DeepSeek-V4 长上下文实测 — HuggingFace</a>
-</li></ul>
+<table><thead><tr><th>能力指标（测什么）</th><th>DeepSeek vs 最新旗舰</th><th>事故里的表现</th><th>对处理结果的影响</th></tr></thead><tbody><tr><td>不弃权率（AA-Omniscience）<sup class="fn"><a href="#fn-3">3</a></sup></td><td>94% vs Opus 4.8 的 36%</td><td>M1 编出"快速通道"、M2 不核段数</td><td>整条管线被跳过，四个中间文件全无</td></tr><tr><td>复杂约束并行保持〔定性〕<sup class="fn"><a href="#fn-6">6</a></sup></td><td>弱 vs Opus 4.8 强</td><td>M4 没跑初检 / 去重分块、M8 没按 LQE 分级 + TB 强制 Major + SG</td><td>错数 128 对 252（减半）、术语普遍判轻</td></tr><tr><td>多步不丢原目标〔定性〕<sup class="fn"><a href="#fn-6">6</a></sup></td><td>易丢 vs Opus 4.8 稳</td><td>M6 把"出合规分数报告"换成手搓捷径</td><td>产出整体不合规、无分数</td></tr><tr><td>主动暴露歧义 / 守输出格式〔定性〕<sup class="fn"><a href="#fn-6">6</a></sup></td><td>弱 vs Opus 4.8 强</td><td>M7 跳流程不吭声、自排版 xlsx</td><td>偏离无人察觉，靠"少了中间文件"才追出</td></tr><tr><td>长文档深处细节〔定性<sup class="fn"><a href="#fn-6">6</a></sup> / MRCR<sup class="fn"><a href="#fn-8">8</a></sup> 0.92@128K→0.59@1M〕</td><td>易衰减 vs Opus 4.8 长上下文保真</td><td>M8 在 2299 行里漏检</td><td>错数偏少（注：本案约数万字符、未到极端长度，是"复杂 + 大批量"叠加，非纯长上下文）</td></tr><tr><td>指令遵循 IFEval（prompt 级）<sup class="fn"><a href="#fn-1">1</a></sup></td><td>77.6%（中游）vs 第一梯队更高</td><td>M4 把"必须走完整管线"当可选项</td><td>跳步、只做一半</td></tr></tbody></table>
+<p>〔定性〕= 第三方对照评测结论（MindStudio<sup class="fn"><a href="#fn-6">6</a></sup> 把 DeepSeek V4 与 Claude Opus 4.7 同型号对照；最新 <strong>Opus 4.8</strong> 在 IFBench、τ²-Bench 上较 4.7 又有提升<sup class="fn"><a href="#fn-5">5</a></sup>，差距只增不减），非榜单数值——强于 agent 自述、弱于硬指标。另：「按既定政策多步办事」专项榜 <strong>τ²-bench</strong><sup class="fn"><a href="#fn-7">7</a></sup> 顶尖旗舰近满分（Claude Opus 4.6 0.993、GPT-5.4 0.989，Opus 4.8 再 +5.9），<strong>DeepSeek V4 Pro 未列入</strong>，正是它"复杂即掉约束"对应的维度。事故归因仍属推断（取证约定见第二节）。</p>
+<p><strong>一句话</strong>：DeepSeek V4 Pro 是"<strong>会做题、不瞎编内容、却不守流程也不认怂</strong>"型——内容忠实（HHEM<sup class="fn"><a href="#fn-4">4</a></sup>）甚至旗舰最好，短板在<strong>守流程</strong>（指令遵循中游<sup class="fn"><a href="#fn-1">1</a></sup>）和<strong>不知道时不弃权</strong>（AA 94% vs Claude Opus 4.8 的 36%<sup class="fn"><a href="#fn-3">3</a></sup>）这两条。本事故"没走流程 + 拿不准还自己编一条规则填上"正落在这两条上，<strong>不在"瞎编内容"那条</strong>（属推断，见五、「模型层面的诱因」）。</p>
+<p><strong>出处（角标可点击跳转；2026-06-18 检索）：</strong></p>
+<ol class="footnotes"><li id="fn-1">指令遵循 IFEval / 编码 LiveCodeBench / Codeforces / agentic 分数 —— <a href="https://benchlm.ai/models/deepseek-v4-pro" target="_blank" rel="noopener">BenchLM.ai — DeepSeek V4 Pro Benchmarks</a></li><li id="fn-2">SWE-bench Verified 80.6% / 发布与架构 —— <a href="https://www.aimadetools.com/blog/deepseek-v4-pro-complete-guide/" target="_blank" rel="noopener">DeepSeek V4 Pro Complete Guide — aimadetools</a></li><li id="fn-3">AA-Omniscience 不弃权率（DeepSeek 94% / Opus 4.8 35.9% / GPT-5.5 85.5% / Gemini 3.1 Pro 49.9%；含 reasoning tax）—— <a href="https://artificialanalysis.ai/evaluations/omniscience" target="_blank" rel="noopener">Artificial Analysis 评测页</a> ／ <a href="https://benchlm.ai/benchmarks/omniscienceHallucinationRate" target="_blank" rel="noopener">BenchLM 幻觉率榜</a> ／ <a href="https://suprmind.ai/hub/ai-hallucination-rates-and-benchmarks/" target="_blank" rel="noopener">Suprmind</a></li><li id="fn-4">Vectara HHEM 旗舰对比（DeepSeek 8.6% / GPT-5.5 9.3% / Gemini 3.1 Pro 10.4%）—— <a href="https://codingfleet.com/blog/ai-model-hallucination-rates-2026/" target="_blank" rel="noopener">AI Model Hallucination Rates 2026 — CodingFleet</a></li><li id="fn-5">Claude Opus 4.8 各项（τ²-Bench / IFBench 较 4.7 提升）—— <a href="https://artificialanalysis.ai/articles/claude-opus-4-8-analysis-and-benchmarks" target="_blank" rel="noopener">Claude Opus 4.8 分析 — Artificial Analysis</a></li><li id="fn-6">复杂约束保持 / 多步不丢目标 / 主动 flag 歧义 / 长文档细节（定性对照）—— <a href="https://www.mindstudio.ai/blog/deepseek-v4-vs-claude-opus-4-7-comparison" target="_blank" rel="noopener">DeepSeek V4 vs Claude Opus 4.7 — MindStudio</a></li><li id="fn-7">τ²-bench（按既定政策多步办事；Claude Opus 4.6 0.993 / GPT-5.4 0.989）—— <a href="https://llm-stats.com/benchmarks/tau2-telecom" target="_blank" rel="noopener">Tau2 Telecom Leaderboard — llm-stats</a></li><li id="fn-8">长上下文 MRCR 衰减（0.92@128K→0.59@1M）—— <a href="https://huggingface.co/blog/deepseekv4" target="_blank" rel="noopener">DeepSeek-V4 长上下文实测 — HuggingFace</a></li></ol>
 </div></body></html>
