@@ -195,7 +195,8 @@ def cmd_merge_lenses(a):
       spine   = chunk_NN.T.json   (all segments, pre-check triaged; terminology axis)
       additive= chunk_NN.{A,G,R}.json (only flagged segments)
     T carries every id + clean verdicts; A/G/R append their findings. A segment
-    flagged by >1 lens gets corrected=null (multiple fixes — leave to manual integrate)."""
+    flagged by >1 lens takes the highest-priority non-null corrected (A>T>G>R) as floor
+    + stashes all candidates in corr_candidates (Suggest translation never empty)."""
     outdir = Path(a.outdir)
     idxs = sorted(int(re.fullmatch(r"chunk_(\d+)", p.stem).group(1))
                   for p in outdir.glob("chunk_*.json")
@@ -234,19 +235,25 @@ def cmd_merge_lenses(a):
                     continue
                 seen.add(k)
                 errs.append(er)
-            lset = flags.get(sid, set())
-            if not errs:
-                corr = None
-            elif len(lset) == 1:
-                corr = slot["corr"].get(next(iter(lset)))
-            else:
-                corr, multi = None, multi + 1   # multi-lens -> manual integrate
-            out.append({"id": sid, "errors": errs, "corrected": corr})
+            cands = {L: c for L, c in slot["corr"].items() if c}  # 非空候选
+            entry = {"id": sid, "errors": errs, "corrected": None}
+            if errs:
+                if len(cands) <= 1:
+                    entry["corrected"] = next(iter(cands.values()), None)
+                else:
+                    # 多 lens 各修各的错(同一基底)：取优先级最高的非空候选作底
+                    # (A 准确>T 术语>G 语法>R 语域),保证 Suggest translation 永不空
+                    # (PM 0622 两度反馈「没有AI改的译文」);全部候选存入 corr_candidates,
+                    # 供 SKILL 大文件流程的可选整合步合并多处修正。
+                    entry["corrected"] = next((cands[L] for L in ("A", "T", "G", "R") if L in cands), None)
+                    entry["corr_candidates"] = cands
+                    multi += 1
+            out.append(entry)
         (outdir / f"chunk_{ci:02d}.out.json").write_text(
             json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
         total += len(out)
     print(f"[merge-lenses] lenses {sorted(used)} × {len(idxs)} chunks -> chunk_NN.out.json")
-    print(f"[merge-lenses] {total} seg-entries; {multi} multi-lens segs -> corrected=null (manual integrate)")
+    print(f"[merge-lenses] {total} seg-entries; {multi} multi-lens segs -> priority-pick floor + corr_candidates (integrate optional)")
 
 
 def cmd_validate_lenses(a):

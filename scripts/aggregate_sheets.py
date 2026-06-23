@@ -7,7 +7,7 @@
   <label>_LQE报告.xlsx     汇总 sheet（各子表分数 + 按词数加权总分）+ 各子表 LQE Results 明细。
 
 子 job 发现：父 job 目录下含 state.json 的直接子目录即一个 sheet 子 job。
-段→行映射：segment.id == src.xlsx 数据行枚举位置（与 lqe_io.read/export 一致）。
+段→行映射：segment.id == 源(state.input_path，回退 src.xlsx)数据行枚举位置（与 lqe_io.read/export 一致）。
 
 ⚠ read_only 空行坑：openpyxl 普通模式 load_workbook 会静默裁掉全空尾行
   （社媒 src 真有 171 行/XML dimension A1:B171，普通模式只报 88）。凡「镜像原始
@@ -115,7 +115,10 @@ def main():
         summary.append([sj.name, nseg, res["wordcount"], res["errors"],
                         res["critical"], res["score"], res["status"], len(corr)])
 
-        src = openpyxl.load_workbook(sj / "src.xlsx", read_only=True)  # read_only: 保全尾部空行
+        src_path = state.get("input_path")
+        if not src_path or not Path(src_path).exists():
+            src_path = sj / "src.xlsx"   # 回退：read 记录的源不可达时，用子 job 内副本
+        src = openpyxl.load_workbook(src_path, read_only=True)  # read_only: 保全尾部空行
         sws = src.active
         title = sws.title or sj.name
         while title in used_titles:

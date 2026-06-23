@@ -2,20 +2,15 @@
 来源: WWM 历史 LQE 实操（Pet System 260601 首评 77.77 → 迭代 100 通过）+ 权威 SG（sg.txt 整合版，与桌面 LQE工作文件/styleguide.txt 有出入，以 sg.txt 为准）
 
 ## 术语匹配原则
-- 28,534 条官方术语库（中文/英文/分类），专有名词（角色/地名/武学/技能）**严格一致**
+- 官方术语库（terminology_0618.json，中文/英文/分类），专有名词（角色/地名/武学/技能）**严格一致**
 - **泛词命中按语境甄别勿硬判 Terminology**（小猫咪、河边石头等日常词条命中≠错误）
 - 文化术语强制映射: 枪→Spear、火药→Explosive Powder、师傅/公子→Master、龙/凤/蛟→Dragon/Phoenix/Serpent、笔→Brush、火铳→Fire Lance、侠→Hero、大侠→Great Hero、少侠→Young Hero
 
-## 硬规则（部分已由 builtin/custom 检查覆盖）
-- **非代码内容禁用 `< >`，改半角直引号**（代码标签 <desc_id=…> 合法——需人工区分，勿确定性硬判）
-- 禁破折号 `—` → ` - `（builtin em_dash 开）；中文 `·` → ` - `（custom）
-- 全部半角标点；严格对齐原文标点（原文无句号译文不加）
-- 千位分隔符 2,000；物品数量 Item ×N（× 前空格后无空格）
-- 颜色标签 #G/#C/#Y…#E 保持相对位置；变量 {} %s {slot_name} 原样、前后加空格；\n 保留
-- 大小写: UI/技能/道具/地名/角色/成就=Title Mode；对话/描述/提示=Sentence Mode
+## 硬规则（机械/格式取向一律以 SG 为准，勿在此复述）
+标点半角与对齐、破折号·间隔号、千位、Item ×N、颜色标签/变量/换行、大小写 Title/Sentence 等**以 `sg.txt` §二/§三 为准**；已由检查自动覆盖的见 `checks.json`（middot/x-count/roman）+ pre-check（em_dash/全角标点/Markup/Length）。此处仅记 SG 未明、或需人工判的偏差：
+- **非代码内容禁用 `< >` 改半角直引号**；代码标签 `<desc_id=…>` 合法——人工区分，勿确定性硬判。
 
-## RAG/TM 保护
-输入若含 rag/tm/memory/match/score/locked 列且为 100%/exact/locked → 不修改、不计分、corrected=null、export 保留原译文
+（RAG/TM/locked 100% match 保护属通用 skill 机制，见 SKILL.md Step 1.2，非本项目裁决，已从此处移除）
 
 ## 0512 globaltrunk 人工 LQE 裁决（2026-06-11 注入，效力=Query 级）
 源：《【AI】【英】0512【globaltrunk】【0511新增】_LQE Report》——人工审校对 AI 译文的实判（×=被判错的 AI 译法）。检查项与关注点总表见 docs/质量检查项清单.md。
@@ -49,3 +44,10 @@
 - 玩法规则文本错译一律 Critical；占位符缺失（`{}天后领取{}` 丢一个）判 Mistranslation Critical
 - 重复错误：标 Repeated=YES 记录但不罚分（34 条实证）
 - 及格阈值：TEP/MTPE=98；润色/二审=99
+
+## 2026-06-22 社媒文案 PM 反馈（效力=Query 级）
+源：《LQE测试用_社媒_lqe（已反馈）》第三表 PM 确认列。营销/社媒 transcreation 漏译口径：
+- 纯氛围/叙事修饰被简化省略 **≠ Omission**（至多 Neutral）——宣传文案允许浓缩（如「隐雾林出现了新的面孔」铺陈新 NPC 登场，简化可省）。
+- 但功能/商业信息漏译仍 = **Omission**：限时·数量·奖励·价格·条件·资格·玩法机制（「活动限时开启」漏「限时」=Omission Major，商业文案时效性不可丢）。
+- 语气性反问尾（不是吗/对吧）承载语气，漏译记 Omission（审校实判：源「…不是吗？」译文丢 don't we?）。
+- 弯引号 ' ' " "（U+2018/2019/201C/201D）违 SG 半角直引号——已转 pre-check 确定性检查（checks.json `wwm-smart-quotes`）。

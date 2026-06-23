@@ -247,6 +247,9 @@ def t7():
 if __name__ == "__main__":
     for t in (t1, t2, t3, t4, t5, t6, t7):
         t()
+    rag = subprocess.run([sys.executable, str(SCRIPTS / "test_rag.py")], capture_output=True, text=True)
+    check("RAG suite (test_rag.py)", rag.returncode == 0,
+          (rag.stdout or rag.stderr).strip().splitlines()[-1] if (rag.stdout or rag.stderr) else "")
     total = len(PASS) + len(FAIL)
     print(f"\n{len(PASS)}/{total} passed" + (f"  FAILED: {FAIL}" if FAIL else "  — all green"))
     shutil.rmtree(TMP, ignore_errors=True)

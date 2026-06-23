@@ -345,6 +345,15 @@ def cmd_read(args):
             lang_notes_path = str(dst)
             print(f"[lqe_io] language eval notes → {dst}")
 
+    # 项目背景（游戏类型/受众/语气/语域基调）→ 注入各 lens + 单-agent，校准「自然/口吻」判断
+    # （lens 规范本身保持项目中立；背景按项目从 profile.background 注入）
+    background_path = ""
+    if prof and (prof.get("background") or "").strip():
+        dst = job_dir / "background.md"
+        dst.write_text("# 项目背景\n\n" + prof["background"].strip() + "\n", encoding="utf-8")
+        background_path = str(dst)
+        print(f"[lqe_io] project background → {dst}")
+
     basis = getattr(args, "wordcount_basis", None) \
         or (prof.get("wordcount_basis") if prof else None) \
         or lang_cfg.get("wordcount_basis") or "target-words"
@@ -389,6 +398,7 @@ def cmd_read(args):
         "language_pair": prof.get("language_pair", "") if prof else "",
         "target_lang": lang,
         "lang_notes_path": lang_notes_path,
+        "background_path": background_path,
         "checks_path": checks_path,
         "adjudications_path": adjud_path,
         "threshold": prof.get("threshold", 98) if prof else 98,
