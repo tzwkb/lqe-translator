@@ -67,12 +67,12 @@ python "$SCRIPTS/lqe_io.py" read \
 
 `<文件名>` 取输入文件的 stem（去扩展名）。`read` 会自动创建 `jobs/<文件名>/` 目录，并将 SG 写入 `sg.txt`，术语表写入 `terms.json`。
 
-**方式 C 附加 — TM/RAG 索引（项目 profile 含 `rag` 时，仅一次）：**
-输入文件无 match 列、需用项目 TM 做 100% 保护时，先把 `.sdltm` 从缓存（企微等易失目录）拷到 `projects/<game>/common/rag/sources/` 固化，再建索引（TM 不变即复用，无需重建）：
+**方式 C 附加 — TM 索引（项目 profile 含 `tm` 时，仅一次）：**
+输入文件无 match 列、需用项目 TM 做 100% 保护时，先把 `.sdltm` 从缓存（企微等易失目录）拷到 `projects/<game>/common/tm/sources/` 固化，再建索引（TM 不变即复用，无需重建）：
 ```bash
-python "$SCRIPTS/rag_index.py" build \
-  --libraries <profile.rag.libraries...> \
-  --out <profile.rag.index>
+python "$SCRIPTS/tm_index.py" build \
+  --libraries <profile.tm.libraries...> \
+  --out <profile.tm.index>
 ```
 全本地、精确匹配，不调外部 API。解析层按扩展名分发，本期仅 `.sdltm`。
 
@@ -114,9 +114,9 @@ Read `$JOB/state.json`，提取：
 - `background_path`（指向 `$JOB/background.md`，项目 `profile.background` 带入，可空）：非空必须 Read，作为项目背景（游戏类型/受众/语气/语域基调）注入，校准「自然/口吻/语域」判断——lens 规范本身项目中立，题材靠此注入
 - `threshold`：评分阈值（项目档案可改，默认 98），传给 lqe_calc/write/apply-fixes 的 `--threshold`
 
-### Step 1.2：RAG 100% match 保护
+### Step 1.2：TM / 100% match 保护
 
-评估前必须检查输入列名和样例值，识别 RAG/TM/memory 100% match 句段。Agent 自行判断，不由脚本硬编码列名。
+评估前必须检查输入列名和样例值，识别 TM/memory 100% match 句段。Agent 自行判断，不由脚本硬编码列名。
 
 识别信号：
 - 列名含 `rag` / `tm` / `memory` / `match` / `score` / `exact` / `locked` / `100%`
@@ -129,13 +129,13 @@ Read `$JOB/state.json`，提取：
 - 即使发现轻微问题，也只作为保护说明，不参与扣分和修正
 - final/export 必须保留原译文
 
-**项目 TM/RAG（输入无 match 列时）**：profile 含 `rag` 配置时，本地查 TM 产出 locked 段——
+**项目 TM（输入无 match 列时）**：profile 含 `tm` 配置时，本地查 TM 产出 locked 段——
 ```bash
-python "$SCRIPTS/rag_index.py" rag-match \
-  --state "$JOB/state.json" --index <profile.rag.index> \
-  --out-locked "$JOB/rag_locked.json"
+python "$SCRIPTS/tm_index.py" tm-match \
+  --state "$JOB/state.json" --index <profile.tm.index> \
+  --out-locked "$JOB/tm_locked.json"
 ```
-命中规则：源**精确匹配** TM **且** 译文 = 库译（含一源多译的变体集）→ 锁定；其余（含「源命中但译被改」「源未命中」）照常评估。产物 `rag_locked.json`（`{"locked_ids":[…]}`）即 Step 5 `apply-fixes --locked-file` 的锁定来源，与上面「输入自带 match 列」两种来源等价、可并用。全本地、不调外部 API。
+命中规则：源**精确匹配** TM **且** 译文 = 库译（含一源多译的变体集）→ 锁定；其余（含「源命中但译被改」「源未命中」）照常评估。产物 `tm_locked.json`（`{"locked_ids":[…]}`）即 Step 5 `apply-fixes --locked-file` 的锁定来源，与上面「输入自带 match 列」两种来源等价、可并用。全本地、不调外部 API。
 
 ### Step 1.5：pre-check（仅第一轮）
 
@@ -248,7 +248,7 @@ python "$SCRIPTS/lqe_io.py" pre-check \
 
 #### 评估关注点全集（事项5）
 
-首轮评估前 Read `docs/质量检查项清单.md` 一次：17 子类逐项关注点（拼音残留、规则文本从严、平行句式统一、不得自创术语）、三点法则、Word Choice 判定边界、严重度三级基准、成组文本评估。效力顺序：客户裁决 > SG > 清单关注点。
+首轮评估前 Read `docs/质量检查项清单.md`（**项目中立方法论**：23 项确定性检查类别表、17 子类→MQM 映射、三点法则、Word Choice 判定边界、严重度三级基准、计分/成组规则）。**项目实判案例、强制译名、拼音保留名单、历史报告分析**见该项目 `adjudications.md` + `lqa_notes.md`（如 `projects/wwm/en/`）。效力顺序：客户裁决 > SG > 清单方法论。
 
 #### 成组文本评估（事项6）
 
@@ -309,7 +309,7 @@ Write `$JOB/errors.json`，**所有段落都必须写入，无错误写空数组
 **`corrected` 字段规则：**
 - 有错误且非 locked → 必须提供修正后完整译文
 - 无错误 → `null`
-- RAG/TM/memory 100% locked → 必须为 `null`，不得修改
+- TM/memory 100% locked → 必须为 `null`，不得修改
 
 ### Step 4：计算分数
 
@@ -337,9 +337,9 @@ python "$SCRIPTS/lqe_io.py" write \
 python "$SCRIPTS/lqe_io.py" apply-fixes \
   --state "$JOB/state.json" --errors "$JOB/errors.json" \
   --score <分数> --threshold 98 \
-  --locked-ids "<逗号分隔的RAG/TM 100% match segment ids>"
+  --locked-ids "<逗号分隔的TM 100% match segment ids>"
 ```
-Agent 识别到 RAG/TM/memory 100% match 后，必须通过 `--locked-ids` 或 `--locked-file` 传给脚本。脚本会强制跳过 locked 段修正，并在 LQE 表中显示 `RAG Protected / RAG Evidence`。自动存档本轮 errors → `errors_iter{N}.json`，生成 `*_lqe_iter{N}.xlsx`，将非 locked 修正写回 state。报告结果，等待下一次 `/loop`。
+Agent 识别到 TM/memory 100% match 后，必须通过 `--locked-ids` 或 `--locked-file` 传给脚本。脚本会强制跳过 locked 段修正，并在 LQE 表中显示 `TM Protected / TM Evidence`。自动存档本轮 errors → `errors_iter{N}.json`，生成 `*_lqe_iter{N}.xlsx`，将非 locked 修正写回 state。报告结果，等待下一次 `/loop`。
 
 ---
 
@@ -361,14 +361,19 @@ Agent 识别到 RAG/TM/memory 100% match 后，必须通过 `--locked-ids` 或 `
 A 是召回命门（旧单轮的盲区）；门控由 `kind`（split 自动标 name/desc）决定，存疑偏 desc。
 
 **流程**：
-1. pre-check（同 Step 1.5）→ errors.json 基底
+1. pre-check：`lqe_io.py pre-check --state $JOB/state.json`（**省略 --out，默认写 `errors_precheck.json`** 作 merge 基底；勿沿用 Step 1.5 的 `--out errors.json`——`errors.json` 留给 merge 输出，否则 finalize 找不到基底、空译文 Untranslated 漏注入）
 2. `lqe_chunk.py split`：① 按 (源,译) **去重**——完全相同句段只评一次（写 `dedup_map.json`），省冗余 + 杜绝同句异判；② term_hits **最长匹配覆盖过滤**——被同位置更长术语覆盖的子词不喂（如 `绒光优优` 不带 `优优`）；③ 每段标 `kind`（name/desc）供 lens 门控。每块 ~200 段 → `chunks/chunk_NN.json`
 3. **每块 × 每个适用 lens 派 1 subagent**，读 `docs/lenses/_common.md` + 自己的 lens 文件（`T/A/G/R.md`）+ 各自 background/sg/lang_notes/adjudications + chunk，写 `chunk_NN.<L>.json`（如 `chunk_03.A.json`）。lens 分工见上表（T/A 跑全部段，G/R 跑 desc 段）。**每个 lens 先 pilot 1 块验证格式再 fan-out**；T 是基准轴必须先齐。
+   - **断点优先（省 token，铁律）**：派发/判译每块前先查其输出文件（`chunk_NN.<L>.json` 或 `chunk_NN.out.json`）是否已存在且 json 合法（可解析、有 `findings`）——**已存在即跳过该块，只处理缺失块**。落盘的 chunk 文件就是断点：agent 超时/限流/中断后只补缺的，**禁止重跑已完成块**；改用 inline 兜底时同样先查断点再判。
+   - **小批波次派发（防限流连锁，铁律）**：agent 分波发，每波 **≤5–6 并发**（chunk×lens），一波落盘验证后再发下一波；**严禁一次性 fire 全部 chunk×lens**——实证 30 并发→服务端限流 + **账号会话上限**连锁，~29/30 全挂、耗掉一天。**p2/第二遍必须等 p1 全齐再发**，不叠加并发。
+   - **存活只认落盘**：判断 agent 在跑/成功**只看磁盘 `chunk_NN.*.json` 或完成通知**，**禁止读 task `.output` transcript 推断存活**（127 字节是缓冲假象，曾据此误判"全死"而过早弃用其实在跑的 agent）。
+   - **inline 兜底（agent 全不可用时）+ 降级不出裁决（铁律）**：限流/会话上限致 agent 不可用时，用 `mastertb_prep.py view` 生成精简视图（id\|类别\|性别\|中文\|EN\|定义\|译文，密度高 10×，免读 ~38K/块原始 chunk 爆窗），主上下文按同一 `_RUBRIC.md` 逐块判、写回 `chunk_NN.out.json`（守断点）。**但单判=低召回，只作下限、不可当 lens 双遍的替代**：实证本轮单遍 inline 仅复现 0624 双遍 210 问题中的 29 个（召回 ~14%），漏 135 个真问题，单遍得 98.71 PASS 实为**假阳**（补全双遍真分≈95 FAIL）。**故凡未跑完整 4-lens/双遍的运行，分数只报"临时下限"、不报 PASS/FAIL 裁决**，报告须显著标注"单遍/低召回、待额度恢复补遍"+置信 medium。
 4. `lqe_chunk.py merge-lenses --outdir chunks`：以 T 为基准 union A/G/R 命中 → `chunk_NN.out.json`（**自动归并扁平 schema** lens 文件；多 lens 同段取优先级最高的非空 corrected 作底 `A>T>G>R`，**保证 Suggest translation 不空**，全部候选存 `corr_candidates` 待可选整合）
 5. `lqe_chunk.py validate-lenses --outdir chunks`（合并前结构守门：缺 id/坏类别/T 脊柱不全→非零退出，防静默丢数据）→ `reconcile --outdir chunks`（A_OWNED 类 Mistranslation/Omission/Addition/Untranslated 仅留 A 确认项、剔 T 透传并存档 `reconcile_dropped.json`）
-6. `lqe_chunk.py merge`：按 dedup_map 把代表判定**套到同组所有段**；校验全 id 覆盖（缺 id 退回 pre-check）
+6. `lqe_chunk.py merge`：按 dedup_map 把代表判定**套到同组所有段**；**从 pre-check 基底补回确定性 `Untranslated`（空译文/中文残留——A lens 沉默≠甄别为 FP，防落 T↔A 职责缝隙被丢，实证虚高 0.9 分）**；校验全 id 覆盖（缺 id 退回 pre-check）
 7. `finalize_job.sh <job> <nchunks> [single|iterate]` 一键 merge-lenses→validate-lenses→reconcile→merge→calc→report→export（幂等，T 脊柱齐了才跑）；**单轮传 `single`**——FAIL 也只 write、不 apply-fixes（建议修正由 write 回退 errors.json + export `--errors` 显示）
 
+> **术语表/glossary 当待处理文件审校（如 Master TB 自身译文）**：① 跳过术语检查——`read --project` 后置空 `state.terms_path`（无外部 TB 可比，T 轴转纯内部一致性）；② **chunk 必带 EN/类别/性别/定义上下文**——标准 `split` 只带 source/target，专名音译缺 EN 锚判不准，须预处理建 `context.json` 注入；③ **仍按 lens 跑、A 轴（准确）不可省，禁用单 judge 代替**——原子短词同样锚定漏挖（单 judge + “保守少报”导向实测漏 ~3 倍，须高召回 + 双判/单判置信分级兜底）；④ 表头偏移（顶部有说明/图例行、真表头不在第 1 行）须先删顶部行再 `read`。
 > **小文件（不分块）**：单 agent 一轮即可，但 prompt 须把 background/lang_notes/adjudications 注入（与大文件 lens 同口径，Step 1 已 Read）+ A 的「必查清单」（占位符角色/机制动词/数值/条件）+ G/R 关注点并入，否则同样锚定漏挖。
 > **finalize_job.sh 注**：已内置 merge-lenses→validate-lenses→reconcile→merge 全链（无需手动先跑）；第 3 参数 `single`=单轮、缺省=迭代。
 

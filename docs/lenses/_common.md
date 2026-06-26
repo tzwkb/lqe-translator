@@ -6,7 +6,7 @@
 - **背景**（`profile.background`，可空）：项目游戏类型/受众/语气/语域基调——据此校准「自然/口吻/语域」判断
 - **adjudications**（共通+语言，已合并）：已裁决项不得判错
 - **sg**（风格指南）、**lang_notes**（语言级关注点）
-- **chunk**：每段 `{id, source, target, kind, precheck[], term_hits[]}`（`kind`=name/desc）
+- **chunk**：每段 `{id, source, target, kind, precheck[], term_hits[], term_near[]}`（`kind`=name/desc；`term_near`=近似 TB 候选，**仅 T 用**，A/G/R 忽略，见 T.md）
 
 ## 输出
 只写**合法 JSON 数组**（无散文/无围栏）到指定路径。每条 `{id, errors[], corrected}`，`errors[]` 每条 `{category, severity, comment}`，comment 引中/译片段、中文说明。
@@ -22,5 +22,6 @@
 | **A 准确机制** | Mistranslation, Omission, Addition, Untranslated(语义) | 全部段 | 只命中段 |
 | **G 语法拼写** | Grammar, Spelling, Punctuation(语义) | desc 段 | 只命中段 |
 | **R 语域自然** | Audience appropriateness, Culture specific reference, Unidiomatic | desc 段 | 只命中段 |
+| **N 专名音译**（仅术语自审） | Mistranslation / Culture specific reference（专名音译） | name 段 | 只命中段；见 `N.md` + `_term_audit.md` |
 
-merge 由 `lqe_chunk.py merge-lenses` 做：T 为基准（全 id+无错段），A/G/R union 进来；多 lens 同段取优先级最高的非空 corrected 作底（A>T>G>R，保证 Suggest translation 不空），全部候选存 `corr_candidates` 待可选整合。**所以你命中错误必须填 corrected**（locked 除外）——你留 null 该段就少一个候选，整合质量下降。
+merge 由 `lqe_chunk.py merge-lenses` 做：T 为基准（全 id+无错段），N/A/G/R union 进来；多 lens 同段取优先级最高的非空 corrected 作底（N>A>T>G>R，保证 Suggest translation 不空），全部候选存 `corr_candidates` 待可选整合。术语表/glossary 自审另注入 `_term_audit.md`（N 专名音译 + 模式覆盖）。**所以你命中错误必须填 corrected**（locked 除外）——你留 null 该段就少一个候选，整合质量下降。

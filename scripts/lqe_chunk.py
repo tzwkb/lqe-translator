@@ -2,7 +2,7 @@
 """Split a job for subagent fan-out, then merge subagent outputs back.
 
 split: state.json + errors.json(pre-check) + terms.json -> chunks/chunk_NN.json
-       each segment carries {id, source, target, precheck[], term_hits[]}
+       each segment carries {id, source, target, precheck[], term_hits[], term_near[]}
 merge: chunks/chunk_NN.out.json (list of {id, errors, corrected}) -> errors.json
        validates every state id is covered; missing ids fall back to pre-check.
 """
@@ -14,6 +14,7 @@ from pathlib import Path
 
 
 from lqe_engine import read_json as load
+from term_suggest import build_index as _tn_build, suggest as _tn_suggest
 
 
 def _term_hits(src_txt, titems, cap=15):
@@ -67,6 +68,10 @@ def cmd_split(a):
               for t in terms if len(t.get("source", "")) >= 2]
     titems.sort(key=lambda x: -len(x[0]))
 
+    # near-term suggester (TF-IDF over TB)：精确匹配漏的"差一两字"变体名 → term_near 参考
+    tn_pairs = [(t["source"], t.get("target", "")) for t in terms if t.get("source")]
+    tn_idx = _tn_build([p[0] for p in tn_pairs], [p[1] for p in tn_pairs]) if tn_pairs else None
+
     # dedup identical (source,target): evaluate each unique pair once;
     # merge broadcasts the verdict back to every id in the group.
     groups = {}
@@ -90,13 +95,17 @@ def cmd_split(a):
         rows = []
         for seg in reps[ci * size:(ci + 1) * size]:
             src_txt = seg.get("source", "")
+            hits = _term_hits(src_txt, titems)
+            near = _tn_suggest(tn_idx, src_txt, exclude={h["src"] for h in hits}) \
+                if tn_idx else []
             rows.append({
                 "id": seg["id"],
                 "source": src_txt,
                 "target": seg.get("target", ""),
                 "kind": _seg_kind(src_txt),
                 "precheck": pre_by_id.get(seg["id"], []),
-                "term_hits": _term_hits(src_txt, titems),
+                "term_hits": hits,
+                "term_near": near,
             })
         (outdir / f"chunk_{ci:02d}.json").write_text(
             json.dumps({"chunk_id": ci, "segments": rows},
@@ -128,7 +137,21 @@ def cmd_merge(a):
             if rep in merged:
                 v = merged[rep]
                 for i in group:
-                    merged[i] = {**v, "id": i}
+                    merged[i] = {**v, "id": i, "errors": list(v["errors"])}
+    # 保留 pre-check 的确定性硬错——空译文/中文残留 Untranslated 是确定性 Major，
+    # 却易落在 T（划归 A）与 A（沉默推回 pre-check）的职责缝隙里被丢（实证：
+    # 2026-06-23 nrc/th 10 段空译文漏计、分数虚高 97.98 vs 实际 97.09）。
+    # A lens 沉默 ≠ 甄别为 FP，故从基底补回；在 reconcile 之后注入以绕过其
+    # 「A 未确认即剔 A_OWNED」（否则刚补就被剔）。
+    reinstated = 0
+    for i in ids:
+        if i not in merged:
+            continue
+        have = {e.get("category") for e in merged[i]["errors"]}
+        for pe in pre_by_id.get(i, []):
+            if pe.get("category") in _DETERMINISTIC_PRECHECK and pe.get("category") not in have:
+                merged[i]["errors"].append(pe)
+                reinstated += 1
     missing = [i for i in ids if i not in merged]
     out = []
     for i in ids:
@@ -140,6 +163,8 @@ def cmd_merge(a):
                            encoding="utf-8")
     cov = sum(1 for i in ids if i in merged)
     print(f"[merge] {len(files)} chunk outputs -> {a.out}")
+    if reinstated:
+        print(f"[merge] reinstated {reinstated} deterministic Untranslated from pre-check baseline")
     print(f"[merge] covered {cov}/{len(ids)} ids (after broadcast); MISSING {len(missing)}: {missing[:20]}")
     if missing:
         sys.exit(2)
@@ -152,6 +177,10 @@ _ALL_CATS = {
     "Spelling", "Locale convention", "Length", "Other", "Neutral",
 }
 _A_OWNED = {"Mistranslation", "Omission", "Addition", "Untranslated"}
+# pre-check 确定性硬错中，必须无条件从基底保留的类别（lens 不做语义判断、
+# 易落职责缝隙）。仅 Untranslated：空译文/中文残留是确定性 Major，FP 极罕见；
+# Markup/Length 留给 lens 甄别透传（有分词/CJK 长度等 FP，T 已有效剔除）。
+_DETERMINISTIC_PRECHECK = {"Untranslated"}
 
 
 def _chunk_idxs(outdir: Path):
@@ -187,7 +216,8 @@ def _norm_lens(arr, path):
     return [out[i] for i in order]
 
 
-_LENS_ADD = ["A", "G", "R"]   # additive lenses unioned onto the T spine
+_LENS_ADD = ["N", "A", "G", "R"]   # additive lenses unioned onto the T spine
+                                   # N=专名音译(术语自审用; 句子流不产 N 文件→跳过, 零影响)
 
 
 def cmd_merge_lenses(a):
@@ -245,7 +275,7 @@ def cmd_merge_lenses(a):
                     # (A 准确>T 术语>G 语法>R 语域),保证 Suggest translation 永不空
                     # (PM 0622 两度反馈「没有AI改的译文」);全部候选存入 corr_candidates,
                     # 供 SKILL 大文件流程的可选整合步合并多处修正。
-                    entry["corrected"] = next((cands[L] for L in ("A", "T", "G", "R") if L in cands), None)
+                    entry["corrected"] = next((cands[L] for L in ("N", "A", "T", "G", "R") if L in cands), None)
                     entry["corr_candidates"] = cands
                     multi += 1
             out.append(entry)
@@ -267,10 +297,12 @@ def cmd_validate_lenses(a):
     for ci in idxs:
         base = load(outdir / f"chunk_{ci:02d}.json")
         ids = {s["id"] for s in base["segments"]}
-        for L in ("T", "A", "G", "R"):
+        for L in ("T", "A", "G", "R", "N"):   # N=专名音译, 仅术语自审产出 → 可选
             p = outdir / f"chunk_{ci:02d}.{L}.json"
             if not p.exists():
-                problems.append(f"chunk_{ci:02d}.{L}: MISSING"); continue
+                if L != "N":          # 句子流不产 N, 缺 N 不算问题
+                    problems.append(f"chunk_{ci:02d}.{L}: MISSING")
+                continue
             try:
                 arr = load(p)
             except Exception as e:
