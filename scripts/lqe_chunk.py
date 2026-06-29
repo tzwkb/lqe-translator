@@ -90,10 +90,29 @@ def cmd_split(a):
         encoding="utf-8")
 
     size = a.size
-    nchunks = (len(reps) + size - 1) // size
-    for ci in range(nchunks):
+    budget = getattr(a, "char_budget", 0) or 0
+    # partition reps into chunks. --char-budget>0: cut by source+target char volume
+    # (评估负载代理)，密集段→更小的块；--size 同时作硬上限。否则固定 --size 段数。
+    # 块越小 → 单 agent 负载有上限 + 失败/中断的 blast-radius 越小 + 续跑更细
+    # （断点优先按 chunk_NN.<L>.json 跳过已完成块）。
+    if budget > 0:
+        parts, cur, curv = [], [], 0
+        for rep in reps:
+            w = len(rep.get("source", "")) + len(rep.get("target", ""))
+            if cur and (curv + w > budget or len(cur) >= size):
+                parts.append(cur)
+                cur, curv = [], 0
+            cur.append(rep)
+            curv += w
+        if cur:
+            parts.append(cur)
+    else:
+        parts = [reps[i:i + size] for i in range(0, len(reps), size)]
+    nchunks = len(parts)
+    vols = []
+    for ci, part in enumerate(parts):
         rows = []
-        for seg in reps[ci * size:(ci + 1) * size]:
+        for seg in part:
             src_txt = seg.get("source", "")
             hits = _term_hits(src_txt, titems)
             near = _tn_suggest(tn_idx, src_txt, exclude={h["src"] for h in hits}) \
@@ -107,12 +126,16 @@ def cmd_split(a):
                 "term_hits": hits,
                 "term_near": near,
             })
+        vols.append(sum(len(r["source"]) + len(r["target"]) for r in rows))
         (outdir / f"chunk_{ci:02d}.json").write_text(
             json.dumps({"chunk_id": ci, "segments": rows},
                        ensure_ascii=False, indent=1), encoding="utf-8")
     dup = len(segs) - len(reps)
+    mode = f"char-budget {budget} (cap {size})" if budget > 0 else f"size {size}"
     print(f"[split] {len(segs)} segments -> {len(reps)} unique (deduped {dup}) "
-          f"-> {nchunks} chunks (size {size}) in {outdir}")
+          f"-> {nchunks} chunks ({mode}) in {outdir}")
+    print(f"[split] seg-counts: {[len(p) for p in parts]}")
+    print(f"[split] src+tgt chars/chunk: {vols}")
 
 
 def cmd_merge(a):
@@ -376,6 +399,9 @@ def main():
     s.add_argument("--terms", required=True)
     s.add_argument("--outdir", required=True)
     s.add_argument("--size", type=int, default=200)
+    s.add_argument("--char-budget", type=int, default=0,
+                   help="cut chunks by source+target char volume (评估负载代理); "
+                        "0=off → 固定 --size（向后兼容）. --size 仍作段数硬上限.")
     s.set_defaults(fn=cmd_split)
     m = sub.add_parser("merge")
     m.add_argument("--state", required=True)
