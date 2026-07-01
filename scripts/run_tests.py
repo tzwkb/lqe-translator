@@ -331,8 +331,28 @@ def t10():
           isinstance(hit1["th"], list) and len(hit1["th"]) == 1 and hit1["th"][0]["target"] == "มาร์วิน")
 
 
+# ── T11: lookup-terms 多义展示 ────────────────────────────────────────────────
+def t11():
+    rows = [('里奥出现了。', 'placeholder')]
+    make_xlsx(TMP / "t11.xlsx", rows)
+    (TMP / "t11_tb.json").write_text(json.dumps([
+        {"source": "里奥", "senses": [
+            {"target": "ลีโอ", "category": "Creature Individual"},
+            {"target": "ไลเอล", "category": "Creature Species"},
+        ]},
+    ], ensure_ascii=False), encoding="utf-8")
+    r = run("lqe_io.py", "read", "--input", str(TMP / "t11.xlsx"),
+            "--source-col", "原文", "--target-col", "译文", "--target-lang", "th",
+            "--wordcount-basis", "source-chars",
+            "--terminology", str(TMP / "t11_tb.json"), "--out", str(TMP / "j11/state.json"))
+    check("T11 read rc", r.returncode == 0, r.stderr[-200:])
+    r = run("lqe_io.py", "lookup-terms", "--state", str(TMP / "j11/state.json"))
+    check("T11 lookup rc", r.returncode == 0, r.stderr[-200:])
+    check("T11 shows both candidates", "ลีโอ" in r.stdout and "ไลเอล" in r.stdout)
+
+
 if __name__ == "__main__":
-    for t in (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10):
+    for t in (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11):
         t()
     rag = subprocess.run([sys.executable, str(SCRIPTS / "test_rag.py")], capture_output=True, text=True)
     check("RAG suite (test_rag.py)", rag.returncode == 0,

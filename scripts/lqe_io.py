@@ -26,7 +26,7 @@ from lqe_engine import (
     read_json, RE_CJK as _RE_CJK, _target_lang, _load_lang, _LANG_DIR, _SKILL_ROOT,
     CATEGORY_ORDER as _ALL_CATS, CATEGORY_PARENT as _PARENT,
     VALID_CATEGORIES as _VALID_CATEGORIES, VALID_SEVERITIES as _VALID_SEVERITIES,
-    apply_severity, load_terms as _load_terms,
+    apply_severity, load_terms as _load_terms, group_terms as _group_terms,
     raw_points, weighted_points,
 )
 
@@ -531,7 +531,7 @@ def cmd_lookup_terms(args):
         print("[lqe_io] no terminology available.", file=sys.stderr)
         return
 
-    term_map = {t["source"].strip(): t["target"].strip() for t in terms if t.get("source")}
+    term_map = _group_terms(terms)
 
     segs = state["segments"]
     if args.ids:
@@ -539,13 +539,13 @@ def cmd_lookup_terms(args):
         segs = [s for s in segs if s["id"] in id_set]
 
     # 逐段匹配，避免跨段拼接产生误命中
-    hits: dict[str, dict] = {}  # term_source → {target, seg_ids}
+    hits: dict[str, dict] = {}  # term_source → {senses, seg_ids}
     for seg in segs:
         src_text = seg["source"]
-        for term_src, term_tgt in term_map.items():
+        for term_src, senses in term_map.items():
             if term_src in src_text:
                 if term_src not in hits:
-                    hits[term_src] = {"target": term_tgt, "seg_ids": []}
+                    hits[term_src] = {"senses": senses, "seg_ids": []}
                 hits[term_src]["seg_ids"].append(seg["id"])
 
     if not hits:
@@ -556,7 +556,8 @@ def cmd_lookup_terms(args):
     for src, info in sorted(hits.items(), key=lambda x: -len(x[0])):
         seg_ids = info["seg_ids"]
         id_str = f"  (segs: {seg_ids})" if len(seg_ids) <= 5 else f"  ({len(seg_ids)} segs)"
-        print(f"  {src} → {info['target']}{id_str}")
+        tgt_str = " | ".join(s["target"] for s in info["senses"])
+        print(f"  {src} → {tgt_str}{id_str}")
 
 
 # ── apply-fixes ───────────────────────────────────────────────────────────────
