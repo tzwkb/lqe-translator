@@ -12,8 +12,22 @@
 只写**合法 JSON 数组**（无散文/无围栏）到指定路径。每条 `{id, errors[], corrected}`，`errors[]` 每条 `{category, severity, comment}`，comment 引中/译片段、中文说明。
 - **只用本 lens 授权的类别**（见各 lens 文件）。不是你的类别 → 不报，留给对应 lens（防重防漏）。
 - **severity**：Neutral / Minor / Major / Critical。lens 强制 Major：Terminology / Untranslated（Markup / Length 属 pre-check 确定性域、lens 不报、不在此规定其 severity）。存疑取重；数值/机制错=Major；表面拼写=Minor。
-- **corrected**：本 lens 有真错 → 完整修正译文；无 → `null`；locked 段 → `null`。
+- **corrected**：本 lens 有真错 → 完整修正译文；无 → `null`；locked 段 → `null`。**改动是干净子串替换时**（术语/拼写/局部用词换掉，原句其余不变），改用补丁格式省 token：`{"patches": [{"from": "错的子串", "to": "对的子串"}]}`（脚本会套到原译文自动还原完整句）；改动涉及**调序/插入/删词**等补丁表达不了的结构变化，仍给完整句字符串。两种格式可按段自行选，脚本自动识别。
 - **四要素法则**：准确 + 合规（SG/术语）+ 合语法 + 自然 ⇒ 不是错，别造错；偏好性改写至多 Neutral——但功能/规则文本里的时态·搭配不当按 R「地道性分场景」可至 Minor。
+
+## 断点续写（防整块作废，铁律）
+段数 >30 时，**判完一段就调一次脚本追加写，不用 Write 工具自己攒 JSON**：
+```bash
+python3 "$SCRIPTS/lqe_chunk.py" ckpt-append --file <目标文件>.ckpt.jsonl --entry '{"id":<int>,"errors":[...],"corrected":...}'
+```
+每段判完立刻调一次（不是攒够一批再调）；脚本负责校验+追加，你不用自己维护累计数组、不会因为手写JSON漏转义搞坏文件（有过真实事故）。
+- **开始前先查断点**：Read 一次 `<目标文件>.ckpt.jsonl`（不存在就从头开始，不报错）——已经出现过的 id 直接跳过，只接着判剩下的。
+- **全部段判完后**：
+```bash
+python3 "$SCRIPTS/lqe_chunk.py" ckpt-finalize --jsonl <目标文件>.ckpt.jsonl --out <正式目标文件路径>
+```
+这一步把 ckpt.jsonl 去重合并成标准 JSON 数组、写到任务里给的正式路径——这才是真正的完成信号，下游流程只认这个文件，不认 ckpt.jsonl。
+- 段数 ≤30（如二分后的小 chunk）可以不设检查点，判完直接一次性 Write 正式文件。
 
 ## 地盘划分（谁报谁不报）
 | lens | 类别 owner | 跑哪些段 | 输出 |

@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 
-from lqe_engine import read_json as load, group_terms
+from lqe_engine import read_json as load, group_terms, resolve_corrected
 from term_suggest import build_index as _tn_build, suggest as _tn_suggest
 
 
@@ -259,11 +259,15 @@ def cmd_merge_lenses(a):
         if not spine.exists():
             print(f"[merge-lenses] MISSING spine {spine.name} — run lens T first")
             sys.exit(3)
+        # base chunk 的原译文，供 resolve_corrected 把 lens 给的补丁({"patches":[...]})
+        # 还原成完整句——旧格式(直接给完整字符串/None)原样透传，向后兼容。
+        tgt_by_id = {s["id"]: s.get("target", "") for s in load(outdir / f"chunk_{ci:02d}.json")["segments"]}
         used.add("T")
         by_id, flags = {}, {}
         for e in _norm_lens(load(spine), spine):
+            corr = resolve_corrected(e.get("corrected"), tgt_by_id.get(e["id"], ""))
             by_id[e["id"]] = {"errors": list(e.get("errors", [])),
-                              "corr": {"T": e.get("corrected")}}
+                              "corr": {"T": corr}}
             flags[e["id"]] = {"T"} if e.get("errors") else set()
         for L in _LENS_ADD:
             f = outdir / f"chunk_{ci:02d}.{L}.json"
@@ -275,7 +279,7 @@ def cmd_merge_lenses(a):
                     continue
                 slot = by_id.setdefault(e["id"], {"errors": [], "corr": {}})
                 slot["errors"].extend(e["errors"])
-                slot["corr"][L] = e.get("corrected")
+                slot["corr"][L] = resolve_corrected(e.get("corrected"), tgt_by_id.get(e["id"], ""))
                 flags.setdefault(e["id"], set()).add(L)
         out = []
         for sid in sorted(by_id):
@@ -389,6 +393,94 @@ def cmd_reconcile(a):
     print(f"[reconcile] dropped {len(dropped)} non-A-confirmed A-owned errors -> {arch}")
 
 
+def cmd_split_half(a):
+    """单个 chunk×lens 单元反复失败(超时/64K)时，把该 chunk 原地二分成两个更小的
+    dispatch 目标——不重新走 pre-check/term_hits(已在原 chunk 里算好，直接继承)。
+    产出 chunk_NN_p1.json / chunk_NN_p2.json，各自当正常 chunk 派发单个 lens。
+    --lens 可选：若该 chunk 该 lens 已有 ckpt.jsonl(断了之前攒过一些断点进度)，
+    按 id 归属把已判条目分别转给 p1/p2 的 ckpt.jsonl——已判过的不会因为二分而白费，
+    新派的两个小 agent 一开局查断点就会跳过这些、只接着判各自剩下的。"""
+    outdir = Path(a.outdir)
+    ci = int(a.chunk)
+    data = load(outdir / f"chunk_{ci:02d}.json")
+    segs = data["segments"]
+    mid = len(segs) // 2
+    parts = [segs[:mid], segs[mid:]]
+    id_sets = [{s["id"] for s in part} for part in parts]
+    for i, part in enumerate(parts, start=1):
+        p = outdir / f"chunk_{ci:02d}_p{i}.json"
+        p.write_text(json.dumps({"chunk_id": data["chunk_id"], "segments": part},
+                                 ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"[split-half] chunk_{ci:02d}（{len(segs)}段）-> "
+          + " + ".join(f"chunk_{ci:02d}_p{i}({len(p)}段)" for i, p in enumerate(parts, start=1)))
+
+    if getattr(a, "lens", None):
+        L = a.lens
+        old_ckpt = outdir / f"chunk_{ci:02d}.{L}.ckpt.jsonl"
+        if old_ckpt.exists():
+            carried = [0, 0]
+            buckets = [[], []]
+            for line in old_ckpt.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                e = json.loads(line)
+                idx = 0 if e["id"] in id_sets[0] else 1
+                buckets[idx].append(line)
+            for i in (1, 2):
+                new_ckpt = outdir / f"chunk_{ci:02d}_p{i}.{L}.ckpt.jsonl"
+                lines = buckets[i - 1]
+                if lines:
+                    new_ckpt.write_text("\n".join(lines) + "\n", encoding="utf-8")
+                    carried[i - 1] = len(lines)
+            print(f"[split-half] 继承 {L} 断点：p1 带 {carried[0]} 条、p2 带 {carried[1]} 条"
+                  f"（原 {old_ckpt.name} 共 {carried[0] + carried[1]} 条）")
+        else:
+            print(f"[split-half] {L} 无既有断点（{old_ckpt.name} 不存在），两个新 part 从零开始")
+
+
+def cmd_join_parts(a):
+    """split-half 派发的两个 part 各自出结果后，拼回该 chunk×lens 原本该有的单一
+    输出文件（如 chunk_00.T.json），后续 merge-lenses 无需知道这段发生过二分。"""
+    combined = []
+    for p in a.parts:
+        combined.extend(load(p))
+    Path(a.out).write_text(json.dumps(combined, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"[join-parts] {len(a.parts)} 份 -> {len(combined)} 条 -> {a.out}")
+
+
+def cmd_ckpt_append(a):
+    """lens agent 判完 1 段就调一次——脚本负责校验+追加，agent 不用自己攒/重写整个
+    JSON（手写JSON漏转义就是真实事故的成因）。一行一条，agent 中途断线只丢当前
+    这一段，不丢已经追加过的。"""
+    entry = json.loads(a.entry)  # 校验合法 JSON，非法直接报错，不静默写坏数据
+    if "id" not in entry:
+        print(f"[ckpt-append] entry 缺 'id': {a.entry[:80]}", file=sys.stderr)
+        sys.exit(1)
+    p = Path(a.file)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with p.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    print(f"[ckpt-append] id={entry['id']} -> {p}")
+
+
+def cmd_ckpt_finalize(a):
+    """全部段判完后调一次：把 ckpt.jsonl 去重(同 id 取最后一次出现，处理断点重叠)、
+    按 id 排序，合并成下游 merge-lenses 认的标准 JSON 数组，写到正式目标路径。"""
+    p = Path(a.jsonl)
+    by_id = {}
+    if p.exists():
+        for line in p.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            e = json.loads(line)
+            by_id[e["id"]] = e
+    out = [by_id[i] for i in sorted(by_id)]
+    Path(a.out).write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"[ckpt-finalize] {len(out)} 条（去重前 {sum(1 for _ in p.read_text(encoding='utf-8').splitlines() if _.strip())}）-> {a.out}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -397,7 +489,7 @@ def main():
     s.add_argument("--errors", required=True)
     s.add_argument("--terms", required=True)
     s.add_argument("--outdir", required=True)
-    s.add_argument("--size", type=int, default=200)
+    s.add_argument("--size", type=int, default=100)
     s.add_argument("--char-budget", type=int, default=0,
                    help="cut chunks by source+target char volume (评估负载代理); "
                         "0=off → 固定 --size（向后兼容）. --size 仍作段数硬上限.")
@@ -417,6 +509,23 @@ def main():
     rc = sub.add_parser("reconcile")        # A_OWNED 归属权威化 + 存档 dropped
     rc.add_argument("--outdir", required=True)
     rc.set_defaults(fn=cmd_reconcile)
+    sh = sub.add_parser("split-half")       # 单元反复失败 -> 原地二分成更小 dispatch 目标
+    sh.add_argument("--outdir", required=True)
+    sh.add_argument("--chunk", required=True, help="原 chunk 序号（如 0、3）")
+    sh.add_argument("--lens", default=None, help="若该 chunk 该 lens 已有 ckpt.jsonl，一并按 id 拆给 p1/p2 继承")
+    sh.set_defaults(fn=cmd_split_half)
+    jp = sub.add_parser("join-parts")       # 二分后的两份结果拼回单一 chunk_NN.<L>.json
+    jp.add_argument("--parts", required=True, nargs="+", help="两个 part 的输出文件路径")
+    jp.add_argument("--out", required=True)
+    jp.set_defaults(fn=cmd_join_parts)
+    ca = sub.add_parser("ckpt-append")      # lens agent 判完1段就调1次，脚本负责校验+追加
+    ca.add_argument("--file", required=True, help="ckpt jsonl 路径")
+    ca.add_argument("--entry", required=True, help="单条结果的 JSON 字符串 {id,errors,corrected}")
+    ca.set_defaults(fn=cmd_ckpt_append)
+    cf = sub.add_parser("ckpt-finalize")    # 全部段判完后调1次，去重+排序+转成正式 JSON 数组
+    cf.add_argument("--jsonl", required=True)
+    cf.add_argument("--out", required=True)
+    cf.set_defaults(fn=cmd_ckpt_finalize)
     a = ap.parse_args()
     a.fn(a)
 

@@ -8,11 +8,11 @@
   "checks": "checks.json",
   "adjudications": "adjudications.md",
   "threshold": 98,
-  "rag": {
+  "tm": {
     "libraries": [
-      "../common/rag/sources/CQA库0605.sdltm",
-      "../common/rag/sources/Designer库0605.sdltm"
+      "../common/tm/sources/CQA库0605.sdltm",
+      "../common/tm/sources/Designer库0605.sdltm"
     ],
-    "index": "../common/rag/rag_index.json"
+    "index": "../common/tm/tm_index.json"
   }
 }

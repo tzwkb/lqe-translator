@@ -68,6 +68,26 @@ def read_json(path):
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
+def apply_patches(original: str, patches: list) -> str:
+    """把 [{"from","to"}] 补丁依次套到 original 上，还原完整修正译文——
+    lens 只需给出改动的子串而不必重复整句，省 corrected 字段的 token。
+    from 不在文本里（补丁失配）时跳过该条，不报错、不中断其余补丁。"""
+    text = original
+    for p in patches or []:
+        frm, to = p.get("from", ""), p.get("to", "")
+        if frm and frm in text:
+            text = text.replace(frm, to, 1)
+    return text
+
+
+def resolve_corrected(corrected, original: str):
+    """corrected 可能是完整字符串（旧格式，原样返回）或 {"patches":[...]}（新格式，
+    套 apply_patches 还原）。None/空 原样返回。"""
+    if isinstance(corrected, dict) and "patches" in corrected:
+        return apply_patches(original, corrected["patches"])
+    return corrected
+
+
 def load_terms(state: dict) -> list[dict]:
     path = state.get("terms_path", "")
     if path and Path(path).exists():
