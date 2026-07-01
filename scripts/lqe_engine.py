@@ -83,7 +83,7 @@ def term_senses(entry: dict) -> list[dict]:
     是所有脚本读取术语候选译法的唯一入口——不允许绕过它直接读 entry["target"]，
     多义条目没有这个 key。"""
     if "senses" in entry:
-        return entry["senses"]
+        return [dict(s) for s in entry["senses"]]
     return [{k: entry[k] for k in ("target", "status", "locked", "category", "definition") if k in entry}]
 
 
