@@ -180,11 +180,12 @@ python "$SCRIPTS/lqe_io.py" pre-check \
 
 #### 术语注入
 
-从 `terms_path` 加载术语表，格式化注入评估上下文：
+从 `terms_path` 加载术语表，格式化注入评估上下文；多义词条（同一 source 有多个候选译法）列出全部候选 + 消歧信息，结合段落语境判断该用哪个，译文都不匹配才报 Terminology：
 ```
 === MANDATORY TERMINOLOGY (deviation = Terminology [Major]) ===
 长鸣玉    → Echo Jade
 师傅/公子 → Master
+里奥      → ลีโอ（Creature Individual） | ไลเอล（Creature Species）
 ...
 ```
 
