@@ -244,8 +244,29 @@ def t7():
     check("T7 merge content", merged[0]["corrected"] == "Hello." and merged[1]["errors"] == [])
 
 
+# ── T8: lqe_engine term_senses / group_terms ──────────────────────────────
+def t8():
+    sys.path.insert(0, str(SCRIPTS))
+    from lqe_engine import term_senses, group_terms
+
+    singleton = {"source": "马尔文", "target": "มาร์วิน", "status": "New"}
+    check("T8 singleton term_senses",
+          term_senses(singleton) == [{"target": "มาร์วิน", "status": "New"}])
+
+    multi = {"source": "里奥", "senses": [
+        {"target": "ลีโอ", "category": "Creature Individual"},
+        {"target": "ไลเอล", "category": "Creature Species"},
+    ]}
+    check("T8 multi term_senses passthrough", term_senses(multi) == multi["senses"])
+
+    grouped = group_terms([singleton, multi])
+    check("T8 group_terms keys", set(grouped.keys()) == {"马尔文", "里奥"})
+    check("T8 group_terms multi count", len(grouped["里奥"]) == 2)
+    check("T8 group_terms singleton count", len(grouped["马尔文"]) == 1)
+
+
 if __name__ == "__main__":
-    for t in (t1, t2, t3, t4, t5, t6, t7):
+    for t in (t1, t2, t3, t4, t5, t6, t7, t8):
         t()
     rag = subprocess.run([sys.executable, str(SCRIPTS / "test_rag.py")], capture_output=True, text=True)
     check("RAG suite (test_rag.py)", rag.returncode == 0,

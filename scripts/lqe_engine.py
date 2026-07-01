@@ -77,6 +77,26 @@ def load_terms(state: dict) -> list[dict]:
     return []
 
 
+def term_senses(entry: dict) -> list[dict]:
+    """把单义 {source,target,...} / 多义 {source,senses:[...]} 两种形状统一拍平
+    成候选列表，每项最多含 target(必有)/status/locked/category/definition。
+    是所有脚本读取术语候选译法的唯一入口——不允许绕过它直接读 entry["target"]，
+    多义条目没有这个 key。"""
+    if "senses" in entry:
+        return entry["senses"]
+    return [{k: entry[k] for k in ("target", "status", "locked", "category", "definition") if k in entry}]
+
+
+def group_terms(terms: list[dict]) -> dict[str, list[dict]]:
+    """source -> 候选列表（见 term_senses），跨条目累加。"""
+    out: dict[str, list[dict]] = {}
+    for t in terms:
+        src = (t.get("source") or "").strip()
+        if src:
+            out.setdefault(src, []).extend(term_senses(t))
+    return out
+
+
 def load_style_guide(state: dict) -> str:
     path = state.get("sg_path", "")
     if path and Path(path).exists():
