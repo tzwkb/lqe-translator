@@ -265,8 +265,38 @@ def t8():
     check("T8 group_terms singleton count", len(grouped["马尔文"]) == 1)
 
 
+# ── T9: lqe_checks pre-check 多义术语命中 ─────────────────────────────────────
+def t9():
+    rows = [
+        ('看到一只里奥。', 'Saw a ลีโอ.'),      # 0 命中 Individual 候选 -> 不报
+        ('看到一只里奥。', 'Saw a ไลเอล.'),      # 1 命中 Species 候选 -> 不报
+        ('看到一只里奥。', 'Saw a Rio.'),        # 2 两个候选都不匹配 -> 报错，列出两个候选
+        ('马尔文来了。', 'มาร์วิน is here.'),    # 3 单义词条回归检查
+    ]
+    make_xlsx(TMP / "t9.xlsx", rows)
+    (TMP / "t9_tb.json").write_text(json.dumps([
+        {"source": "里奥", "senses": [
+            {"target": "ลีโอ", "category": "Creature Individual"},
+            {"target": "ไลเอล", "category": "Creature Species"},
+        ]},
+        {"source": "马尔文", "target": "มาร์วิน", "status": "New"},
+    ], ensure_ascii=False), encoding="utf-8")
+    r = run("lqe_io.py", "read", "--input", str(TMP / "t9.xlsx"),
+            "--source-col", "原文", "--target-col", "译文", "--target-lang", "th",
+            "--wordcount-basis", "source-chars",
+            "--terminology", str(TMP / "t9_tb.json"), "--out", str(TMP / "j9/state.json"))
+    check("T9 read rc", r.returncode == 0, r.stderr[-200:])
+    r = run("lqe_io.py", "pre-check", "--state", str(TMP / "j9/state.json"), "--out", str(TMP / "j9/pc.json"))
+    check("T9 pre-check rc", r.returncode == 0, r.stderr[-200:])
+    res = load_errs(TMP / "j9/pc.json")
+    check("T9 sense A no Terminology error", not has(res, 0, "里奥"))
+    check("T9 sense B no Terminology error", not has(res, 1, "里奥"))
+    check("T9 neither-sense reports both candidates", has(res, 2, "ลีโอ") and has(res, 2, "ไลเอล"))
+    check("T9 singleton regression unaffected", not has(res, 3, "马尔文"))
+
+
 if __name__ == "__main__":
-    for t in (t1, t2, t3, t4, t5, t6, t7, t8):
+    for t in (t1, t2, t3, t4, t5, t6, t7, t8, t9):
         t()
     rag = subprocess.run([sys.executable, str(SCRIPTS / "test_rag.py")], capture_output=True, text=True)
     check("RAG suite (test_rag.py)", rag.returncode == 0,

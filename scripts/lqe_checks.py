@@ -12,7 +12,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from lqe_engine import (
-    read_json, load_terms as _load_terms,
+    read_json, load_terms as _load_terms, group_terms as _group_terms,
     RE_CJK as _RE_CJK, _target_lang, _load_lang, _lang_toggle_defaults,
 )
 
@@ -178,17 +178,26 @@ def _load_checks(state: dict, lang_attrs: dict):
     return toggles, custom
 
 
+def _fmt_sense(s: dict) -> str:
+    parts = [f"'{s['target']}'"]
+    if s.get("category"):
+        parts.append(f"({s['category']})")
+    if s.get("status"):
+        parts.append(f"[TB:{s['status']}]")
+    return "".join(parts)
+
+
 def run_pre_check(state_path: Path, out_path: Path | None = None):
     state = read_json(state_path)
     segments = state["segments"]
 
     terms = _load_terms(state)
-    term_map = {
-        t["source"].strip(): (t["target"].strip(), t["target"].strip().lower(), t.get("status", ""), bool(t.get("locked")))
-        for t in terms
-        if t.get("source") and t.get("target")
-        and len(t["source"].strip()) >= (2 if _RE_CJK.search(t["source"]) else 3)
-    }
+    term_map: dict[str, list[dict]] = {}
+    for src, senses in _group_terms(terms).items():
+        valid = [{**s, "_target_lower": s["target"].strip().lower()}
+                 for s in senses if s.get("target")]
+        if valid and len(src) >= (2 if _RE_CJK.search(src) else 3):
+            term_map[src] = valid
 
     lang_attrs = _load_lang(_target_lang(state))
     toggles, custom = _load_checks(state, lang_attrs)
@@ -196,7 +205,8 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
 
     numerals = lang_attrs.get("numerals", [])
     # N8 豁免：术语表译法中出现过的词形（官方 CamelCase 名不报）
-    term_tokens = {w for orig, *_ in term_map.values() for w in re.findall(r'[A-Za-z]+', orig)}
+    term_tokens = {w for senses in term_map.values() for s in senses
+                   for w in re.findall(r'[A-Za-z]+', s["target"])}
     # 术语扫描首字符分桶：每段只扫源文出现过首字符的词条（段数×全表 → 段数×命中桶）
     term_first: dict = defaultdict(list)
     for ts in term_map:
@@ -303,24 +313,25 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
         if on("terminology"):
             hit_srcs = [ts for ch in set(src) for ts in term_first.get(ch, ()) if ts in src]
             for term_src in hit_srcs:
-                term_orig, term_tgt, term_status, term_locked = term_map[term_src]
-                # 复合术语优先：更长词条命中且其译法已在译文中 → 跳过被包含的子词条
+                senses = term_map[term_src]
+                # 复合术语优先：更长词条命中且其任一候选译法已在译文中 → 跳过被包含的子词条
                 covered = any(other != term_src and term_src in other
-                              and term_map[other][1] in tgt_lower for other in hit_srcs)
+                              and any(s["_target_lower"] in tgt_lower for s in term_map[other])
+                              for other in hit_srcs)
                 if covered:
                     continue
-                if term_tgt not in tgt_lower:
-                    note = f" [TB:{term_status}]" if term_status else ""
-                    if term_locked:
-                        note += " [LOCKED]"
+                matched = next((s for s in senses if s["_target_lower"] in tgt_lower), None)
+                if matched is None:
+                    cands = " or ".join(_fmt_sense(s) for s in senses)
+                    note = " [LOCKED]" if all(s.get("locked") for s in senses) else ""
                     errs.append({"category": "Terminology", "severity": "Major",
-                                 "comment": f"'{term_src}' → expected '{term_orig}'{note}"})
+                                 "comment": f"'{term_src}' → expected {cands}{note}"})
                 elif on("term_case"):
                     # #7: 全大写缩写词条精确大小写（PM 2026-06-12：仅查缩写、判严重）
-                    for acro in re.findall(r'\b[A-Z]{2,}\b', term_orig):
+                    for acro in re.findall(r'\b[A-Z]{2,}\b', matched["target"]):
                         if acro.lower() in tgt_lower and acro not in tgt:
                             errs.append({"category": "Company style", "severity": "Major",
-                                         "comment": f"Acronym case: expected '{acro}' ('{term_src}' → '{term_orig}')"})
+                                         "comment": f"Acronym case: expected '{acro}' ('{term_src}' → '{matched['target']}')"})
                             break
 
         # R1: 无索引位置占位符 %s/%d 顺序（数量相同但顺序错位 → 参数错位）

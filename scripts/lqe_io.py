@@ -42,8 +42,13 @@ def _clean_terms(items: list) -> list:
     out = []
     for t in items:
         s = str(t.get("source", "")).translate(_ZW_TABLE).strip()
+        if not s:
+            continue
+        if "senses" in t:
+            out.append({"source": s, "senses": t["senses"]})
+            continue
         g = str(t.get("target", "")).translate(_ZW_TABLE).strip()
-        if s and g:
+        if g:
             item = {"source": s, "target": g}
             if t.get("status"):
                 item["status"] = str(t["status"]).strip()
