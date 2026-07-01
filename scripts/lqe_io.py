@@ -593,7 +593,7 @@ def cmd_apply_fixes(args):
 
     attempted = {e["id"]: e["corrected"] for e in errors_data if e.get("corrected")}
     corrections = {sid: text for sid, text in attempted.items() if sid not in locked_ids}
-    skipped = [{"id": sid, "reason": "RAG_100_MATCH", "attempted": text} for sid, text in attempted.items() if sid in locked_ids]
+    skipped = [{"id": sid, "reason": "TM_100_MATCH", "attempted": text} for sid, text in attempted.items() if sid in locked_ids]
     if not corrections and not skipped:
         print("[lqe_io] apply-fixes: no corrections found, state unchanged.")
         return
@@ -615,7 +615,7 @@ def cmd_apply_fixes(args):
     for seg in state["segments"]:
         if seg["id"] in locked_ids:
             seg["locked"] = True
-            seg["lock_reason"] = "RAG_100_MATCH"
+            seg["lock_reason"] = "TM_100_MATCH"
             seg["corrected"] = None
             continue
         if seg["id"] in corrections:
@@ -926,7 +926,7 @@ def _build_xlsx(state, history, score, threshold, out_path):
     for col, hdr in enumerate(
         ["File name","Segment #","Source text","Original target translation",
          "Corrected target translation","Error category","Error sub-category",
-         "Error severity","Iteration","Reviewer's comment","Fixed","RAG Protected","RAG Evidence"], start=1):
+         "Error severity","Iteration","Reviewer's comment","Fixed","TM Protected","TM Evidence"], start=1):
         c = ws.cell(row=cur_row, column=col, value=hdr)
         _s(c, fill=_DARK_BLUE, font=_WHITE_FONT, align=_CENTER)
     cur_row += 1
@@ -942,7 +942,7 @@ def _build_xlsx(state, history, score, threshold, out_path):
             (9, dr["iteration"]),(10, dr["comment"]),
             (11, "✓" if dr["fixed"] else "—"),
             (12, "Yes" if dr["seg_id"] in all_locked_ids else "No"),
-            (13, "RAG_100_MATCH" if dr["seg_id"] in all_locked_ids else ""),
+            (13, "TM_100_MATCH" if dr["seg_id"] in all_locked_ids else ""),
         ]:
             c = ws.cell(row=cur_row, column=col, value=val)
             _s(c, fill=row_fill, align=_LEFT_TOP if col not in (2, 8, 9, 11) else _CENTER)
@@ -969,7 +969,7 @@ def _build_xlsx(state, history, score, threshold, out_path):
     is_final_report = "_lqe_iter" not in out_path.name
     translation_col = "Suggest translation"   # 统一列名，对齐客户 QAFeedback 格式（iter/final 同名）
 
-    ws2_headers = state["headers"] + [translation_col, "LQE_Error_Detail", "LQE_Status", "LQE_Iter", "RAG Protected", "RAG Evidence"]
+    ws2_headers = state["headers"] + [translation_col, "LQE_Error_Detail", "LQE_Status", "LQE_Iter", "TM Protected", "TM Evidence"]
     for ci, h in enumerate(ws2_headers, start=1):
         c = ws2.cell(row=1, column=ci, value=h)
         _s(c, fill=_DARK_BLUE, font=_WHITE_FONT, align=_CENTER)
@@ -985,7 +985,7 @@ def _build_xlsx(state, history, score, threshold, out_path):
             "Error" if has_error else ("Fixed" if seg.get("corrected") else "OK"),
             seg.get("iter", 0),
             "Yes" if seg["id"] in all_locked_ids else "No",
-            "RAG_100_MATCH" if seg["id"] in all_locked_ids else "",
+            "TM_100_MATCH" if seg["id"] in all_locked_ids else "",
         ]
         for ci, val in enumerate(row_data, start=1):
             c = ws2.cell(row=ri, column=ci, value=val)
@@ -1071,10 +1071,10 @@ def cmd_export(args):
     ws = wb.active
     ncol = ws.max_column
 
-    # 成品文件：只在原结构后加一列「修正状态」（AI修正/未改/RAG保护）。
+    # 成品文件：只在原结构后加一列「修正状态」（AI修正/未改/TM保护）。
     # 「为什么改/原译/类别」属审计证据，归报告 sheet2，不在此重复。
     fill_fixed = PatternFill("solid", fgColor="FFF3CD")   # AI修正：浅琥珀
-    fill_lock = PatternFill("solid", fgColor="D1E7DD")    # RAG保护：浅绿
+    fill_lock = PatternFill("solid", fgColor="D1E7DD")    # TM保护：浅绿
 
     start_row = 1 if no_header else 2
     if not no_header:
@@ -1088,7 +1088,7 @@ def cmd_export(args):
         orig = seg.get("target", "")
         corr = seg.get("corrected")
         if seg.get("locked"):
-            final_text, status, fill = orig, "RAG保护", fill_lock; n_lock += 1
+            final_text, status, fill = orig, "TM保护", fill_lock; n_lock += 1
         elif corr and corr != orig:
             final_text, status, fill = corr, "AI修正", fill_fixed; n_fixed += 1
         else:
@@ -1101,7 +1101,7 @@ def cmd_export(args):
 
     out_path = state_path.parent / (_job_label(state_path) + "_corrected.xlsx")
     wb.save(str(out_path))
-    print(f"[export] AI修正 {n_fixed} / RAG保护 {n_lock} / 未改 {n_same} → {out_path}")
+    print(f"[export] AI修正 {n_fixed} / TM保护 {n_lock} / 未改 {n_same} → {out_path}")
 
 
 # ── ingest-corpus (stub) ──────────────────────────────────────────────────────
@@ -1143,8 +1143,8 @@ def main():
     af.add_argument("--errors",    required=True)
     af.add_argument("--score",     default=None, help="本轮分数（来自 lqe_calc.py 输出）")
     af.add_argument("--threshold", type=float, default=98.0)
-    af.add_argument("--locked-ids", default=None, help="逗号分隔的 RAG/TM 100%% match segment ids")
-    af.add_argument("--locked-file", default=None, help="RAG/TM 100%% match locked ids JSON 文件")
+    af.add_argument("--locked-ids", default=None, help="逗号分隔的 TM 100%% match segment ids")
+    af.add_argument("--locked-file", default=None, help="TM 100%% match locked ids JSON 文件")
 
     w = sub.add_parser("write")
     w.add_argument("--state",     required=True)
