@@ -1,6 +1,6 @@
 """TDD tests for the TM ingest feature (tm_index.py).
 
-Run:  python scripts/test_rag.py
+Run:  python scripts/tm_index_test.py
 Builds tiny .sdltm fixtures in a temp dir; nothing written into the repo.
 """
 import json
