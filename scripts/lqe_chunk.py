@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 
-from lqe_engine import read_json as load
+from lqe_engine import read_json as load, group_terms
 from term_suggest import build_index as _tn_build, suggest as _tn_suggest
 
 
@@ -21,25 +21,23 @@ def _term_hits(src_txt, titems, cap=15):
     """Longest-match, coverage-filtered term hits. Keep a TB term only if it has
     an occurrence NOT fully inside a longer term's occurrence — so 优优 inside
     绒光优优 is dropped (the longer term already covers it), but a separate
-    standalone 优优 elsewhere in the segment is still kept."""
-    occ = []  # (start, end, src, th, status)
-    for ts, th, st in titems:               # titems is sorted longest-first
+    standalone 优优 elsewhere in the segment is still kept. `th` is always the
+    full candidate-senses list (len 1 for an ordinary singleton source)."""
+    occ = []  # (start, end, src, senses)
+    for ts, senses in titems:               # titems is sorted longest-first
         i = src_txt.find(ts)
         while i >= 0:
-            occ.append((i, i + len(ts), ts, th, st))
+            occ.append((i, i + len(ts), ts, senses))
             i = src_txt.find(ts, i + 1)
     occ.sort(key=lambda o: -(o[1] - o[0]))  # longest span first
     accepted = []                           # spans claimed by longer terms
     kept = {}                               # src -> hit (one entry per term)
-    for s, e, ts, th, st in occ:
+    for s, e, ts, senses in occ:
         if any(a <= s and e <= b for a, b in accepted):
             continue                        # covered by a longer term -> drop
         accepted.append((s, e))
         if ts not in kept:
-            h = {"src": ts, "th": th}
-            if st:
-                h["status"] = st
-            kept[ts] = h
+            kept[ts] = {"src": ts, "th": senses}
     return list(kept.values())[:cap]
 
 
@@ -64,12 +62,13 @@ def cmd_split(a):
     terms = load(a.terms)
     segs = state["segments"]
     pre_by_id = {e["id"]: e.get("errors", []) for e in pre}
-    titems = [(t["source"], t.get("target", ""), t.get("status", ""))
-              for t in terms if len(t.get("source", "")) >= 2]
+    grouped = group_terms(terms)
+    titems = [(src, senses) for src, senses in grouped.items() if len(src) >= 2]
     titems.sort(key=lambda x: -len(x[0]))
 
     # near-term suggester (TF-IDF over TB)：精确匹配漏的"差一两字"变体名 → term_near 参考
-    tn_pairs = [(t["source"], t.get("target", "")) for t in terms if t.get("source")]
+    # 多义词条取第一个候选译法作代表值（term_near 只是参考线索，不需要区分语义）
+    tn_pairs = [(src, senses[0]["target"]) for src, senses in grouped.items() if senses]
     tn_idx = _tn_build([p[0] for p in tn_pairs], [p[1] for p in tn_pairs]) if tn_pairs else None
 
     # dedup identical (source,target): evaluate each unique pair once;

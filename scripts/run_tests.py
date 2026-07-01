@@ -295,8 +295,44 @@ def t9():
     check("T9 singleton regression unaffected", not has(res, 3, "马尔文"))
 
 
+# ── T10: lqe_chunk split 多义 term_hits ───────────────────────────────────────
+def t10():
+    job = TMP / "j10"
+    job.mkdir(parents=True, exist_ok=True)
+    state = {"segments": [
+        {"id": 0, "source": "看到一只里奥。", "target": "Saw a ลีโอ."},
+        {"id": 1, "source": "马尔文来了。", "target": "มาร์วิน is here."},
+    ]}
+    (job / "state.json").write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+    (job / "errors_precheck.json").write_text(json.dumps(
+        [{"id": 0, "errors": []}, {"id": 1, "errors": []}], ensure_ascii=False), encoding="utf-8")
+    (job / "terms.json").write_text(json.dumps([
+        {"source": "里奥", "senses": [
+            {"target": "ลีโอ", "category": "Creature Individual"},
+            {"target": "ไลเอล", "category": "Creature Species"},
+        ]},
+        {"source": "马尔文", "target": "มาร์วิน", "status": "New"},
+    ], ensure_ascii=False), encoding="utf-8")
+    outdir = job / "chunks"
+    r = run("lqe_chunk.py", "split", "--state", str(job / "state.json"),
+            "--errors", str(job / "errors_precheck.json"),
+            "--terms", str(job / "terms.json"),
+            "--outdir", str(outdir), "--size", "10")
+    check("T10 split rc", r.returncode == 0, r.stderr[-300:])
+    chunk = json.loads((outdir / "chunk_00.json").read_text(encoding="utf-8"))
+    seg0 = next(s for s in chunk["segments"] if s["id"] == 0)
+    seg1 = next(s for s in chunk["segments"] if s["id"] == 1)
+    hit0 = next(h for h in seg0["term_hits"] if h["src"] == "里奥")
+    check("T10 multi-sense th is list of 2", isinstance(hit0["th"], list) and len(hit0["th"]) == 2)
+    check("T10 multi-sense categories present",
+          {s.get("category") for s in hit0["th"]} == {"Creature Individual", "Creature Species"})
+    hit1 = next(h for h in seg1["term_hits"] if h["src"] == "马尔文")
+    check("T10 singleton th is list of 1",
+          isinstance(hit1["th"], list) and len(hit1["th"]) == 1 and hit1["th"][0]["target"] == "มาร์วิน")
+
+
 if __name__ == "__main__":
-    for t in (t1, t2, t3, t4, t5, t6, t7, t8, t9):
+    for t in (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10):
         t()
     rag = subprocess.run([sys.executable, str(SCRIPTS / "test_rag.py")], capture_output=True, text=True)
     check("RAG suite (test_rag.py)", rag.returncode == 0,
