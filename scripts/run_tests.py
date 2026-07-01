@@ -351,8 +351,46 @@ def t11():
     check("T11 shows both candidates", "ลีโอ" in r.stdout and "ไลเอล" in r.stdout)
 
 
+# ── T12: mastertb_to_terms 多义输出 + 去重键改 (source,target) ────────────────
+def t12():
+    job = TMP / "j12"
+    job.mkdir(parents=True, exist_ok=True)
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["术语类别 Category", "术语 ZHCN", "术语定义 Definition", "TH"])
+    for r in [
+        ("NPC", "张三", "张三定义", "ซาน"),
+        ("Species", "里奥", "物种定义", "ไลเอล"),
+        ("Individual", "里奥", "个体定义", "ลีโอ"),
+        ("NPC", "李四", "", ""),
+        ("NPC", "王五", "", ""),
+        ("NPC", "张三", "张三定义", "ซาน"),  # 完全重复行，应合并不产生第二候选
+    ]:
+        ws.append(list(r))
+    wb.save(job / "master.xlsx")
+    (job / "backfill.json").write_text(json.dumps(
+        [{"source": "李四", "target": "หลี่ซื่อ"}], ensure_ascii=False), encoding="utf-8")
+
+    r = run("mastertb_to_terms.py", "--input", str(job / "master.xlsx"),
+            "--target-col", "TH", "--backfill", str(job / "backfill.json"),
+            "--out", str(job / "terms.json"))
+    check("T12 rc", r.returncode == 0, r.stderr[-300:])
+
+    terms = {t["source"]: t for t in json.loads((job / "terms.json").read_text(encoding="utf-8"))}
+    check("T12 sources (王五 blank+无回填 -> 丢弃)", set(terms.keys()) == {"张三", "里奥", "李四"})
+    check("T12 singleton shape 不带 category", terms["张三"] == {"source": "张三", "target": "ซาน"})
+    check("T12 回填出的单义 shape", terms["李四"] == {"source": "李四", "target": "หลี่ซื่อ"})
+    senses = terms["里奥"]["senses"]
+    check("T12 多义候选数", len(senses) == 2)
+    check("T12 多义候选 target", {s["target"] for s in senses} == {"ไลเอล", "ลีโอ"})
+    check("T12 多义候选 category 带出", {s["category"] for s in senses} == {"Species", "Individual"})
+
+    multisense = json.loads((job / "terms.multisense.json").read_text(encoding="utf-8"))
+    check("T12 multisense.json 只列里奥", len(multisense) == 1 and multisense[0]["source"] == "里奥")
+
+
 if __name__ == "__main__":
-    for t in (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11):
+    for t in (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12):
         t()
     rag = subprocess.run([sys.executable, str(SCRIPTS / "test_rag.py")], capture_output=True, text=True)
     check("RAG suite (test_rag.py)", rag.returncode == 0,
