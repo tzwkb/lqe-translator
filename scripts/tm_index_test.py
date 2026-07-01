@@ -1,4 +1,4 @@
-"""TDD tests for the RAG/TM ingest feature (rag_index.py).
+"""TDD tests for the TM ingest feature (tm_index.py).
 
 Run:  python scripts/test_rag.py
 Builds tiny .sdltm fixtures in a temp dir; nothing written into the repo.
@@ -14,10 +14,10 @@ from pathlib import Path
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
 
-import rag_index  # RED until rag_index.py exists
+import tm_index  # RED until tm_index.py exists
 
 PASS, FAIL = [], []
-TMP = Path(tempfile.mkdtemp(prefix="rag_tests_"))
+TMP = Path(tempfile.mkdtemp(prefix="tm_tests_"))
 
 
 def check(name, cond, detail=""):
@@ -50,7 +50,7 @@ def test_loader():
          '<Tag><x>1</x></Tag><Text><Value>击</Value></Text></Elements></Segment>',
          seg("Click", culture="en-US")),
     ])
-    units = list(rag_index.iter_units_sdltm(fx))
+    units = list(tm_index.iter_units_sdltm(fx))
     check("loader basic pair", ("即将开始", "Starting Soon") in units, units)
     check("loader entity unescape", ("A & B", "X") in units, units)
     check("loader multi-value concat + tag ignored", ("点击", "Click") in units, units)
@@ -58,9 +58,9 @@ def test_loader():
 
 # ── norm: strip + collapse internal whitespace + NFC ──────────────────────────
 def test_norm():
-    check("norm strip+collapse", rag_index.norm("  a   b ") == "a b")
-    check("norm nfc combining", rag_index.norm("é") == "é")  # e+◌́ → é
-    check("norm none-safe", rag_index.norm(None) == "")
+    check("norm strip+collapse", tm_index.norm("  a   b ") == "a b")
+    check("norm nfc combining", tm_index.norm("é") == "é")  # e+◌́ → é
+    check("norm none-safe", tm_index.norm(None) == "")
 
 
 # ── build_index: {norm_src: [norm_tgt...]}, 1:n variant set, dedup ────────────
@@ -72,7 +72,7 @@ def test_build_index():
         (seg("天"), seg("d", culture="en-US")),
         (seg("天"), seg("day(s)", culture="en-US")),  # dup → deduped
     ])
-    idx = rag_index.build_index([fx])
+    idx = tm_index.build_index([fx])
     check("index key→target", idx.get("即将开始") == ["Starting Soon"], idx)
     check("index 1:n variant set", set(idx.get("天", [])) == {"day(s)", "d"}, idx)
     check("index dedups targets", len(idx.get("天", [])) == 2, idx)
@@ -88,7 +88,7 @@ def test_match_locked():
         {"id": 3, "source": "未知", "target": "x"},                            # src absent
         {"id": 4, "source": " 即将开始 ", "target": " Starting Soon "},  # norm → lock
     ]
-    locked = set(rag_index.match_locked(segs, idx))
+    locked = set(tm_index.match_locked(segs, idx))
     check("lock exact src+tgt", 0 in locked)
     check("no lock when tgt differs", 1 not in locked)
     check("lock via variant set", 2 in locked)
@@ -97,7 +97,7 @@ def test_match_locked():
 
 
 def run(*argv):
-    return subprocess.run([sys.executable, str(SCRIPTS / "rag_index.py"), *argv],
+    return subprocess.run([sys.executable, str(SCRIPTS / "tm_index.py"), *argv],
                           capture_output=True, text=True)
 
 
@@ -121,9 +121,9 @@ def test_cli_build_and_match():
         {"id": 2, "source": "天", "target": "d"},
     ]}, ensure_ascii=False), encoding="utf-8")
     lockp = TMP / "locked.json"
-    r = run("rag-match", "--state", str(statep), "--index", str(idxp), "--out-locked", str(lockp))
-    check("cli rag-match rc", r.returncode == 0, r.stderr[-200:])
-    check("cli rag-match wrote locked", lockp.exists(), "no locked file")
+    r = run("tm-match", "--state", str(statep), "--index", str(idxp), "--out-locked", str(lockp))
+    check("cli tm-match rc", r.returncode == 0, r.stderr[-200:])
+    check("cli tm-match wrote locked", lockp.exists(), "no locked file")
     if lockp.exists():
         locked = json.loads(lockp.read_text(encoding="utf-8"))
         check("cli locked_ids", locked.get("locked_ids") == [0, 2], locked)
@@ -135,11 +135,11 @@ def run_lqe(*argv):
 
 
 def test_integration():
-    """xlsx → lqe_io read → rag build → rag-match → lqe_io apply-fixes:
+    """xlsx → lqe_io read → rag build → tm-match → lqe_io apply-fixes:
     a locked (exact source+target) segment must survive uncorrected; an edited
     one (source in TM, target changed) must NOT lock and gets corrected."""
     import openpyxl
-    inp = TMP / "rag_in.xlsx"
+    inp = TMP / "tm_in.xlsx"
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.append(["原文", "译文"])
@@ -156,12 +156,12 @@ def test_integration():
     r = run_lqe("read", "--input", str(inp), "--source-col", "原文", "--target-col", "译文",
                 "--target-lang", "en", "--out", str(job / "state.json"))
     check("intg read rc", r.returncode == 0, r.stderr[-200:])
-    r = run("build", "--libraries", str(tm), "--out", str(job / "rag_index.json"))
+    r = run("build", "--libraries", str(tm), "--out", str(job / "tm_index.json"))
     check("intg build rc", r.returncode == 0, r.stderr[-200:])
-    r = run("rag-match", "--state", str(job / "state.json"), "--index", str(job / "rag_index.json"),
-            "--out-locked", str(job / "rag_locked.json"))
-    check("intg rag-match rc", r.returncode == 0, r.stderr[-200:])
-    locked = json.loads((job / "rag_locked.json").read_text(encoding="utf-8"))
+    r = run("tm-match", "--state", str(job / "state.json"), "--index", str(job / "tm_index.json"),
+            "--out-locked", str(job / "tm_locked.json"))
+    check("intg tm-match rc", r.returncode == 0, r.stderr[-200:])
+    locked = json.loads((job / "tm_locked.json").read_text(encoding="utf-8"))
     check("intg locks only exact match", locked.get("locked_ids") == [0], locked)
     errors = [
         {"id": 0, "errors": [{"category": "Mistranslation", "severity": "Major", "comment": "x"}],
@@ -172,7 +172,7 @@ def test_integration():
     ]
     (job / "errors.json").write_text(json.dumps(errors, ensure_ascii=False), encoding="utf-8")
     r = run_lqe("apply-fixes", "--state", str(job / "state.json"), "--errors", str(job / "errors.json"),
-                "--locked-file", str(job / "rag_locked.json"))
+                "--locked-file", str(job / "tm_locked.json"))
     check("intg apply-fixes rc", r.returncode == 0, r.stderr[-200:])
     st = json.loads((job / "state.json").read_text(encoding="utf-8"))
     segs = {s["id"]: s for s in st["segments"]}

@@ -1,4 +1,4 @@
-"""RAG/TM ingest for LQE.
+"""TM ingest for LQE.
 
 Parse a translation memory → exact-match index → segment ids to lock.
 Pluggable loaders (one function per format, picked by file extension); only
@@ -82,35 +82,35 @@ def cmd_build(args):
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(index, ensure_ascii=False), encoding="utf-8")
-    print(f"[rag_index] {len(index)} source keys → {args.out}")
+    print(f"[tm_index] {len(index)} source keys → {args.out}")
 
 
-def cmd_rag_match(args):
+def cmd_tm_match(args):
     state = _read_json(args.state)
     index = _read_json(args.index)
     locked = match_locked(state["segments"], index)
     out = Path(args.out_locked)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({"locked_ids": locked}, ensure_ascii=False), encoding="utf-8")
-    print(f"[rag_index] locked {len(locked)}/{len(state['segments'])} segments → {args.out_locked}")
+    print(f"[tm_index] locked {len(locked)}/{len(state['segments'])} segments → {args.out_locked}")
 
 
 def main():
     import argparse
-    ap = argparse.ArgumentParser(prog="rag_index", description="RAG/TM exact-match index + locking (all local)")
+    ap = argparse.ArgumentParser(prog="tm_index", description="TM exact-match index + locking (all local)")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     b = sub.add_parser("build", help="parse TM file(s) → exact-match index json")
     b.add_argument("--libraries", nargs="+", required=True, help="TM files (.sdltm)")
     b.add_argument("--out", required=True, help="output index json path")
 
-    m = sub.add_parser("rag-match", help="state.json × index → locked_ids json")
+    m = sub.add_parser("tm-match", help="state.json × index → locked_ids json")
     m.add_argument("--state", required=True)
     m.add_argument("--index", required=True)
     m.add_argument("--out-locked", dest="out_locked", required=True)
 
     args = ap.parse_args()
-    {"build": cmd_build, "rag-match": cmd_rag_match}[args.cmd](args)
+    {"build": cmd_build, "tm-match": cmd_tm_match}[args.cmd](args)
 
 
 if __name__ == "__main__":
