@@ -389,8 +389,86 @@ def t12():
     check("T12 multisense.json 只列里奥", len(multisense) == 1 and multisense[0]["source"] == "里奥")
 
 
+# ── T13: scorecard profile 解耦 legacy 行为不变 ───────────────────────────────
+def t13():
+    sys.path.insert(0, str(SCRIPTS))
+    try:
+        from lqe_engine import load_scorecard_profile
+        profile = load_scorecard_profile("legacy")
+    except Exception as exc:
+        check("T13 legacy profile loads", False, repr(exc))
+        return
+
+    check("T13 legacy id", profile["id"] == "legacy")
+    check("T13 legacy severity minor", profile["severity_points"]["Minor"] == 1)
+    check("T13 legacy weight audience", profile["category_weights"]["Audience appropriateness"] == 1.5)
+    check("T13 legacy forced length", profile["forced_severity"]["Length"] == "Major")
+
+    state = {"wordcount": 100, "segments": [
+        {"id": 0, "source": "甲。", "target": "A.", "corrected": None},
+        {"id": 1, "source": "乙。", "target": "B.", "corrected": None},
+    ]}
+    errors = [
+        {"id": 0, "errors": [{"category": "Mistranslation", "severity": "Major", "comment": "wrong"}], "corrected": None},
+        {"id": 1, "errors": [{"category": "Punctuation", "severity": "Minor", "comment": "punct"}], "corrected": None},
+    ]
+    (TMP / "scorecard_state.json").write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+    (TMP / "scorecard_errors_default.json").write_text(json.dumps(errors, ensure_ascii=False), encoding="utf-8")
+    (TMP / "scorecard_errors_profile.json").write_text(json.dumps(errors, ensure_ascii=False), encoding="utf-8")
+
+    default = run("lqe_calc.py", "--state", str(TMP / "scorecard_state.json"),
+                  "--errors", str(TMP / "scorecard_errors_default.json"), "--json")
+    profiled = run("lqe_calc.py", "--state", str(TMP / "scorecard_state.json"),
+                   "--errors", str(TMP / "scorecard_errors_profile.json"),
+                   "--scorecard-profile", "legacy", "--json")
+    check("T13 calc profile arg rc", profiled.returncode == 0, profiled.stderr[-200:])
+    check("T13 calc legacy parity", default.stdout == profiled.stdout, f"default={default.stdout} profiled={profiled.stdout}")
+
+
+# ── T14: LQE 2026 scorecard profile ──────────────────────────────────────────
+def t14():
+    sys.path.insert(0, str(SCRIPTS))
+    try:
+        from lqe_engine import load_scorecard_profile
+        profile = load_scorecard_profile("lqe_2026")
+    except Exception as exc:
+        check("T14 lqe_2026 profile loads", False, repr(exc))
+        return
+
+    check("T14 profile id", profile["id"] == "lqe_2026")
+    check("T14 minor severity point", profile["severity_points"]["Minor"] == 2)
+    check("T14 unidiomatic weight", profile["category_weights"]["Unidiomatic"] == 3.5)
+    check("T14 grammar weight", profile["category_weights"]["Grammar"] == 0.5)
+    check("T14 culture parent", profile["category_parent"]["Culture specific reference"] == "Verity")
+    check("T14 audience alias", profile["category_aliases"]["Audience appropriateness"] == "Unidiomatic")
+    check("T14 template path", profile["report_template"]["path"] == "template.xlsx")
+    check("T14 template file exists",
+          (SCRIPTS.parent / "scorecard_profiles/lqe_2026" / profile["report_template"]["path"]).exists())
+
+    state = {"wordcount": 1000, "segments": [
+        {"id": 0, "source": "甲。", "target": "A.", "corrected": None},
+        {"id": 1, "source": "乙。", "target": "B.", "corrected": None},
+        {"id": 2, "source": "丙。", "target": "C.", "corrected": None},
+    ]}
+    errors = [
+        {"id": 0, "errors": [{"category": "Punctuation", "severity": "Minor", "comment": "punct"}], "corrected": None},
+        {"id": 1, "errors": [{"category": "Unidiomatic", "severity": "Major", "comment": "awkward"}], "corrected": None},
+        {"id": 2, "errors": [{"category": "Audience appropriateness", "severity": "Minor", "comment": "tone"}], "corrected": None},
+    ]
+    (TMP / "lqe2026_state.json").write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+    (TMP / "lqe2026_errors.json").write_text(json.dumps(errors, ensure_ascii=False), encoding="utf-8")
+    r = run("lqe_calc.py", "--state", str(TMP / "lqe2026_state.json"),
+            "--errors", str(TMP / "lqe2026_errors.json"),
+            "--scorecard-profile", "lqe_2026", "--json")
+    check("T14 calc rc", r.returncode == 0, r.stderr[-200:])
+    if r.returncode == 0:
+        result = json.loads(r.stdout)
+        check("T14 score uses LQE2026 weights", result["score"] == 97.45 and result["status"] == "FAIL", r.stdout)
+        check("T14 total errors counted", result["errors"] == 3, r.stdout)
+
+
 if __name__ == "__main__":
-    for t in (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12):
+    for t in (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14):
         t()
     rag = subprocess.run([sys.executable, str(SCRIPTS / "tm_index_test.py")], capture_output=True, text=True)
     check("TM suite (tm_index_test.py)", rag.returncode == 0,

@@ -1,0 +1,82 @@
+{
+  "id": "legacy",
+  "name": "Current LQE Scoring",
+  "description": "The original lqe-translator scoring standard before scorecard profiles were externalized.",
+  "threshold": 98,
+  "category_order": [
+    "Terminology",
+    "Locale convention",
+    "Other",
+    "Addition",
+    "Omission",
+    "Mistranslation",
+    "Untranslated",
+    "Punctuation",
+    "Spelling",
+    "Grammar",
+    "Inconsistency",
+    "Company style",
+    "Unidiomatic",
+    "Length",
+    "Markup",
+    "Culture specific reference",
+    "Audience appropriateness"
+  ],
+  "category_parent": {
+    "Terminology": "Terminology",
+    "Locale convention": "Locale Conventions",
+    "Other": "Other",
+    "Addition": "Accuracy",
+    "Omission": "Accuracy",
+    "Mistranslation": "Accuracy",
+    "Untranslated": "Accuracy",
+    "Punctuation": "Linguistic Conventions",
+    "Spelling": "Linguistic Conventions",
+    "Grammar": "Linguistic Conventions",
+    "Inconsistency": "Style",
+    "Company style": "Style",
+    "Unidiomatic": "Style",
+    "Length": "Design and Markup",
+    "Markup": "Design and Markup",
+    "Culture specific reference": "Audience Appropriateness",
+    "Audience appropriateness": "Audience Appropriateness"
+  },
+  "category_weights": {
+    "Terminology": 1.5,
+    "Locale convention": 1.0,
+    "Other": 1.0,
+    "Addition": 1.5,
+    "Omission": 1.5,
+    "Mistranslation": 1.5,
+    "Untranslated": 1.5,
+    "Punctuation": 1.0,
+    "Spelling": 1.0,
+    "Grammar": 1.5,
+    "Inconsistency": 1.5,
+    "Company style": 1.5,
+    "Unidiomatic": 1.5,
+    "Length": 1.0,
+    "Markup": 1.5,
+    "Culture specific reference": 1.5,
+    "Audience appropriateness": 1.5
+  },
+  "severity_points": {
+    "Neutral": 0,
+    "Minor": 1,
+    "Major": 5,
+    "Critical": 10
+  },
+  "severity_points_mqm": {
+    "Neutral": 0,
+    "Minor": 1,
+    "Major": 5,
+    "Critical": 25
+  },
+  "forced_severity": {
+    "Terminology": "Major",
+    "Untranslated": "Major",
+    "Markup": "Major",
+    "Length": "Major"
+  },
+  "category_aliases": {}
+}

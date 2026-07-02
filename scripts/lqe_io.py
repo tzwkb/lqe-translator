@@ -28,6 +28,8 @@ from lqe_engine import (
     VALID_CATEGORIES as _VALID_CATEGORIES, VALID_SEVERITIES as _VALID_SEVERITIES,
     apply_severity, load_terms as _load_terms, group_terms as _group_terms,
     raw_points, weighted_points,
+    load_scorecard_profile, normalize_category_for_profile, scorecard_category_order,
+    scorecard_category_parent, scorecard_category_weight,
 )
 
 
@@ -585,9 +587,10 @@ def cmd_apply_fixes(args):
     state = read_json(state_path)
     errors_data = read_json(args.errors)
     locked_ids = _locked_ids(args)
+    scorecard_profile = load_scorecard_profile(getattr(args, "scorecard_profile", "legacy"))
 
     seg_ids = {s["id"] for s in state["segments"]}
-    issues = _validate_errors(errors_data, seg_ids)
+    issues = _validate_errors(errors_data, seg_ids, scorecard_profile)
     for msg in issues:
         print(f"[validate] {msg}")
 
@@ -634,7 +637,7 @@ def cmd_apply_fixes(args):
     iter_score = cur_entry.get("score") or 0.0
     threshold = getattr(args, "threshold", 98.0)
     iter_out = state_path.parent / (_job_label(state_path) + f"_lqe_iter{cur_iter}.xlsx")
-    _build_xlsx(state, [cur_entry], iter_score, threshold, iter_out)
+    _build_xlsx(state, [cur_entry], iter_score, threshold, iter_out, getattr(args, "scorecard_profile", "legacy"))
 
 
 # ── write ─────────────────────────────────────────────────────────────────────
@@ -651,8 +654,9 @@ _CENTER     = Alignment(horizontal="center", vertical="center", wrap_text=True)
 _LEFT_TOP   = Alignment(horizontal="left", vertical="top", wrap_text=True)
 _LEFT_MID   = Alignment(horizontal="left", vertical="center")
 
-def _validate_errors(errors_data: list, seg_ids: set) -> list[str]:
+def _validate_errors(errors_data: list, seg_ids: set, scorecard_profile: dict | None = None) -> list[str]:
     issues = []
+    valid_categories = set(scorecard_category_order(scorecard_profile))
     for entry in errors_data:
         sid = entry.get("id")
         if sid not in seg_ids:
@@ -662,13 +666,14 @@ def _validate_errors(errors_data: list, seg_ids: set) -> list[str]:
         if errs and entry.get("corrected") is None:
             issues.append(f"[seg {sid}] 有 {len(errs)} 条错误但 corrected=null")
         for e in errs:
-            cat = e.get("category", "")
+            raw_cat = e.get("category", "")
+            cat = normalize_category_for_profile(raw_cat, scorecard_profile)
             sev = e.get("severity", "")
-            if cat not in _VALID_CATEGORIES:
-                issues.append(f"[seg {sid}] 非法 category: '{cat}'")
+            if cat not in valid_categories:
+                issues.append(f"[seg {sid}] 非法 category: '{raw_cat}'")
             if sev not in _VALID_SEVERITIES:
                 issues.append(f"[seg {sid}] 非法 severity: '{sev}'")
-            new_sev = apply_severity(cat, sev)
+            new_sev = apply_severity(cat, sev, scorecard_profile)
             if new_sev != sev:
                 issues.append(f"[seg {sid}] {cat} severity {sev}→{new_sev} (auto-corrected)")
                 e["severity"] = new_sev
@@ -681,16 +686,18 @@ def _s(cell, fill=None, font=None, align=None):
     if align: cell.alignment = align
 
 
-def _build_xlsx(state, history, score, threshold, out_path):
+def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id="legacy"):
+    scorecard_profile = load_scorecard_profile(scorecard_profile_id)
+    categories = scorecard_category_order(scorecard_profile)
     segments = state["segments"]
     seg_map = {s["id"]: s for s in segments}
     cat_counts: dict[str, dict[str, int]] = {
         cat: {"Neutral": 0, "Minor": 0, "Major": 0, "Critical": 0}
-        for cat in _ALL_CATS
+        for cat in categories
     }
     rep_counts: dict[str, dict[str, int]] = {
         cat: {"Neutral": 0, "Minor": 0, "Major": 0, "Critical": 0}
-        for cat in _ALL_CATS
+        for cat in categories
     }
     detail_rows: list[dict] = []
     all_locked_ids = set()
@@ -709,8 +716,8 @@ def _build_xlsx(state, history, score, threshold, out_path):
                 continue
             corrected = e_seg.get("corrected") or seg.get("corrected") or seg["target"]
             for e in e_seg.get("errors", []):
-                cat = e.get("category", "Other")
-                sev = apply_severity(cat, e.get("severity", "Minor"))
+                cat = normalize_category_for_profile(e.get("category", "Other"), scorecard_profile)
+                sev = apply_severity(cat, e.get("severity", "Minor"), scorecard_profile)
                 if e.get("repeated"):
                     if cat in rep_counts:
                         rep_counts[cat][sev] = rep_counts[cat].get(sev, 0) + 1
@@ -722,7 +729,7 @@ def _build_xlsx(state, history, score, threshold, out_path):
                     "source":   seg["source"],
                     "original": seg["target"],
                     "corrected": corrected,
-                    "parent":   _PARENT.get(cat, "Other"),
+                    "parent":   scorecard_category_parent(cat, scorecard_profile),
                     "category": cat,
                     "severity": sev,
                     "iteration": f"Iter {entry['iteration']}",
@@ -738,8 +745,8 @@ def _build_xlsx(state, history, score, threshold, out_path):
     for c in rep_counts.values():
         for sev, n in c.items():
             total_rep[sev] += n
-    total_raw      = sum(raw_points(c) for c in cat_counts.values())
-    total_weighted = sum(weighted_points(cat, c) for cat, c in cat_counts.items())
+    total_raw      = sum(raw_points(c, scorecard_profile) for c in cat_counts.values())
+    total_weighted = sum(weighted_points(cat, c, scorecard_profile) for cat, c in cat_counts.items())
 
     wb  = openpyxl.Workbook()
     ws  = wb.active
@@ -901,14 +908,14 @@ def _build_xlsx(state, history, score, threshold, out_path):
         _s(c, fill=_ORANGE, align=_CENTER)
     cur_row += 1
 
-    for cat in _ALL_CATS:
+    for cat in categories:
         counts = cat_counts[cat]
-        r = raw_points(counts)
-        w = weighted_points(cat, counts)
+        r = raw_points(counts, scorecard_profile)
+        w = weighted_points(cat, counts, scorecard_profile)
         ws.row_dimensions[cur_row].height = 14.25
         rep = rep_counts[cat]
         for col, val in [
-            (1,cat),(2,weighted_points(cat, {"Minor": 1})),
+            (1,cat),(2,scorecard_category_weight(cat, scorecard_profile)),
             (3,counts.get("Neutral",0)),(4,rep.get("Neutral",0)),
             (5,counts.get("Minor",0)),  (6,rep.get("Minor",0)),
             (7,counts.get("Major",0)),  (8,rep.get("Major",0)),
@@ -1026,7 +1033,7 @@ def cmd_write(args):
 
     src = Path(state["input_path"])
     out_path = state_path.parent / (_job_label(state_path) + "_lqe.xlsx")
-    _build_xlsx(state, history, score, args.threshold, out_path)
+    _build_xlsx(state, history, score, args.threshold, out_path, args.scorecard_profile)
 
 
 # ── pre-check（实现在 lqe_checks.py）─────────────────────────────────────────
@@ -1143,6 +1150,8 @@ def main():
     af.add_argument("--errors",    required=True)
     af.add_argument("--score",     default=None, help="本轮分数（来自 lqe_calc.py 输出）")
     af.add_argument("--threshold", type=float, default=98.0)
+    af.add_argument("--scorecard-profile", default="legacy", dest="scorecard_profile",
+                    help="评分卡 profile id/目录/profile.json 路径；默认 legacy（当前原有评分标准）")
     af.add_argument("--locked-ids", default=None, help="逗号分隔的 TM 100%% match segment ids")
     af.add_argument("--locked-file", default=None, help="TM 100%% match locked ids JSON 文件")
 
@@ -1151,6 +1160,8 @@ def main():
     w.add_argument("--errors",    required=True)
     w.add_argument("--score",     required=True)
     w.add_argument("--threshold", type=float, default=98)
+    w.add_argument("--scorecard-profile", default="legacy", dest="scorecard_profile",
+                   help="评分卡 profile id/目录/profile.json 路径；默认 legacy（当前原有评分标准）")
 
     pc = sub.add_parser("pre-check")
     pc.add_argument("--state", required=True)

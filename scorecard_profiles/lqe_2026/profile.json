@@ -1,0 +1,109 @@
+{
+  "id": "lqe_2026",
+  "name": "LQE Report 2026",
+  "description": "Customer-provided trial LQE 2026 scorecard standard externalized from LQE Report_2026 template.",
+  "version": "trial",
+  "threshold": 98,
+  "category_order": [
+    "Terminology",
+    "Locale convention",
+    "Other",
+    "Addition",
+    "Omission",
+    "Mistranslation",
+    "Untranslated",
+    "Punctuation",
+    "Spelling",
+    "Grammar",
+    "Inconsistency",
+    "Company style",
+    "Unidiomatic",
+    "Length",
+    "Markup",
+    "Culture specific reference"
+  ],
+  "category_parent": {
+    "Addition": "Accuracy",
+    "Mistranslation": "Accuracy",
+    "Omission": "Accuracy",
+    "Untranslated": "Accuracy",
+    "Inconsistency": "Fluency",
+    "Grammar": "Fluency",
+    "Punctuation": "Fluency",
+    "Spelling": "Fluency",
+    "Terminology": "Terminology",
+    "Unidiomatic": "Style",
+    "Company style": "Style",
+    "Locale convention": "Locale convention",
+    "Culture specific reference": "Verity",
+    "Length": "Design",
+    "Markup": "Design",
+    "Other": "Other"
+  },
+  "category_weights": {
+    "Addition": 1.0,
+    "Mistranslation": 1.0,
+    "Omission": 1.0,
+    "Untranslated": 1.0,
+    "Inconsistency": 2.0,
+    "Grammar": 0.5,
+    "Punctuation": 0.5,
+    "Spelling": 0.5,
+    "Terminology": 2.0,
+    "Unidiomatic": 3.5,
+    "Company style": 2.0,
+    "Locale convention": 2.0,
+    "Culture specific reference": 2.5,
+    "Length": 0.5,
+    "Markup": 1.0,
+    "Other": 0.5
+  },
+  "severity_points": {
+    "Neutral": 0,
+    "Minor": 2,
+    "Major": 5,
+    "Critical": 10
+  },
+  "severity_points_mqm": {
+    "Neutral": 0,
+    "Minor": 2,
+    "Major": 5,
+    "Critical": 25
+  },
+  "forced_severity": {
+    "Terminology": "Major",
+    "Untranslated": "Major",
+    "Markup": "Major",
+    "Length": "Major"
+  },
+  "category_aliases": {
+    "Audience appropriateness": "Unidiomatic"
+  },
+  "report_template": {
+    "type": "xlsx",
+    "path": "template.xlsx",
+    "score_sheet": "Scorecard",
+    "detail_start_row": 37,
+    "detail_end_row": 156,
+    "columns": {
+      "file_name": "A",
+      "segment_id": "B",
+      "source": "C",
+      "mt": "D",
+      "mtpe": "E",
+      "notes": "F",
+      "error_parent": "G",
+      "error_subcategory": "H",
+      "severity": "I",
+      "repeated": "J",
+      "comment": "K"
+    },
+    "summary_ranges": {
+      "status": "B10",
+      "final_score": "B11",
+      "threshold": "B12",
+      "wordcount": "H4",
+      "weighted_penalty": "L17"
+    }
+  }
+}

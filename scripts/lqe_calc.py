@@ -9,8 +9,8 @@ from collections import defaultdict
 
 from lqe_engine import (
     read_json,
-    WEIGHTS, SEVERITY_POINTS, SEVERITY_POINTS_MQM,
-    apply_severity, normalize_category,
+    apply_severity, load_scorecard_profile, normalize_category_for_profile,
+    scorecard_category_weight, scorecard_severity_points,
 )
 
 
@@ -23,6 +23,8 @@ def main():
                    help="任一 Critical 错误直接 FAIL（MQM/ISO 5060/LISA 行业硬规则）；默认关，向后兼容")
     p.add_argument("--severity-scale", choices=["lisa", "mqm"], default="lisa",
                    help="严重度乘数档：lisa=0/1/5/10（默认）；mqm=0/1/5/25（指数间距）")
+    p.add_argument("--scorecard-profile", default="legacy", dest="scorecard_profile",
+                   help="评分卡 profile id/目录/profile.json 路径；默认 legacy（当前原有评分标准）")
     p.add_argument("--locked-ids", default=None, dest="locked_ids",
                    help="逗号分隔的 locked seg id，其错误不计入 Critical 门")
     p.add_argument("--no-repeat-dedup", action="store_true", dest="no_repeat_dedup",
@@ -31,7 +33,8 @@ def main():
                    help="只输出结构化 JSON（score/status/…）供编排脚本解析，不打印人读行")
     args = p.parse_args()
 
-    sev_points = SEVERITY_POINTS_MQM if args.severity_scale == "mqm" else SEVERITY_POINTS
+    scorecard_profile = load_scorecard_profile(args.scorecard_profile)
+    sev_points = scorecard_severity_points(scorecard_profile, args.severity_scale)
     locked = {int(x.strip()) for x in (args.locked_ids or "").split(",") if x.strip()}
 
     state  = read_json(args.state)
@@ -60,8 +63,8 @@ def main():
         sid = entry.get("id")
         for e in entry.get("errors", []):
             raw_cat = e.get("category", "Other")
-            cat = normalize_category(raw_cat)
-            sev = apply_severity(cat, str(e.get("severity", "Minor")))
+            cat = normalize_category_for_profile(raw_cat, scorecard_profile)
+            sev = apply_severity(cat, str(e.get("severity", "Minor")), scorecard_profile)
             if not args.no_repeat_dedup and sid in seg_map:
                 key = seg_map[sid] + (cat, sev)
                 if seen.setdefault(key, sid) != sid:
@@ -77,7 +80,7 @@ def main():
     if repeated_count:
         Path(args.errors).write_text(json.dumps(errors, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    total_weighted = sum(WEIGHTS.get(cat, 1.0) * raw for cat, raw in cat_raw.items())
+    total_weighted = sum(scorecard_category_weight(cat, scorecard_profile) * raw for cat, raw in cat_raw.items())
     score  = max((1 - total_weighted / wordcount) * 100, 0)
     npt    = total_weighted * 1000 / wordcount  # 每千词惩罚分 (MQM RWC=1000)
     gate_fail = args.critical_gate and critical_count > 0

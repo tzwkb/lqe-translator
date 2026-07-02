@@ -52,16 +52,102 @@ import json
 from pathlib import Path
 
 
-def apply_severity(cat: str, sev: str) -> str:
-    return FORCED_SEVERITY.get(cat, sev.strip().capitalize() if sev else "Minor")
+def _legacy_scorecard_profile() -> dict:
+    """In-code fallback for the original scoring standard.
+
+    The external `scorecard_profiles/legacy/profile.json` is the source of
+    truth going forward; this fallback keeps older checkouts usable if the
+    profile directory is missing.
+    """
+    return {
+        "id": "legacy",
+        "name": "Current LQE Scoring",
+        "threshold": 98,
+        "category_parent": dict(CATEGORY_PARENT),
+        "category_order": list(CATEGORY_ORDER),
+        "category_weights": dict(WEIGHTS),
+        "severity_points": dict(SEVERITY_POINTS),
+        "severity_points_mqm": dict(SEVERITY_POINTS_MQM),
+        "forced_severity": dict(FORCED_SEVERITY),
+        "category_aliases": {},
+    }
 
 
-def raw_points(counts: dict) -> int:
-    return sum(SEVERITY_POINTS.get(sev, 0) * n for sev, n in counts.items())
+def _scorecard_profile_path(profile_id: str) -> Path:
+    raw = Path(profile_id)
+    if raw.is_dir():
+        return raw / "profile.json"
+    if raw.suffix == ".json" or raw.is_absolute():
+        return raw
+    return _SKILL_ROOT / "scorecard_profiles" / profile_id / "profile.json"
 
 
-def weighted_points(cat: str, counts: dict) -> float:
-    return WEIGHTS.get(cat, 1.0) * raw_points(counts)
+def _normalize_scorecard_profile(profile: dict, profile_id: str = "legacy") -> dict:
+    out = _legacy_scorecard_profile()
+    out.update(profile or {})
+    out.setdefault("id", profile_id)
+    out["category_parent"] = dict(out.get("category_parent") or CATEGORY_PARENT)
+    out["category_order"] = list(out.get("category_order") or out["category_parent"].keys())
+    out["category_weights"] = dict(out.get("category_weights") or WEIGHTS)
+    out["severity_points"] = dict(out.get("severity_points") or SEVERITY_POINTS)
+    out["severity_points_mqm"] = dict(out.get("severity_points_mqm") or SEVERITY_POINTS_MQM)
+    out["forced_severity"] = dict(out.get("forced_severity") or FORCED_SEVERITY)
+    out["category_aliases"] = dict(out.get("category_aliases") or {})
+    return out
+
+
+def load_scorecard_profile(profile_id: str = "legacy") -> dict:
+    """Load an LQE scorecard profile by id, directory, or JSON file path."""
+    profile_id = profile_id or "legacy"
+    path = _scorecard_profile_path(profile_id)
+    if path.exists():
+        profile = read_json(path)
+    elif profile_id == "legacy":
+        profile = _legacy_scorecard_profile()
+    else:
+        raise FileNotFoundError(f"scorecard profile not found: {profile_id} ({path})")
+    return _normalize_scorecard_profile(profile, profile_id)
+
+
+def normalize_category_for_profile(cat: str, scorecard_profile: dict | None = None) -> str:
+    normalized = normalize_category(cat)
+    aliases = (scorecard_profile or {}).get("category_aliases", {})
+    return aliases.get(normalized, normalized)
+
+
+def scorecard_category_order(scorecard_profile: dict | None = None) -> tuple[str, ...]:
+    return tuple((scorecard_profile or {}).get("category_order") or CATEGORY_ORDER)
+
+
+def scorecard_category_parent(cat: str, scorecard_profile: dict | None = None) -> str:
+    parents = (scorecard_profile or {}).get("category_parent") or CATEGORY_PARENT
+    return parents.get(cat, "Other")
+
+
+def scorecard_category_weight(cat: str, scorecard_profile: dict | None = None) -> float:
+    weights = (scorecard_profile or {}).get("category_weights") or WEIGHTS
+    return float(weights.get(cat, 1.0))
+
+
+def scorecard_severity_points(scorecard_profile: dict | None = None, severity_scale: str = "lisa") -> dict:
+    if severity_scale == "mqm":
+        return dict((scorecard_profile or {}).get("severity_points_mqm") or SEVERITY_POINTS_MQM)
+    return dict((scorecard_profile or {}).get("severity_points") or SEVERITY_POINTS)
+
+
+def apply_severity(cat: str, sev: str, scorecard_profile: dict | None = None) -> str:
+    forced = (scorecard_profile or {}).get("forced_severity") or FORCED_SEVERITY
+    return forced.get(cat, sev.strip().capitalize() if sev else "Minor")
+
+
+def raw_points(counts: dict, scorecard_profile: dict | None = None, severity_points: dict | None = None) -> int:
+    points = severity_points or scorecard_severity_points(scorecard_profile)
+    return sum(points.get(sev, 0) * n for sev, n in counts.items())
+
+
+def weighted_points(cat: str, counts: dict, scorecard_profile: dict | None = None,
+                    severity_points: dict | None = None) -> float:
+    return scorecard_category_weight(cat, scorecard_profile) * raw_points(counts, scorecard_profile, severity_points)
 
 
 def read_json(path):
