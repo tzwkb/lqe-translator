@@ -1,11 +1,25 @@
 # LQE Translator
 
-[English](README.md) | 中文
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Agent Skill](https://img.shields.io/badge/Agent%20Skill-Codex-blue.svg)](SKILL.md)
+[![Python](https://img.shields.io/badge/Python-3.x-blue.svg)](https://www.python.org/)
 
+[English](README.md) | 中文
 
 ## 概览
 
 游戏本地化 LQE/MTPE 质检、评分和报告生成 Agent Skill，支持项目 profile、确定性预检查、多 lens AI 评估和 Excel 报告。
+
+## 文档对齐说明
+
+本 README_ZH.md 与英文 README.md 使用同一项目事实，但采用中文读者更容易扫描的结构。命令、路径、配置键和示例数据保持原样。
+
+## 主要能力
+
+- 从 Excel 输入和项目 profile 初始化 LQE 任务。
+- 在 AI 评估前运行确定性预检查。
+- 计算分数并生成迭代/最终报告。
+- 支持大文件多 lens 评估。
 
 ## 主要能力
 

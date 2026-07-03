@@ -1,13 +1,15 @@
 # LQE Translator
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Agent Skill](https://img.shields.io/badge/Agent%20Skill-Codex-blue.svg)](SKILL.md)
+[![Python](https://img.shields.io/badge/Python-3.x-blue.svg)](https://www.python.org/)
+
 English | [中文](README_ZH.md)
 
 
-**Agent Skill** — 游戏本地化 LQE/MTPE 质检、评分与报告生成工作流，支持项目 profile、确定性预检查、多 lens AI 评估和 Excel 输出。
-
 **Agent Skill** — Language Quality Evaluation pipeline for game-localization translations: ZH source to EN/TH live profiles, deterministic pre-checks, multi-lens AI evaluation, scorecard profiles, and Excel reports.
 
-> **项目经理（PM）请直接阅读 [PM_GUIDE.html](PM_GUIDE.html)**——面向 PM 的操作手册（怎么发起、会被问什么、拿到什么），无需读本 README 的技术细节。
+> **Project managers should start with [PM_GUIDE.html](PM_GUIDE.html)** for the operational guide: how to start a job, what questions to expect, and what deliverables come back.
 
 ---
 
