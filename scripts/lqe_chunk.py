@@ -120,6 +120,8 @@ def cmd_split(a):
                 "id": seg["id"],
                 "source": src_txt,
                 "target": seg.get("target", ""),
+                "content_type": seg.get("content_type"),
+                "text_type_context": seg.get("text_type_context"),
                 "kind": _seg_kind(src_txt),
                 "precheck": pre_by_id.get(seg["id"], []),
                 "term_hits": hits,

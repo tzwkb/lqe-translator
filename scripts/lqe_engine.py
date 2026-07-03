@@ -218,7 +218,7 @@ RE_CJK = re.compile(r'[一-鿿]')
 # 每语言一个文件夹，固定文件名：attributes.json（语言学事实声明）+ eval_notes.md（语言级
 # AI 评估关注点，存在即挂载）。属性不放检查开关；开关由 _lang_toggle_defaults 从属性推导。
 # 入层标准：项目 SG 可能推翻的不是属性（em_dash/省略号/引号样式=项目取向，留 checks.json）。
-# 合并顺序：内置默认 < 属性推导 < 项目 checks.json < CLI 显式参数。schema 见 languages/README.md。
+# 合并顺序：内置默认 < 属性推导 < 项目 checks.json < CLI 显式参数。
 _SKILL_ROOT = Path(__file__).resolve().parent.parent
 _LANG_DIR = _SKILL_ROOT / "languages"
 

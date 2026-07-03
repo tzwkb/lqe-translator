@@ -7,7 +7,7 @@ description: LQE scoring + self-iteration agent for AI/human game-localization t
 
 路径变量（每次会话开始时定义）：
 ```bash
-SCRIPTS=~/.claude/skills/lqe-translator/scripts
+SCRIPTS=~/.codex/skills/lqe-translator/scripts
 ```
 
 ---
@@ -16,27 +16,17 @@ SCRIPTS=~/.claude/skills/lqe-translator/scripts
 
 ### 1. 收集参数
 
-询问用户选择接入方式：
+直接使用项目档案初始化。AIPE 导出的 CSV 也按普通输入表走项目档案，不再单独走 AIPE API 拉 SG/TB；AIPE 与 LQE 参考资料由用户在项目档案侧手动对齐，减少双入口维护成本。不要再把 AIPE 联动或“独立 Excel”作为单独入口推荐。
 
-**方式 A：接入 AIPE**
-- AIPE 导出的 CSV 路径（`GET /translate/task/{id}/csv`）
-- AIPE 服务地址（如 `http://localhost:8000`）
-
-**方式 B：独立使用**
-- 输入 Excel 路径
+收集以下参数：
+- 输入表路径（Excel/CSV/TSV；可以是 AIPE 导出的结果表）
 - 原文列名/索引、译文列名/索引
-- 风格指南路径（`.docx`/`.txt`/`.md`/`.xlsx`，可选；xlsx 多 sheet 自动转 markdown：sheet=章节、行=规则、空表头首列=分类前向填充）
-- 术语表路径（`.xlsx`/`.csv`/`.tsv`/`.json`，可选；词条零宽字符自动清理；含 CJK 的 2 字词条参与 pre-check 匹配；json 词条可带 `status` 字段透传到报错注记）
-- 词数基准 `--wordcount-basis`：`target-words`（默认，译文空格分词，适用 EN）/ `source-chars`（源文 CJK 字符+拉丁词，**泰语等无空格译文必选**，否则词数低估数倍、98 阈值失真）
-- 目标语言 `--target-lang`（可选，`en`/`th`）：挂载 `languages/<code>/` 语言属性（词数基准默认、检查适用性推导、评估关注点），见方式 C 语言层说明
-
-**方式 C：项目档案（同项目多文件复用，优先推荐）**
 - `read --project <game>/<lang>`（如 `nrc/th`）：从 `projects/<game>/<lang>/profile.json` 带出 SG/术语/背景/词数基准/阈值/checks/adjudications，显式 CLI 参数优先。**用户只给游戏名时**，列出 `projects/<game>/` 下含 profile.json 的语言轨子目录供选择；该游戏尚无目标语言轨则走新轨建档（复制同游戏他轨 profile 改 language_pair/SG/术语，common 素材天然共享）
 - `projects/<game>/<lang>/` 结构（游戏级共享素材放 `projects/<game>/common/`）：
   - `profile.json`：`{name, language_pair, game, background, style_guide, terminology, checks, adjudications, wordcount_basis, threshold, lock_statuses}`（相对路径相对 profile 所在目录解析；`lock_statuses`=哪些术语 status 算锁定，空数组=确认无锁定；`background`=项目游戏类型/受众/语气/语域基调一句话，read 落 `job/background.md` 注入各 lens+单-agent，**lens 规范保持项目中立、题材靠它注入**）
   - `checks.json`：项目专属确定性检查。`builtin` 开关内置项（键：`untranslated_cjk/em_dash/color_tags/variables/newline_count/length/locale_numbers/terminology/pos_placeholder/numbers_consistency/whitespace/fullwidth_punct/empty_target/terminal_punct/cn_numbers/word_repeat/intra_word_case/paired_punct/term_case/ellipsis_mix/tag_count/pinyin_residue/intra_consistency`，默认全开，部分由语言属性自动推导关闭）；`custom` 数组：`{id, pattern(regex), where(target|source|both), category, severity, comment}`，每段命中一次报一条；加 `type: "count_match"` 则改为源↔译 findall 数量对账（项目专属标签精配用，`where` 失效）
   - `adjudications.md`：客户裁决/changelog 摘要——**Step 2 评估前必须 Read 注入上下文**，效力顺序通常为 实时更新要求 > Query 裁决 > SG，防止把已裁决项判成错误
-- 语言层 `languages/<code>/`（skill 根，与 projects/ 平级；已建 `en`/`th`，固定文件名 `attributes.json` + `eval_notes.md`，schema 与新语言接入指南见 `languages/README.md`）：按 profile `language_pair` 后缀自动挂载，或 `read --target-lang` 显式指定。**属性声明制**——只放语言学事实（`script`/`word_delim`/`sentence_terminator`/`numerals`/`wordcount_basis`），不放检查开关；pre-check 由属性推导检查适用性（`script: cjk` 关 `fullwidth_punct`；`sentence_terminator: none` 关 N5；`word_delim≠space` 关 N7；`script≠latin` 关 N8/#7），read 由属性防呆（`word_delim: none` 配 target-words 词数基准时警告）。`eval_notes.md` 为语言级 AI 评估关注点（泰语性别语尾/敬语/佛历等），存在即由 read 拷入 `job/lang_notes.md`。合并顺序：内置默认 < 属性推导 < 项目 checks.json < CLI 显式参数。风格取向（em_dash、省略号样式、引号样式）一律留项目 checks.json——同语言不同项目实证取向相反（wwm/en 禁破折号、nrc/en 允许）
+- 语言层 `languages/<code>/`（skill 根，与 projects/ 平级；已建 `en`/`th`，固定文件名 `attributes.json` + `eval_notes.md`）：按 profile `language_pair` 后缀自动挂载，或 `read --target-lang` 显式指定。**属性声明制**——只放语言学事实（`script`/`word_delim`/`sentence_terminator`/`numerals`/`wordcount_basis`），不放检查开关；pre-check 由属性推导检查适用性（`script: cjk` 关 `fullwidth_punct`；`sentence_terminator: none` 关 N5；`word_delim≠space` 关 N7；`script≠latin` 关 N8/#7），read 由属性防呆（`word_delim: none` 配 target-words 词数基准时警告）。`eval_notes.md` 为语言级 AI 评估关注点（泰语性别语尾/敬语/佛历等），存在即由 read 拷入 `job/lang_notes.md`。合并顺序：内置默认 < 属性推导 < 项目 checks.json < CLI 显式参数。风格取向（em_dash、省略号样式、引号样式）一律留项目 checks.json——同语言不同项目实证取向相反（wwm/en 禁破折号、nrc/en 允许）
 - 已建项目：`nrc/th`（洛克王国中→泰）、`nrc/en`（中→英）、`wwm/en`（燕云十六声中→英，官方术语库 terminology_0618.json）
 - 注意：SKILL.md 下文的"内置规则"（Title/Sentence Mode、禁破折号、文化术语映射等）实为 WWM 规则，仅在**无 SG 且无项目档案**时兜底；有项目档案时以其 SG/checks/adjudications 为准
 
@@ -46,28 +36,20 @@ SCRIPTS=~/.claude/skills/lqe-translator/scripts
 pip install openpyxl requests python-docx -q
 ```
 
-**方式 A：**
-```bash
-python "$SCRIPTS/lqe_io.py" from-aipe \
-  --aipe-csv "<CSV路径>" \
-  --aipe-url "<AIPE地址>" \
-  --out "jobs/<文件名>/state.json"
-```
-
-**方式 B：**
 ```bash
 python "$SCRIPTS/lqe_io.py" read \
-  --input "<Excel路径>" \
+  --project "<game>/<lang>" \
+  --input "<Excel/CSV/TSV路径>" \
   --source-col "<原文列>" \
   --target-col "<译文列>" \
-  --style-guide "<SG路径>" \
-  --terminology "<术语表路径>" \
   --out "jobs/<文件名>/state.json"
 ```
 
-`<文件名>` 取输入文件的 stem（去扩展名）。`read` 会自动创建 `jobs/<文件名>/` 目录，并将 SG 写入 `sg.txt`，术语表写入 `terms.json`。
+AIPE CSV 常用列名：`source` / `translation` / `content_type` / `rag_references`；初始化时 `source-col=source`、`target-col=translation` 即可。`content_type` 会进入 segment 供评估参考；若 CSV 中混入 `对话类文本` / `游戏内侧页文本` / `故事类文本` 等文本类型 marker 行，`read` 会跳过该行并把后续句段标记为 `text_type_context`，直到下一个 marker；`rag_references` 保留在 `rows_raw`，不自动替代项目档案上下文。
 
-**方式 C 附加 — TM 索引（项目 profile 含 `tm` 时，仅一次）：**
+`<文件名>` 取输入文件的 stem（去扩展名）。`read --project` 会自动创建 `jobs/<文件名>/` 目录，并从项目档案带出 SG、术语、语言层、裁决和阈值；显式 CLI 参数仅用于必要覆盖。若没有项目档案，先建项目语言轨，不回退到独立散表入口。
+
+**附加 — TM 索引（项目 profile 含 `tm` 时，仅一次）：**
 输入文件无 match 列、需用项目 TM 做 100% 保护时，先把 `.sdltm` 从缓存（企微等易失目录）拷到 `projects/<game>/common/tm/sources/` 固化，再建索引（TM 不变即复用，无需重建）：
 ```bash
 python "$SCRIPTS/tm_index.py" build \
@@ -80,7 +62,7 @@ python "$SCRIPTS/tm_index.py" build \
 
 锁定 = 判错后**跳过二次 review**：报错不可移除、不可改判，corrected 必须采用锁定译法。锁定级只能来自客户数据列或用户确认，**不得自创**：
 - profile 已有 `lock_statuses`（含空数组）→ 直接生效：`read` 已给命中词条打 `locked` 标，pre-check 报错带 `[LOCKED]`
-- 未定义且术语带 status/状态类列 → 列出全部取值问用户哪些算锁定；答案写回 profile.json（确认「无」写 `[]`）持久化，下批不再问；方式 B 无 profile 时把 `locked: true` 直接写进 `jobs/<名>/terms.json` 对应词条
+- 未定义且术语带 status/状态类列 → 列出全部取值问用户哪些算锁定；答案写回 profile.json（确认「无」写 `[]`）持久化，下批不再问；无 profile 时先建项目语言轨，不在单 job 内临时自创锁定策略
 - 术语表无任何状态信息 → 全部术语 review 时可甄别、可修改，不存在硬判级
 
 初始化完成后告知：段落数、词数、是否加载 SG 和术语表、锁定术语数（或「全部可 review」）。
@@ -161,6 +143,7 @@ python "$SCRIPTS/lqe_io.py" pre-check \
 | 千位分隔符缺失 | Locale convention | Minor |
 | **首尾空白 / 双空格 / 译文含全角 CJK 标点（含「」『』；CJK 目标语言在语言层关）[R5]** | Punctuation | Minor |
 | 术语表 source 命中但 target 缺译 | Terminology | Major |
+| 术语表 source 命中且 target 已出现，需排除子串/语境误匹配 | Other | Neutral |
 | **句尾终止标点不对齐**（源有译无 / 源无译加 `.`）**[N5]** | Punctuation | Minor |
 | **中文数字+量词漏译**（三次→译无 3/three；泰文数字/数词均认）**[N6]** | Mistranslation | Major |
 | **单词连续重复**（the the；白名单豁免 had had 等）**[N7]** | Grammar | Minor |
@@ -172,7 +155,7 @@ python "$SCRIPTS/lqe_io.py" pre-check \
 | **拼音残留**（专名大写头+≥2音节+强特征 zh/x/q 或撇号分隔；弱信号交 AI）**[N1]** | Mistranslation | Critical |
 | **同源异译 / 异源同译**（后者涉及源文须全部 ≥20 字；首段为基准不报）**[N2]** | Inconsistency | Minor |
 
-`max-length` 列自动识别表头：`maxlen/max_length/char_limit/限长/字符上限` 等。输出作为本轮 `errors.json` 的基底。项目档案的 `checks.json` 在此生效：`builtin` 开关可关闭与项目规范冲突的内置项（如 Em-dash 允许的项目关 `em_dash`），`custom` regex 追加项目专属检查；术语报错带 `[TB:status]` 注记；带 `[LOCKED]`（profile `lock_statuses` 命中，见「术语锁定确认」）的跳过二次 review——不可移除、不可改判，corrected 必须采用锁定译法；**其余术语报错无论 status（含 Approved）评估时均可按语境甄别**。pre-check 术语匹配最长词条优先：长词条命中且译法正确时不报被包含子词。若 pre-check 命中 locked segment，Agent 评估时必须移除该段 actionable error，保持 `errors=[]`, `corrected=null`。R6 数值检查仅在源含阿拉伯数字时触发；N6 中文数字仅在「中文数字+量词」强模式触发（一起/三思类虚用不报）。语言属性自动推导：泰语等无句号/无空格分词/非拉丁语言自动关闭 N5/N7/N8/#7（见 languages/README.md）。全部确定性报错 Agent 评估时均可按上下文甄别移除（locked 除外）。
+`max-length` 列自动识别表头：`maxlen/max_length/char_limit/限长/字符上限` 等。输出作为本轮 `errors.json` 的基底。项目档案的 `checks.json` 在此生效：`builtin` 开关可关闭与项目规范冲突的内置项（如 Em-dash 允许的项目关 `em_dash`），`custom` regex 追加项目专属检查；术语报错带 `[TB:status]` 注记；带 `[LOCKED]`（profile `lock_statuses` 命中，见「术语锁定确认」）的跳过二次 review——不可移除、不可改判，corrected 必须采用锁定译法；**其余术语报错无论 status（含 Approved）评估时均可按语境甄别**。pre-check 术语匹配最长词条优先：长词条命中且译法正确时不报被包含子词；若译文已出现候选 target，pre-check 仍追加 `TERM REVIEW` 的 `Other/Neutral` 线索交给 AI 排除子串/重叠/语境误匹配，不作为扣分。若 pre-check 命中 locked segment，Agent 评估时必须移除该段 actionable error，保持 `errors=[]`, `corrected=null`。R6 数值检查仅在源含阿拉伯数字时触发；N6 中文数字仅在「中文数字+量词」强模式触发（一起/三思类虚用不报）。语言属性自动推导：泰语等无句号/无空格分词/非拉丁语言自动关闭 N5/N7/N8/#7。全部确定性报错 Agent 评估时均可按上下文甄别移除（locked 除外）。
 
 ### Step 2：评估所有段落
 
@@ -421,8 +404,8 @@ L_per_category  = weight × K
 ## 文件结构
 
 ```
-languages/<code>/         语言属性层（attributes.json + eval_notes.md；en/th 已建，schema 见其 README.md）
-projects/<game>/<lang>/   语言轨档案（方式 C；游戏级共享素材在 <game>/common/）
+languages/<code>/         语言属性层（attributes.json + eval_notes.md；en/th 已建）
+projects/<game>/<lang>/   语言轨档案（游戏级共享素材在 <game>/common/）
 ├── profile.json        SG/术语/词数基准/阈值/checks/adjudications 配置
 ├── checks.json         内置检查开关 + 自定义 regex 检查
 ├── adjudications.md    客户裁决记录（评估前必读）

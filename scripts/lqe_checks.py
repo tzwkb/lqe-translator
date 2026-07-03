@@ -3,7 +3,7 @@ Deterministic pre-check engine (extracted from lqe_io.py).
 
 run_pre_check(state_path, out_path) — 21+ builtin checks + project custom rules.
 Toggle keys & merge order: builtin defaults < language-attribute derivation
-< project checks.json < CLI. See SKILL.md and languages/README.md.
+< project checks.json < CLI. See SKILL.md for the language-attribute contract.
 """
 import re
 import sys
@@ -326,7 +326,12 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
                     note = " [LOCKED]" if all(s.get("locked") for s in senses) else ""
                     errs.append({"category": "Terminology", "severity": "Major",
                                  "comment": f"'{term_src}' → expected {cands}{note}"})
-                elif on("term_case"):
+                else:
+                    errs.append({"category": "Other", "severity": "Neutral",
+                                 "comment": f"TERM REVIEW: source term '{term_src}' matched; "
+                                            f"candidate {_fmt_sense(matched)} appears in target. "
+                                            "Verify context and substring/overlap false matches."})
+                if matched is not None and on("term_case"):
                     # #7: 全大写缩写词条精确大小写（PM 2026-06-12：仅查缩写、判严重）
                     for acro in re.findall(r'\b[A-Z]{2,}\b', matched["target"]):
                         if acro.lower() in tgt_lower and acro not in tgt:

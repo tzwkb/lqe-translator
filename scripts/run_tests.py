@@ -44,8 +44,24 @@ def load_errs(path):
     return {r["id"]: [e["comment"] for e in r["errors"]] for r in json.loads(Path(path).read_text(encoding="utf-8"))}
 
 
+def load_full_errs(path):
+    return {r["id"]: r["errors"] for r in json.loads(Path(path).read_text(encoding="utf-8"))}
+
+
 def has(res, i, kw):
     return any(kw in c for c in res.get(i, []))
+
+
+def has_err(res, i, category=None, severity=None, kw=None):
+    for e in res.get(i, []):
+        if category and e.get("category") != category:
+            continue
+        if severity and e.get("severity") != severity:
+            continue
+        if kw and kw not in e.get("comment", ""):
+            continue
+        return True
+    return False
 
 
 # ── T1: EN main fixture — N5-N9 / #3 / #7 / #10 / R5 ─────────────────────────
@@ -289,10 +305,14 @@ def t9():
     r = run("lqe_io.py", "pre-check", "--state", str(TMP / "j9/state.json"), "--out", str(TMP / "j9/pc.json"))
     check("T9 pre-check rc", r.returncode == 0, r.stderr[-200:])
     res = load_errs(TMP / "j9/pc.json")
-    check("T9 sense A no Terminology error", not has(res, 0, "里奥"))
-    check("T9 sense B no Terminology error", not has(res, 1, "里奥"))
+    full = load_full_errs(TMP / "j9/pc.json")
+    check("T9 sense A no Terminology error", not has_err(full, 0, category="Terminology", kw="里奥"))
+    check("T9 sense B no Terminology error", not has_err(full, 1, category="Terminology", kw="里奥"))
+    check("T9 sense A review-only term hit", has_err(full, 0, category="Other", severity="Neutral", kw="TERM REVIEW"))
+    check("T9 sense B review-only term hit", has_err(full, 1, category="Other", severity="Neutral", kw="TERM REVIEW"))
     check("T9 neither-sense reports both candidates", has(res, 2, "ลีโอ") and has(res, 2, "ไลเอล"))
-    check("T9 singleton regression unaffected", not has(res, 3, "马尔文"))
+    check("T9 singleton no Terminology error", not has_err(full, 3, category="Terminology", kw="马尔文"))
+    check("T9 singleton review-only term hit", has_err(full, 3, category="Other", severity="Neutral", kw="TERM REVIEW"))
 
 
 # ── T10: lqe_chunk split 多义 term_hits ───────────────────────────────────────
@@ -300,7 +320,8 @@ def t10():
     job = TMP / "j10"
     job.mkdir(parents=True, exist_ok=True)
     state = {"segments": [
-        {"id": 0, "source": "看到一只里奥。", "target": "Saw a ลีโอ."},
+        {"id": 0, "source": "看到一只里奥。", "target": "Saw a ลีโอ.",
+         "content_type": "剧情", "text_type_context": "故事类文本"},
         {"id": 1, "source": "马尔文来了。", "target": "มาร์วิน is here."},
     ]}
     (job / "state.json").write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
@@ -326,6 +347,8 @@ def t10():
     check("T10 multi-sense th is list of 2", isinstance(hit0["th"], list) and len(hit0["th"]) == 2)
     check("T10 multi-sense categories present",
           {s.get("category") for s in hit0["th"]} == {"Creature Individual", "Creature Species"})
+    check("T10 content context preserved", seg0.get("content_type") == "剧情" and
+          seg0.get("text_type_context") == "故事类文本")
     hit1 = next(h for h in seg1["term_hits"] if h["src"] == "马尔文")
     check("T10 singleton th is list of 1",
           isinstance(hit1["th"], list) and len(hit1["th"]) == 1 and hit1["th"][0]["target"] == "มาร์วิน")
@@ -467,8 +490,44 @@ def t14():
         check("T14 total errors counted", result["errors"] == 3, r.stdout)
 
 
+def t15():
+    p = TMP / "aipe_export.csv"
+    p.write_text(
+        "seq,source,translation,status,content_type,rag_references\n"
+        "1,对话类文本,Dialogue text,success,未知,[]\n"
+        "2,师父来了。,Master has arrived.,success,话术,[]\n"
+        "3,游戏内侧页文本,Inner page text,success,UI,[]\n"
+        "4,打开背包,Open Inventory,success,UI,[]\n",
+        encoding="utf-8-sig"
+    )
+    r = run("lqe_io.py", "read", "--input", str(p), "--source-col", "source",
+            "--target-col", "translation", "--target-lang", "en",
+            "--out", str(TMP / "j15/state.json"))
+    check("T15 csv read rc", r.returncode == 0, r.stderr[-300:])
+    if r.returncode != 0:
+        return
+    state = json.loads((TMP / "j15/state.json").read_text(encoding="utf-8"))
+    check("T15 csv segment count", len(state["segments"]) == 2)
+    check("T15 csv source/target", state["segments"][0]["source"] == "师父来了。" and
+          state["segments"][0]["target"] == "Master has arrived.")
+    check("T15 csv content_type", state["segments"][0]["content_type"] == "话术")
+    check("T15 csv text type markers skipped", len(state.get("text_type_markers", [])) == 2 and
+          state["segments"][0].get("text_type_context") == "对话类文本" and
+          state["segments"][1].get("text_type_context") == "游戏内侧页文本")
+    check("T15 csv rows_raw preserves columns", state["headers"][-1] == "rag_references" and
+          state["rows_raw"][0][-1] == "[]")
+
+
+def t16():
+    r = run("lqe_io.py", "--help")
+    check("T16 help rc", r.returncode == 0, r.stderr[-200:])
+    check("T16 from-aipe hidden", "from-aipe" not in r.stdout)
+    r = run("lqe_io.py", "from-aipe", "--help")
+    check("T16 from-aipe removed", r.returncode != 0 and "invalid choice" in r.stderr, r.stderr[-300:])
+
+
 if __name__ == "__main__":
-    for t in (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14):
+    for t in (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15, t16):
         t()
     rag = subprocess.run([sys.executable, str(SCRIPTS / "tm_index_test.py")], capture_output=True, text=True)
     check("TM suite (tm_index_test.py)", rag.returncode == 0,

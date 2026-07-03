@@ -2,8 +2,7 @@
 LQE I/O utilities.
 
 Subcommands:
-  read          Excel → state.json（独立使用）
-  from-aipe     AIPE CSV + 术语/SG API → state.json
+  read          Excel/CSV/TSV + project profile → state.json
   pre-check     确定性错误自动检测（标点/Markup/术语/长度等）
   apply-fixes   errors.json 的 corrected 写回 state.json
   write         state.json + errors.json → *_lqe.xlsx
@@ -224,6 +223,30 @@ def _load_style_guide(path: str) -> str:
     return p.read_text(encoding="utf-8")
 
 
+def _cell(row, idx):
+    return row[idx] if idx is not None and idx < len(row) else None
+
+
+def _text(v):
+    return str(v).strip() if v is not None else ""
+
+
+def _extract_text_type_marker(src, tgt=None, content_type=None):
+    """AIPE CSV may contain text-type header rows; they are context, not segments."""
+    s = _text(src)
+    if not s:
+        return None
+    explicit = {"对话类文本", "游戏内侧页文本", "故事类文本"}
+    if s in explicit:
+        return s
+    m = re.match(r"^(?:文本类型|文本类别)\s*[:：]\s*(.+)$", s)
+    if m and m.group(1).strip():
+        return m.group(1).strip()
+    if s in {"文本类型", "文本类别"}:
+        return _text(tgt) or _text(content_type) or s
+    return None
+
+
 def cmd_read(args):
     prof = _load_project(args.project) if getattr(args, "project", None) else None
     if prof:
@@ -233,10 +256,34 @@ def cmd_read(args):
             args.terminology = _project_path(prof, prof["terminology"])
         print(f"[lqe_io] project: {prof.get('name', '?')} ({prof.get('language_pair', '?')})")
 
-    wb = openpyxl.load_workbook(args.input)
-    ws = wb.active
-
     no_header = getattr(args, "no_header", False)
+    input_path = Path(args.input)
+    suffix = input_path.suffix.lower()
+
+    if suffix in (".csv", ".tsv"):
+        delim = "\t" if suffix == ".tsv" else ","
+        raw_rows = list(csv.reader(io.StringIO(input_path.read_bytes().decode("utf-8-sig")), delimiter=delim))
+        if not raw_rows:
+            print("[ERROR] No data rows found.", file=sys.stderr)
+            sys.exit(1)
+        width = max(len(r) for r in raw_rows)
+        if no_header:
+            default_headers = ["Key", "Source", "Target", "Status", "Comment", "Scope", "File", "Reviewer Note"]
+            headers = [default_headers[j] if j < len(default_headers) else f"col{j}" for j in range(width)]
+            data_rows = raw_rows
+        else:
+            headers = [str(h).strip() if h is not None else "" for h in raw_rows[0]]
+            data_rows = raw_rows[1:]
+    else:
+        wb = openpyxl.load_workbook(args.input)
+        ws = wb.active
+        if no_header:
+            default_headers = ["Key", "Source", "Target", "Status", "Comment", "Scope", "File", "Reviewer Note"]
+            headers = [default_headers[j] if j < len(default_headers) else f"col{j}" for j in range(ws.max_column)]
+            data_rows = list(ws.iter_rows(min_row=1, values_only=True))
+        else:
+            headers = [cell.value for cell in ws[1]]
+            data_rows = list(ws.iter_rows(min_row=2, values_only=True))
 
     if no_header:
         # 列参数为整数索引（0-based）
@@ -246,18 +293,13 @@ def cmd_read(args):
         except ValueError:
             print("[ERROR] --no-header mode requires integer column indices for --source-col and --target-col", file=sys.stderr)
             sys.exit(1)
-        default_headers = ["Key", "Source", "Target", "Status", "Comment", "Scope", "File", "Reviewer Note"]
-        headers = [default_headers[j] if j < len(default_headers) else f"col{j}" for j in range(ws.max_column)]
-        start_row = 1
     else:
-        headers = [cell.value for cell in ws[1]]
         for col in [args.source_col, args.target_col]:
             if col not in headers:
                 print(f"[ERROR] Column '{col}' not found. Available: {headers}", file=sys.stderr)
                 sys.exit(1)
         si = headers.index(args.source_col)
         ti = headers.index(args.target_col)
-        start_row = 2
 
     # R3: 自动识别 max-length 列（UI 字段宽度上限），用于逐元素截断检查
     mi = None
@@ -277,15 +319,37 @@ def cmd_read(args):
         else:
             print(f"[lqe_io] group column: '{headers[gi]}' (col {gi})")
 
-    segments, rows_raw = [], []
-    for i, row in enumerate(ws.iter_rows(min_row=start_row, values_only=True)):
-        if any(c is not None for c in row):
+    ci = None
+    for idx, h in enumerate(headers):
+        if h is not None and str(h).strip().lower() in {"content_type", "text_type", "文本类型", "文本类别"}:
+            ci = idx
+            break
+
+    segments, rows_raw, text_type_markers = [], [], []
+    text_type_context = None
+    for i, row in enumerate(data_rows):
+        if any(_text(c) for c in row):
+            src = _text(_cell(row, si))
+            tgt = _text(_cell(row, ti))
+            row_content_type = _text(_cell(row, ci)) if ci is not None else ""
+            marker = _extract_text_type_marker(src, tgt, row_content_type)
+            if marker:
+                text_type_context = marker
+                text_type_markers.append({
+                    "row_index": i,
+                    "source": src,
+                    "target": tgt,
+                    "content_type": row_content_type or None,
+                })
+                continue
+            seg_id = len(segments)
             segments.append({
-                "id": i,
-                "source": str(row[si] if si < len(row) and row[si] is not None else ""),
-                "target": str(row[ti] if ti < len(row) and row[ti] is not None else ""),
+                "id": seg_id,
+                "source": src,
+                "target": tgt,
                 "corrected": None,
-                "content_type": None,
+                "content_type": row_content_type or None,
+                "text_type_context": text_type_context,
                 "max_len": _parse_maxlen(row[mi]) if mi is not None and mi < len(row) else None,
                 "group": (str(row[gi]).strip() if gi is not None and gi < len(row) and row[gi] is not None and str(row[gi]).strip() else None),
                 "iter": 0,
@@ -400,6 +464,7 @@ def cmd_read(args):
         "target_col": args.target_col,
         "headers": headers,
         "rows_raw": rows_raw,
+        "text_type_markers": text_type_markers,
         "aipe_url": None,
         "project": prof.get("name", "") if prof else "",
         "language_pair": prof.get("language_pair", "") if prof else "",
@@ -420,109 +485,6 @@ def cmd_read(args):
     }
     out_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"[lqe_io] {len(segments)} segments → {args.out}  wordcount={state['wordcount']}")
-
-
-# ── from-aipe ─────────────────────────────────────────────────────────────────
-
-def cmd_from_aipe(args):
-    import requests
-
-    # 读取 AIPE 导出 CSV（BOM 安全）
-    raw = Path(args.aipe_csv).read_bytes()
-    text = raw.decode("utf-8-sig")
-    reader = csv.DictReader(io.StringIO(text))
-    all_rows = list(reader)
-    fieldnames = reader.fieldnames or []
-
-    valid = [r for r in all_rows if r.get("status", "").strip().lower() != "error"]
-    if not valid:
-        print("[ERROR] No valid rows after filtering errors.", file=sys.stderr)
-        sys.exit(1)
-
-    def _row_maxlen(r):
-        for k in ("max_length", "maxlen", "max_len", "char_limit", "limit"):
-            if r.get(k):
-                return _parse_maxlen(r.get(k))
-        return None
-
-    segments = [
-        {
-            "id": i,
-            "source": r.get("source", ""),
-            "target": r.get("translation", ""),
-            "corrected": None,
-            "content_type": r.get("content_type") or None,
-            "max_len": _row_maxlen(r),
-            "iter": 0,
-        }
-        for i, r in enumerate(valid)
-    ]
-    rows_raw = [[r.get(h, "") for h in fieldnames] for r in valid]
-
-    # 拉术语表
-    terminology = []
-    try:
-        resp = requests.get(
-            f"{args.aipe_url.rstrip('/')}/api/v1/terminology",
-            params={"limit": 1000}, timeout=10
-        )
-        if resp.ok:
-            terminology = resp.json().get("items", [])
-            print(f"[lqe_io] terminology: {len(terminology)} entries")
-        else:
-            print(f"[warn] terminology fetch {resp.status_code}", file=sys.stderr)
-    except Exception as e:
-        print(f"[warn] terminology fetch failed: {e}", file=sys.stderr)
-
-    # 拉风格指南
-    style_guide = ""
-    try:
-        resp = requests.get(
-            f"{args.aipe_url.rstrip('/')}/api/v1/style-guide",
-            params={"full": "true"}, timeout=10
-        )
-        if resp.ok:
-            style_guide = resp.json().get("rules") or ""
-            print(f"[lqe_io] style_guide: {len(style_guide)} chars")
-        else:
-            print(f"[warn] style-guide fetch {resp.status_code}", file=sys.stderr)
-    except Exception as e:
-        print(f"[warn] style-guide fetch failed: {e}", file=sys.stderr)
-
-    out_path = Path(args.out)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    job_dir  = out_path.parent
-
-    sg_path = ""
-    if style_guide:
-        sg_file = job_dir / "sg.txt"
-        sg_file.write_text(style_guide, encoding="utf-8")
-        sg_path = str(sg_file)
-    terms_path = ""
-    if terminology:
-        terms_file = job_dir / "terms.json"
-        terms_file.write_text(json.dumps(terminology, ensure_ascii=False, indent=2), encoding="utf-8")
-        terms_path = str(terms_file)
-
-    state = {
-        "input_path": str(Path(args.aipe_csv).resolve()),
-        "source_col": "source",
-        "target_col": "translation",
-        "headers": list(fieldnames),
-        "rows_raw": rows_raw,
-        "aipe_url": args.aipe_url,
-        "sg_path":    sg_path,
-        "terms_path": terms_path,
-        "terminology": [],
-        "style_guide": "",
-        "wordcount": sum(len(s["target"].split()) for s in segments),
-        "iteration": 0,
-        "segments": segments,
-    }
-    out_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
-    skipped = len(all_rows) - len(valid)
-    print(f"[lqe_io] {len(segments)} segments (skipped {skipped} errors) → {args.out}  wordcount={state['wordcount']}")
-
 
 # ── lookup-terms ──────────────────────────────────────────────────────────────
 
@@ -1134,16 +1096,11 @@ def main():
     r.add_argument("--terminology", default=None, help="术语表文件路径（.csv/.tsv/.json/.xlsx）")
     r.add_argument("--style-guide", default=None, dest="style_guide", help="风格指南文件路径（.txt/.md/.docx/.xlsx）")
     r.add_argument("--target-lang", default=None, dest="target_lang",
-                   help="目标语言代码（en/th 等）；挂载 languages/<code>/ 语言属性。方式 C 自动从 profile language_pair 解析，无需传")
+                   help="目标语言代码（en/th 等）；挂载 languages/<code>/ 语言属性。项目 profile 会自动从 language_pair 解析，无需传")
     r.add_argument("--wordcount-basis", default=None, choices=["target-words", "source-chars"],
                    dest="wordcount_basis",
                    help="词数基准：target-words=译文空格分词（EN 等）；source-chars=源文 CJK 字符数+拉丁词数（泰语等无空格译文用）")
     r.add_argument("--out", default="lqe_state.json")
-
-    fa = sub.add_parser("from-aipe")
-    fa.add_argument("--aipe-csv", required=True, dest="aipe_csv")
-    fa.add_argument("--aipe-url", required=True, dest="aipe_url")
-    fa.add_argument("--out", default="lqe_state.json")
 
     af = sub.add_parser("apply-fixes")
     af.add_argument("--state",     required=True)
@@ -1182,7 +1139,6 @@ def main():
     args = p.parse_args()
     {
         "read":           cmd_read,
-        "from-aipe":      cmd_from_aipe,
         "pre-check":      cmd_pre_check,
         "apply-fixes":    cmd_apply_fixes,
         "write":          cmd_write,
