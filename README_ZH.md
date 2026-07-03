@@ -38,18 +38,25 @@ python scripts/run_tests.py
 ```
 
 ```bash
-SCRIPTS=~/.codex/skills/lqe-translator/scripts
+SCRIPTS=~/.claude/skills/lqe-translator/scripts
 ```
 
 ```bash
 python "$SCRIPTS/lqe_io.py" read \
-  --project <game>/<lang> \
-  --input "<file>.xlsx|csv|tsv" \
+  --input "<file>.xlsx" --project <game>/<lang> \
   --source-col "<col>" --target-col "<col>" \
   --out "jobs/<file_stem>/state.json"
 ```
 
-AIPE CSV 也走同一个 `read --project` 入口；`content_type` 进入 segment，`对话类文本` / `游戏内侧页文本` / `故事类文本` 等 marker 行会被跳过并传播为 `text_type_context`，`rag_references` 仅保留在 `rows_raw`。
+```bash
+python "$SCRIPTS/lqe_io.py" read \
+  --input "<file>.xlsx" \
+  --source-col "<col>" \
+  --target-col "<col>" \
+  --style-guide "<sg.docx>" \
+  --terminology "<terms.xlsx>" \
+  --out "jobs/<file_stem>/state.json"
+```
 
 ```bash
 python "$SCRIPTS/lqe_io.py" pre-check \

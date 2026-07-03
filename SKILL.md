@@ -273,12 +273,14 @@ segment 带 `group` 字段（`read --group-col` 注入）时，同组段落**合
 
 Write `$JOB/errors.json`，**所有段落都必须写入，无错误写空数组**：
 
+**`errors[].comment` 必须统一使用英文**。可以短引原文/译文片段，但解释、错误描述和修正理由都用英文；不要写中文 comment。
+
 ```json
 [
   {
     "id": 0,
     "errors": [
-      {"category": "Mistranslation", "severity": "Major", "comment": "说明，引用原文/译文片段"}
+      {"category": "Mistranslation", "severity": "Major", "comment": "The target mistranslates '原文片段' as 'target phrase', changing the meaning."}
     ],
     "corrected": "修正后的完整译文"
   },

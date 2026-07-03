@@ -61,7 +61,7 @@ python scripts/run_tests.py
 ```
 
 ```bash
-SCRIPTS=~/.codex/skills/lqe-translator/scripts
+SCRIPTS=~/.claude/skills/lqe-translator/scripts
 ```
 
 ---
@@ -70,17 +70,24 @@ SCRIPTS=~/.codex/skills/lqe-translator/scripts
 
 ### 1. Initialize
 
-Project profile (single entry — one flag pulls SG/terms/checks/adjudications/language attrs):
+Project profile (preferred — one flag pulls SG/terms/checks/adjudications/language attrs):
 ```bash
 python "$SCRIPTS/lqe_io.py" read \
-  --project <game>/<lang> \
-  --input "<file>.xlsx|csv|tsv" \
+  --input "<file>.xlsx" --project <game>/<lang> \
   --source-col "<col>" --target-col "<col>" \
   --out "jobs/<file_stem>/state.json"
 ```
 
-AIPE exported CSV uses the same entry. Common columns: `source`, `translation`, `content_type`, `rag_references`.
-`content_type` is copied into each segment as evaluation context. Text-type marker rows such as `对话类文本`, `游戏内侧页文本`, and `故事类文本` are skipped and propagated to following segments as `text_type_context` until the next marker. `rag_references` stays in `rows_raw` unless future RAG integration is implemented.
+Standalone:
+```bash
+python "$SCRIPTS/lqe_io.py" read \
+  --input "<file>.xlsx" \
+  --source-col "<col>" \
+  --target-col "<col>" \
+  --style-guide "<sg.docx>" \
+  --terminology "<terms.xlsx>" \
+  --out "jobs/<file_stem>/state.json"
+```
 
 Creates `jobs/<file_stem>/` with `state.json`, `sg.txt`, `terms.json`.
 
@@ -108,7 +115,6 @@ Auto-detects deterministic errors:
 | 4+ digit number without thousands separator | Locale convention | Minor |
 | Leading/trailing whitespace, double space, full-width punctuation **[R5]** | Punctuation | Minor |
 | Term in source but translation absent from target | Terminology | Major |
-| Term in source and candidate target appears in target; AI should rule out substring/context false match | Other | Neutral |
 
 `max-length` column auto-detected from headers (`maxlen` / `max_length` / `char_limit` / `限长` / `字符上限` …). R6 fires only when the source contains Arabic digits.
 
@@ -245,6 +251,13 @@ Wordcount is locked at initialization and does not change across iterations.
 ```bash
 python "$SCRIPTS/lqe_io.py" lookup-terms \
   --state "jobs/<stem>/state.json" [--ids "0,3,7"]
+```
+
+**AIPE integration** (alternative to `read`):
+```bash
+python "$SCRIPTS/lqe_io.py" from-aipe \
+  --aipe-csv "<export.csv>" --aipe-url "http://localhost:8000" \
+  --out "jobs/<stem>/state.json"
 ```
 
 **Batch orchestration** (large files; resumable):

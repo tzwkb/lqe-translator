@@ -9,7 +9,7 @@
 - **chunk**：每段 `{id, source, target, kind, precheck[], term_hits[], term_near[]}`（`kind`=name/desc；`term_near`=近似 TB 候选，**仅 T 用**，A/G/R 忽略，见 T.md）
 
 ## 输出
-只写**合法 JSON 数组**（无散文/无围栏）到指定路径。每条 `{id, errors[], corrected}`，`errors[]` 每条 `{category, severity, comment}`，comment 引中/译片段、中文说明。
+只写**合法 JSON 数组**（无散文/无围栏）到指定路径。每条 `{id, errors[], corrected}`，`errors[]` 每条 `{category, severity, comment}`。**comment 必须统一使用英文**：可短引中文原文/译文片段，但错误解释、判断依据和修正理由都用英文，禁止中文说明。
 - **只用本 lens 授权的类别**（见各 lens 文件）。不是你的类别 → 不报，留给对应 lens（防重防漏）。
 - **severity**：Neutral / Minor / Major / Critical。lens 强制 Major：Terminology / Untranslated（Markup / Length 属 pre-check 确定性域、lens 不报、不在此规定其 severity）。存疑取重；数值/机制错=Major；表面拼写=Minor。
 - **corrected**：本 lens 有真错 → 完整修正译文；无 → `null`；locked 段 → `null`。**改动是干净子串替换时**（术语/拼写/局部用词换掉，原句其余不变），改用补丁格式省 token：`{"patches": [{"from": "错的子串", "to": "对的子串"}]}`（脚本会套到原译文自动还原完整句）；改动涉及**调序/插入/删词**等补丁表达不了的结构变化，仍给完整句字符串。两种格式可按段自行选，脚本自动识别。
