@@ -39,7 +39,7 @@
 - `LQA_template_extract.txt` = 客户 LQA 模板拆解（Error Log 7 列 + 计数制评分卡）——**归属哪条线待确认**
 
 ## wwm/en/ —— 燕云十六声中→英（历史项目，随时可复跑）
-- `sg.txt` = 权威整合版 SG；`sources/terminology_0509.xlsx` = 官方 28,534 条术语库（自包含副本）
+- `sg.txt` = 权威整合版 SG（上游 `sources/WWM_Style_Guide_0612.docx` + `sources/WWM_Style_Guide_0701.docx` 补充）；`sources/terminology_0701.json` = 官方术语库（上游 `sources/terminology_0701.xlsx`）
 
 ## 运行产物
 `../jobs/<输入文件名>/` —— read 初始化生成，state.json/sg.txt/terms.json/报告/修正稿都在里面，与 projects 互不污染。

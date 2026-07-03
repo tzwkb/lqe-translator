@@ -2,7 +2,7 @@
 来源: WWM 历史 LQE 实操（Pet System 260601 首评 77.77 → 迭代 100 通过）+ 权威 SG（sg.txt 整合版，与桌面 LQE工作文件/styleguide.txt 有出入，以 sg.txt 为准）
 
 ## 术语匹配原则
-- 官方术语库（terminology_0618.json，中文/英文/分类），专有名词（角色/地名/武学/技能）**严格一致**
+- 官方术语库（terminology_0701.json，中文/英文），专有名词（角色/地名/武学/技能）**严格一致**
 - **泛词命中按语境甄别勿硬判 Terminology**（小猫咪、河边石头等日常词条命中≠错误）
 - 文化术语强制映射: 枪→Spear、火药→Explosive Powder、师傅/公子→Master、龙/凤/蛟→Dragon/Phoenix/Serpent、笔→Brush、火铳→Fire Lance、侠→Hero、大侠→Great Hero、少侠→Young Hero
 

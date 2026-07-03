@@ -4,7 +4,7 @@
   "game": "Where Winds Meet (燕云十六声)",
   "background": "开放世界武侠 RPG《燕云十六声》，国风、文白相间的古典语气，成人向；品牌调性不用英文网络化口水（如 Hahaha! / LOL 类拟声词）。文本含剧情/功能(UI·规则说明)/营销等多类，语域按文本功能逐段判（规则说明从严、宣传文案可适度活泼），不预设整批为某一类。",
   "style_guide": "sg.txt",
-  "terminology": "sources/terminology_0618.json",
+  "terminology": "sources/terminology_0701.json",
   "checks": "checks.json",
   "adjudications": "adjudications.md",
   "threshold": 98,
