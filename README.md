@@ -1,43 +1,7 @@
 # LQE Translator
 
-<!-- bilingual-readme:start -->
+[中文](README_ZH.md) | English
 
-## 双语说明 / Bilingual Documentation
-
-> 本节提供整篇 README 的中英双语维护说明；下方保留原始详细说明、命令、路径和配置示例。
-> This section provides bilingual maintenance notes for the full README; the original detailed notes, commands, paths, and configuration examples are preserved below.
-
-### 中文
-
-**概览**：游戏本地化 LQE/MTPE 质检、评分和报告生成 Agent Skill，支持项目 profile、确定性预检查、多 lens AI 评估和 Excel 报告。
-
-**主要能力**：
-- 支持 ZH 源文到 EN/TH 等目标语言的 LQE。
-- 内置项目 profile、术语、风格指南和评分规则。
-- 生成可交付的 Excel/PM 报告。
-
-**使用方式**：PM 可先阅读 PM_GUIDE.html；技术使用按 README 目录结构、jobs 和 scripts 流程执行。
-
-**状态**：该仓库仍按当前 README 的说明维护或使用。
-
-**注意事项**：长 README 中的脚本说明、目录结构和评分规则保持原样。
-
-### English
-
-**Overview**: Game-localization LQE/MTPE Agent Skill for QA, scoring, and report generation with project profiles, deterministic pre-checks, multi-lens AI evaluation, and Excel reports.
-
-**Key capabilities**:
-- Supports LQE from ZH source to target languages such as EN/TH.
-- Uses project profiles, terminology, style guides, and scorecard rules.
-- Generates deliverable Excel and PM-facing reports.
-
-**Usage**: PMs can start with PM_GUIDE.html; technical usage follows the README directory, jobs, and scripts workflow.
-
-**Status**: This repository is maintained or used according to the current README notes.
-
-**Notes**: The long README keeps its script, directory, and scorecard details below.
-
-<!-- bilingual-readme:end -->
 
 **Agent Skill** — 游戏本地化 LQE/MTPE 质检、评分与报告生成工作流，支持项目 profile、确定性预检查、多 lens AI 评估和 Excel 输出。
 
