@@ -1,6 +1,6 @@
 # LQE Translator
 
-[中文](README_ZH.md) | English
+English | [中文](README_ZH.md)
 
 
 **Agent Skill** — 游戏本地化 LQE/MTPE 质检、评分与报告生成工作流，支持项目 profile、确定性预检查、多 lens AI 评估和 Excel 输出。
