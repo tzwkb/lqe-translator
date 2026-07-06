@@ -26,7 +26,7 @@ lqe-translator/
 │   ├── finalize_job.sh  # Multi-lens one-shot finalize (single|iterate)
 │   ├── lqe_batch.py     # Output-budget batching + resumable runs (plan/merge)
 │   └── gen_*.py         # docs/ xlsx report generators
-├── languages/<code>/    # Language attribute layer (linguistic facts; en/th)
+├── target_languages/<code>/ # Target-language attribute layer (linguistic facts; en/th/zh)
 │   ├── attributes.json  # script/word_delim/sentence_terminator/numerals/wordcount_basis
 │   └── eval_notes.md    # Language-level AI evaluation notes (copied into jobs)
 ├── projects/<game>/     # Client layer
@@ -40,7 +40,7 @@ lqe-translator/
 │       ├── state.json         # Job state (segments, history, paths)
 │       ├── sg.txt             # Style guide full text
 │       ├── terms.json         # Terminology table
-│       ├── lang_notes.md      # Language-level eval notes (from languages/)
+│       ├── lang_notes.md      # Target-language eval notes (from target_languages/)
 │       ├── errors.json        # Current iteration errors (AI output)
 │       ├── errors_precheck.json   # Auto-detected issues (first iteration)
 │       ├── errors_iter{N}.json    # Archived errors per FAIL iteration

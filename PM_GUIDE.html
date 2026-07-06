@@ -50,7 +50,7 @@ footer{margin-top:56px;text-align:center;color:#99a;font-size:12px}
 <p>LQE Translator 是跑在 Claude Code 里的<b>译文质检 + 自动修正 agent</b>：</p>
 <table>
 <tr><td>按 <b>MQM / ISO 5060</b> 错误体系打分（17 类错误 × 4 级严重度），同时给出每条错误的<b>修正译文</b>，自动迭代直到得分 ≥ 98</td></tr>
-<tr><td>已落地项目：洛克王国中→泰（<code>nrc/th</code>）、中→英（<code>nrc/en</code>）、燕云十六声中→英（<code>wwm/en</code>）</td></tr>
+<tr><td>已落地项目：洛克王国中→泰（<code>nrc/zh-th</code>）、中→英（<code>nrc/zh-en</code>）、燕云十六声中→英（<code>wwm/zh-en</code>）</td></tr>
 </table>
 <p>一句话：把译文文件丢给它，拿回一份 LQE 报告 + 一份达标的修正稿。</p>
 
@@ -58,7 +58,7 @@ footer{margin-top:56px;text-align:center;color:#99a;font-size:12px}
 <table>
 <tr><th width="110">必需</th><td>译文 Excel——含原文列 + 译文列（列名告诉 agent 即可）</td></tr>
 <tr><th>可选</th><td>风格指南（docx / xlsx / txt）、术语表（xlsx / csv / json）</td></tr>
-<tr><th>老项目首选</th><td><b>项目档案</b>——nrc/th 等已配好 SG/术语/检查规则，一句话调用</td></tr>
+<tr><th>项目首选</th><td><b>项目档案</b>——nrc/zh-th 等已配好 SG/术语/检查规则，一句话调用</td></tr>
 </table>
 <p>新语种/新项目第一次跑时把 SG 和术语表给齐；之后 agent 会建好项目档案，复用时只报项目名。</p>
 
@@ -83,7 +83,7 @@ footer{margin-top:56px;text-align:center;color:#99a;font-size:12px}
 <h3>实际操作只有两步</h3>
 <table>
 <tr><th width="40">1</th><td>向 agent 发起任务并说明文件与项目（Claude Code 框架输入 <code>/lqe-translator</code>；其他框架按其方式加载本 skill 后直接说明任务），例如：<br>
-<i>"用 nrc/th 项目档案，评估 ~/Desktop/Batch5普老师.xlsx，原文列『原文』，译文列『泰语』"</i></td></tr>
+<i>"用 nrc/zh-th 项目档案，评估 ~/Desktop/Batch5普老师.xlsx，原文列『原文』，译文列『泰语』"</i></td></tr>
 <tr><th>2</th><td>每轮结束 agent 会报分数；没过就让 agent 继续迭代（Claude Code 用 <code>/loop</code>，其他框架直接说“继续”），过了就拿文件</td></tr>
 </table>
 

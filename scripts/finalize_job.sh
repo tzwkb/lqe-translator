@@ -6,6 +6,17 @@
 # 幂等：仅当 N 个 T 脊柱(chunk_NN.T.json)齐了才跑。
 SK="$(cd "$(dirname "$0")/.." && pwd)"   # skill 根（脚本位置锚定，与 HOME/CWD 无关）
 JOB="$SK/jobs/$1"; N="$2"; MODE="${3:-iterate}"; CH="$JOB/chunks"
+THRESH=$(python3 - "$JOB/state.json" <<'PY'
+import json
+import sys
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as f:
+        print(json.load(f).get("threshold", 98))
+except Exception:
+    print(98)
+PY
+)
 
 have=$(ls "$CH"/chunk_*.T.json 2>/dev/null | wc -l | tr -d ' ')
 if [ "$have" -lt "$N" ]; then echo "INCOMPLETE $1: T spines $have/$N"; exit 0; fi
@@ -25,15 +36,15 @@ if ! python3 "$SK/scripts/lqe_chunk.py" merge --state "$JOB/state.json" \
   echo "MERGE-INCOMPLETE $1 (some ids uncovered; see above) — not finalizing"; exit 3
 fi
 # 5) 计分
-RES=$(python3 "$SK/scripts/lqe_calc.py" --state "$JOB/state.json" --errors "$JOB/errors.json" --threshold 98 --json)
+RES=$(python3 "$SK/scripts/lqe_calc.py" --state "$JOB/state.json" --errors "$JOB/errors.json" --threshold "$THRESH" --json)
 echo "  calc: $RES"
 SCORE=$(printf '%s' "$RES" | python3 -c "import json,sys;print(json.load(sys.stdin)['score'])")
 STATUS=$(printf '%s' "$RES" | python3 -c "import json,sys;print(json.load(sys.stdin)['status'])")
 # 6) 报告：PASS 或单轮→write；否则 apply-fixes 迭代
 if [ "$STATUS" = "PASS" ] || [ "$MODE" = "single" ]; then
-  python3 "$SK/scripts/lqe_io.py" write --state "$JOB/state.json" --errors "$JOB/errors.json" --score "$SCORE" --threshold 98
+  python3 "$SK/scripts/lqe_io.py" write --state "$JOB/state.json" --errors "$JOB/errors.json" --score "$SCORE" --threshold "$THRESH"
 else
-  python3 "$SK/scripts/lqe_io.py" apply-fixes --state "$JOB/state.json" --errors "$JOB/errors.json" --score "$SCORE" --threshold 98
+  python3 "$SK/scripts/lqe_io.py" apply-fixes --state "$JOB/state.json" --errors "$JOB/errors.json" --score "$SCORE" --threshold "$THRESH"
 fi
 # 7) 导出建议修正稿（--errors 让单轮 state.corrected 为空时也能填建议）
 python3 "$SK/scripts/lqe_io.py" export --state "$JOB/state.json" --errors "$JOB/errors.json"

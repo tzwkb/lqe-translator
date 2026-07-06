@@ -7,10 +7,12 @@ chain + guard, and a smoke test for lqe_batch.
 Fixtures are built in a temp dir; nothing is written into the repo.
 """
 import json
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import csv
 from pathlib import Path
 
 import openpyxl
@@ -189,8 +191,8 @@ def t3():
 # ── T4: method C (project profiles) + wwm N3 custom ──────────────────────────
 def t4():
     make_xlsx(TMP / "tiny.xlsx", [('他说：「你好」', 'เขาพูดว่า สวัสดี')])
-    for proj, lang, basis in [("nrc/th", "th", "source-chars"), ("nrc/en", "en", "target-words"),
-                              ("wwm/en", "en", "target-words")]:
+    for proj, lang, basis in [("nrc/zh-th", "th", "source-chars"), ("nrc/zh-en", "en", "target-words"),
+                              ("wwm/zh-en", "en", "target-words")]:
         slug = proj.replace("/", "-")
         r = run("lqe_io.py", "read", "--input", str(TMP / "tiny.xlsx"), "--source-col", "原文",
                 "--target-col", "译文", "--project", proj, "--out", str(TMP / f"j4-{slug}/state.json"))
@@ -200,15 +202,22 @@ def t4():
             continue
         s = json.loads((TMP / f"j4-{slug}/state.json").read_text(encoding="utf-8"))
         check(f"T4 {proj} lang/basis", s["target_lang"] == lang and s["wordcount_basis"] == basis)
+        check(f"T4 {proj} source lang", s.get("source_lang") == "zh")
         check(f"T4 {proj} checks+adjud", bool(s["checks_path"]) and bool(s["adjudications_path"]))
     # wwm N3 roman numeral custom
-    sp = TMP / "j4-wwm-en/state.json"
-    s = json.loads(sp.read_text(encoding="utf-8"))
-    s["segments"] = [{"id": 0, "source": "第二章。", "target": "Chapter II begins.",
-                      "corrected": None, "max_len": None, "iter": 0}]
-    sp.write_text(json.dumps(s, ensure_ascii=False), encoding="utf-8")
-    run("lqe_io.py", "pre-check", "--state", str(sp), "--out", str(TMP / "j4-n3.json"))
-    check("T4 N3 roman numeral", has(load_errs(TMP / "j4-n3.json"), 0, "罗马数字"))
+    sp = TMP / "j4-wwm-zh-en/state.json"
+    if sp.exists():
+        s = json.loads(sp.read_text(encoding="utf-8"))
+        s["segments"] = [{"id": 0, "source": "第二章。", "target": "Chapter II begins.",
+                          "corrected": None, "max_len": None, "iter": 0}]
+        sp.write_text(json.dumps(s, ensure_ascii=False), encoding="utf-8")
+        run("lqe_io.py", "pre-check", "--state", str(sp), "--out", str(TMP / "j4-n3.json"))
+        check("T4 N3 roman numeral", has(load_errs(TMP / "j4-n3.json"), 0, "罗马数字"))
+    else:
+        check("T4 N3 roman numeral", False, "missing wwm/zh-en state")
+    r = run("lqe_io.py", "read", "--input", str(TMP / "tiny.xlsx"), "--source-col", "原文",
+            "--target-col", "译文", "--project", "wwm/en", "--out", str(TMP / "j4-old/state.json"))
+    check("T4 old target-only path removed", r.returncode != 0 and "project profile not found" in r.stderr)
 
 
 # ── T5: custom count_match ────────────────────────────────────────────────────
@@ -216,7 +225,7 @@ def t5():
     (TMP / "cm_checks.json").write_text(json.dumps({"builtin": {}, "custom": [
         {"id": "cm-probe", "type": "count_match", "pattern": "#P\\d+#",
          "category": "Markup", "severity": "Major", "comment": "tag #Pn# count"}]}), encoding="utf-8")
-    state = {"wordcount": 10, "language_pair": "ZHCN-EN", "checks_path": str(TMP / "cm_checks.json"),
+    state = {"wordcount": 10, "language_pair": "zh-en", "checks_path": str(TMP / "cm_checks.json"),
              "segments": [{"id": 0, "source": "按#P1#键和#P2#键。", "target": "Press #P1#.",
                            "corrected": None, "max_len": None, "iter": 0}]}
     (TMP / "cm_state.json").write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
@@ -516,6 +525,18 @@ def t15():
           state["segments"][1].get("text_type_context") == "游戏内侧页文本")
     check("T15 csv rows_raw preserves columns", state["headers"][-1] == "rag_references" and
           state["rows_raw"][0][-1] == "[]")
+    state["segments"][0]["corrected"] = "Corrected master arrived."
+    state["segments"][1]["corrected"] = "Corrected inventory."
+    (TMP / "j15/state.json").write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    r = run("lqe_io.py", "export", "--state", str(TMP / "j15/state.json"))
+    check("T15 csv export rc", r.returncode == 0, r.stderr[-300:])
+    out = TMP / "j15/j15_corrected.csv"
+    check("T15 csv export path", out.exists(), r.stdout[-300:])
+    if out.exists():
+        rows = list(csv.reader(out.open(encoding="utf-8-sig")))
+        check("T15 csv marker row preserved", rows[1][1] == "对话类文本" and rows[1][2] == "Dialogue text")
+        check("T15 csv corrected rows aligned", rows[2][2] == "Corrected master arrived." and
+              rows[4][2] == "Corrected inventory.")
 
 
 def t16():
@@ -526,8 +547,197 @@ def t16():
     check("T16 from-aipe removed", r.returncode != 0 and "invalid choice" in r.stderr, r.stderr[-300:])
 
 
+def t17():
+    make_xlsx(TMP / "lang_pair.xlsx", [("Open the chest.", "打开宝箱。")])
+
+    explicit_dir = TMP / "project-explicit-lang"
+    explicit_dir.mkdir(parents=True, exist_ok=True)
+    (explicit_dir / "profile.json").write_text(json.dumps({
+        "name": "Explicit language fields",
+        "language_pair": "zh-en",
+        "source_lang": "en",
+        "target_lang": "zh",
+        "wordcount_basis": "source-chars",
+    }, ensure_ascii=False), encoding="utf-8")
+    r = run("lqe_io.py", "read", "--input", str(TMP / "lang_pair.xlsx"),
+            "--source-col", "原文", "--target-col", "译文",
+            "--project", str(explicit_dir / "profile.json"),
+            "--out", str(TMP / "j17-explicit/state.json"))
+    check("T17 explicit profile read", r.returncode == 0, r.stderr[-300:])
+    if r.returncode == 0:
+        s = json.loads((TMP / "j17-explicit/state.json").read_text(encoding="utf-8"))
+        check("T17 explicit source/target", s.get("source_lang") == "en" and s.get("target_lang") == "zh")
+        check("T17 explicit keeps pair", s.get("language_pair") == "zh-en")
+
+    pair_dir = TMP / "project-pair-only"
+    pair_dir.mkdir(parents=True, exist_ok=True)
+    (pair_dir / "profile.json").write_text(json.dumps({
+        "name": "Pair-only language fields",
+        "language_pair": "en-th",
+        "wordcount_basis": "source-chars",
+    }, ensure_ascii=False), encoding="utf-8")
+    r = run("lqe_io.py", "read", "--input", str(TMP / "lang_pair.xlsx"),
+            "--source-col", "原文", "--target-col", "译文",
+            "--project", str(pair_dir / "profile.json"),
+            "--out", str(TMP / "j17-pair/state.json"))
+    check("T17 pair-only profile rejected", r.returncode != 0 and "source_lang" in r.stderr and "target_lang" in r.stderr,
+          r.stderr[-300:])
+
+    r = run("lqe_io.py", "read", "--input", str(TMP / "lang_pair.xlsx"),
+            "--source-col", "原文", "--target-col", "译文",
+            "--project", str(explicit_dir / "profile.json"),
+            "--source-lang", "fr", "--target-lang", "en",
+            "--out", str(TMP / "j17-cli/state.json"))
+    check("T17 CLI source override read", r.returncode == 0, r.stderr[-300:])
+    if r.returncode == 0:
+        s = json.loads((TMP / "j17-cli/state.json").read_text(encoding="utf-8"))
+        check("T17 CLI source/target override", s.get("source_lang") == "fr" and s.get("target_lang") == "en")
+
+
+def t18():
+    p = TMP / "marker_export.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["source", "translation", "content_type"])
+    ws.append(["对话类文本", "Dialogue text", "未知"])
+    ws.append(["师父来了。", "Master has arrived.", "话术"])
+    ws.append(["游戏内侧页文本", "Inner page text", "UI"])
+    ws.append(["打开背包", "Open Inventory", "UI"])
+    wb.save(p)
+
+    r = run("lqe_io.py", "read", "--input", str(p), "--source-col", "source",
+            "--target-col", "translation", "--target-lang", "en",
+            "--out", str(TMP / "j18/state.json"))
+    check("T18 xlsx marker read rc", r.returncode == 0, r.stderr[-300:])
+    if r.returncode != 0:
+        return
+    state = json.loads((TMP / "j18/state.json").read_text(encoding="utf-8"))
+    state["segments"][0]["corrected"] = "Corrected master arrived."
+    state["segments"][1]["corrected"] = "Corrected inventory."
+    (TMP / "j18/state.json").write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    r = run("lqe_io.py", "export", "--state", str(TMP / "j18/state.json"))
+    check("T18 xlsx marker export rc", r.returncode == 0, r.stderr[-300:])
+    out = TMP / "j18/j18_corrected.xlsx"
+    check("T18 xlsx marker export path", out.exists(), r.stdout[-300:])
+    if out.exists():
+        wb = openpyxl.load_workbook(out)
+        ws = wb.active
+        rows = [tuple(c.value for c in ws[i]) for i in range(2, 6)]
+        check("T18 xlsx marker row unchanged", rows[0][1] == "Dialogue text" and rows[2][1] == "Inner page text")
+        check("T18 xlsx corrected rows aligned", rows[1][1] == "Corrected master arrived." and
+              rows[3][1] == "Corrected inventory.")
+
+
+def t19():
+    make_xlsx(TMP / "enzh.xlsx", [("Open the chest.", "打开宝箱。")], headers=("source", "translation"))
+    prof = TMP / "enzh-profile"
+    prof.mkdir(parents=True, exist_ok=True)
+    (prof / "profile.json").write_text(json.dumps({
+        "name": "tmp/en-zh",
+        "language_pair": "en-zh",
+        "source_lang": "en",
+        "target_lang": "zh",
+        "wordcount_basis": "source-chars",
+    }, ensure_ascii=False), encoding="utf-8")
+    r = run("lqe_io.py", "read", "--input", str(TMP / "enzh.xlsx"),
+            "--source-col", "source", "--target-col", "translation",
+            "--project", str(prof), "--out", str(TMP / "j19/state.json"))
+    check("T19 en-zh read rc", r.returncode == 0, r.stderr[-300:])
+    if r.returncode != 0:
+        return
+    r = run("lqe_io.py", "pre-check", "--state", str(TMP / "j19/state.json"), "--out", str(TMP / "j19/pc.json"))
+    check("T19 en-zh pre-check rc", r.returncode == 0, r.stderr[-300:])
+    full = load_full_errs(TMP / "j19/pc.json")
+    comments = [e["comment"] for es in full.values() for e in es]
+    check("T19 en-zh no CJK/fullwidth/terminal false positives",
+          not any(("Chinese characters" in c or "Full-width punctuation" in c or "terminal punctuation" in c) for c in comments),
+          str(comments))
+    state = json.loads((TMP / "j19/state.json").read_text(encoding="utf-8"))
+    check("T19 zh lang notes copied", bool(state.get("lang_notes_path")) and Path(state["lang_notes_path"]).exists())
+
+
+def t20():
+    make_xlsx(TMP / "report_lang.xlsx", [("你好", "สวัสดี")])
+    r = run("lqe_io.py", "read", "--input", str(TMP / "report_lang.xlsx"),
+            "--source-col", "原文", "--target-col", "译文", "--target-lang", "th",
+            "--source-lang", "zh", "--out", str(TMP / "j20/state.json"))
+    check("T20 report read rc", r.returncode == 0, r.stderr[-300:])
+    if r.returncode != 0:
+        return
+    (TMP / "j20/errors.json").write_text(json.dumps([{"id": 0, "errors": [], "corrected": None}],
+                                                     ensure_ascii=False), encoding="utf-8")
+    r = run("lqe_io.py", "write", "--state", str(TMP / "j20/state.json"),
+            "--errors", str(TMP / "j20/errors.json"), "--score", "100", "--threshold", "98")
+    check("T20 report write rc", r.returncode == 0, r.stderr[-300:])
+    out = TMP / "j20/j20_lqe.xlsx"
+    check("T20 report path", out.exists(), r.stdout[-300:])
+    if out.exists():
+        wb = openpyxl.load_workbook(out)
+        vals = [cell.value for ws in wb.worksheets for row in ws.iter_rows() for cell in row if cell.value is not None]
+        check("T20 report language dynamic", "Source language" in vals and "zh" in vals and
+              "Target language" in vals and "th" in vals, str(vals[:30]))
+
+
+def t21():
+    script = (SCRIPTS / "finalize_job.sh").read_text(encoding="utf-8")
+    check("T21 finalize reads threshold from state",
+          "state.json" in script and "threshold" in script and "--threshold 98" not in script)
+
+
+def t22():
+    root = SCRIPTS.parent
+    missing = []
+    for prof_path in sorted(root.glob("projects/*/*/profile.json")):
+        prof = json.loads(prof_path.read_text(encoding="utf-8"))
+        base = prof_path.parent
+        for key in ("style_guide", "terminology", "checks", "adjudications"):
+            val = prof.get(key)
+            if val and not (base / val).exists():
+                missing.append(f"{prof_path.relative_to(root)}:{key}:{val}")
+        tm = prof.get("tm") or {}
+        for lib in tm.get("libraries") or []:
+            if not (base / lib).exists():
+                missing.append(f"{prof_path.relative_to(root)}:tm.library:{lib}")
+        if tm.get("index") and not (base / tm["index"]).exists():
+            missing.append(f"{prof_path.relative_to(root)}:tm.index:{tm['index']}")
+    check("T22 project profile referenced files exist", not missing, "; ".join(missing[:5]))
+
+
+def t23():
+    gitignore_path = SCRIPTS.parent / ".gitignore"
+    if not gitignore_path.exists():
+        check("T23 project profile files not globally ignored", True)
+        return
+    gitignore = gitignore_path.read_text(encoding="utf-8")
+    check("T23 project profile files not globally ignored",
+          "projects/" not in {line.strip() for line in gitignore.splitlines()} and
+          "!projects/*/*/profile.json" in gitignore)
+
+
+def t24():
+    root = SCRIPTS.parent
+    check("T24 target language folder is explicit", (root / "target_languages").is_dir())
+    check("T24 legacy languages folder removed", not (root / "languages").exists())
+    scanned = [
+        root / "SKILL.md",
+        root / "README.md",
+        root / "README_ZH.md",
+        root / "projects/README.md",
+        root / "docs/质量检查项清单.md",
+        root / "scripts/lqe_engine.py",
+        root / "scripts/lqe_io.py",
+    ]
+    stale = []
+    old_path = re.compile(r"(?<!target_)languages(?:/|<|`|\"|')")
+    for path in scanned:
+        if path.exists() and old_path.search(path.read_text(encoding="utf-8")):
+            stale.append(str(path.relative_to(root)))
+    check("T24 no stale languages path refs", not stale, "; ".join(stale))
+
+
 if __name__ == "__main__":
-    for t in (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15, t16):
+    for t in (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15, t16, t17,
+              t18, t19, t20, t21, t22, t23, t24):
         t()
     rag = subprocess.run([sys.executable, str(SCRIPTS / "tm_index_test.py")], capture_output=True, text=True)
     check("TM suite (tm_index_test.py)", rag.returncode == 0,

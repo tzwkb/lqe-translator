@@ -1,6 +1,8 @@
 {
-  "name": "nrc/th",
-  "language_pair": "ZHCN-TH",
+  "name": "nrc/zh-th",
+  "language_pair": "zh-th",
+  "source_lang": "zh",
+  "target_lang": "th",
   "game": "Roco Kingdom (NRC / 洛克王国：世界)",
   "background": "儿童/青少年向怪物收集 RPG《洛克王国：世界》，轻奇幻、温和正面、亲切口语化语气，避免成人/粗俗/过度正式表达。",
   "style_guide": "sources/Style Guide Translation TH_20260430.xlsx",

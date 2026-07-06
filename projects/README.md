@@ -1,6 +1,6 @@
 # projects/ 文件地图
 
-布局 `<game>/<lang>/`（语言轨）+ `<game>/common/`（游戏级共享素材），`read --project <game>/<lang>` 即用（skill 根解析，CWD 无关）。语言学事实另见 `../languages/<code>/`。开发仓（Langlobal，GitHub 私有）跟踪客户数据；skills 测试副本侧 gitignored。
+布局 `<game>/<source>-<target>/`（语言对轨）+ `<game>/common/`（游戏级共享素材），`read --project <game>/<source>-<target>` 即用（skill 根解析，CWD 无关）。目标语言学事实另见 `../target_languages/<code>/`。开发仓（Langglobal，GitHub 私有）跟踪客户数据；skills 测试副本侧 gitignored。
 
 ## 通用结构（每个项目）
 | 文件 | 角色 | 谁读 |
@@ -13,9 +13,9 @@
 | `sources/` | 客户原始交付件（SG/TB xlsx 原件及其工作副本） | profile 引用 / 溯源 |
 | `inputs/` | 待评估的原始交付文件 | 人工指定给 read --input |
 
-语言学事实型默认（词数基准、检查适用性）不在项目层——见 `../languages/<code>/attributes.json`，按 profile `language_pair` 自动挂载；合并顺序 内置默认 < 属性推导 < 项目 checks.json < CLI。
+目标语言事实型默认（词数基准、检查适用性）不在项目层——见 `../target_languages/<code>/attributes.json`，按 profile `target_lang` 自动挂载；合并顺序 内置默认 < 属性推导 < 项目 checks.json < CLI。
 
-## nrc/th/ —— 洛克王国《世界》中→泰【本次 QA 项目】
+## nrc/zh-th/ —— 洛克王国《世界》中→泰【本次 QA 项目】
 - `sources/Style Guide Translation TH_20260430.xlsx` = 客户泰语 SG **原件**（企微 6/9 收，本次 QA 用这份）
 - `sources/ROCO_Working TB - TH(1).xlsx` = 客户术语表**原件**（本次 QA 权威术语源，3,131 条）
 - `sources/Working_TB_THTH.xlsx` = WorkingTB 状态子集工作副本（457 条，terms_th.json 上游工件）
@@ -24,7 +24,7 @@
 - `inputs/普老师SourceTarget.xlsx`（1,614 段，86 空译文）、`inputs/夏老师SourceTargetFinal.xlsx`（~4,384 段，178 空译文）= 待评估译员文件
 - `inputs/LOC_FILE-…QAFeedback.xlsx` = 客户反馈回填模板（5 列格式）
 
-## nrc/en/ —— 同游戏中→英轨
+## nrc/zh-en/ —— 同游戏中→英轨
 - `sg_en.md` = NRC 主表 EN-SG tab 全量转录
 - `terms_en.json` = 主库 EN 列 2,945 条（586 Approved）
 
@@ -38,7 +38,7 @@
 - `NRC_extract_CharacterVoice.tsv` / `NRC_extract_JiniFactions.tsv` = 角色圣经 / 精灵谱系
 - `LQA_template_extract.txt` = 客户 LQA 模板拆解（Error Log 7 列 + 计数制评分卡）——**归属哪条线待确认**
 
-## wwm/en/ —— 燕云十六声中→英（历史项目，随时可复跑）
+## wwm/zh-en/ —— 燕云十六声中→英（历史项目，随时可复跑）
 - `sg.txt` = 权威整合版 SG（上游 `sources/WWM_Style_Guide_0612.docx` + `sources/WWM_Style_Guide_0701.docx` 补充）；`sources/terminology_0701.json` = 官方术语库（上游 `sources/terminology_0701.xlsx`）
 
 ## 运行产物

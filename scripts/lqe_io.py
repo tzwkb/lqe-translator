@@ -22,7 +22,7 @@ from openpyxl.styles import PatternFill, Font, Alignment
 from openpyxl.utils import get_column_letter
 
 from lqe_engine import (
-    read_json, RE_CJK as _RE_CJK, _target_lang, _load_lang, _LANG_DIR, _SKILL_ROOT,
+    read_json, RE_CJK as _RE_CJK, _source_lang, _target_lang, _load_lang, _LANG_DIR, _SKILL_ROOT,
     CATEGORY_ORDER as _ALL_CATS, CATEGORY_PARENT as _PARENT,
     VALID_CATEGORIES as _VALID_CATEGORIES, VALID_SEVERITIES as _VALID_SEVERITIES,
     apply_severity, load_terms as _load_terms, group_terms as _group_terms,
@@ -141,7 +141,7 @@ def _load_terminology(path: str) -> list:
 
 
 def _load_project(name_or_path: str) -> dict:
-    # 项目名 = <game>/<lang>（如 nrc/th、wwm/en），在 skill 根 projects/ 下解析（CWD 无关）；
+    # 项目名 = <game>/<track>（如 nrc/zh-th、wwm/zh-en），在 skill 根 projects/ 下解析（CWD 无关）；
     # 带后缀或绝对路径按字面处理（支持任意位置的 profile.json）。
     p = Path(name_or_path)
     if not p.suffix and not p.is_absolute():
@@ -154,6 +154,15 @@ def _load_project(name_or_path: str) -> dict:
     prof = read_json(p)
     prof["_dir"] = str(p.parent.resolve())
     return prof
+
+
+def _validate_project_profile(prof: dict):
+    required = ("language_pair", "source_lang", "target_lang")
+    missing = [k for k in required if not str(prof.get(k, "")).strip()]
+    if missing:
+        print("[ERROR] project profile must define language_pair, source_lang, and target_lang; "
+              f"missing: {', '.join(missing)}", file=sys.stderr)
+        sys.exit(1)
 
 
 def _project_path(prof: dict, val: str) -> str:
@@ -250,6 +259,7 @@ def _extract_text_type_marker(src, tgt=None, content_type=None):
 def cmd_read(args):
     prof = _load_project(args.project) if getattr(args, "project", None) else None
     if prof:
+        _validate_project_profile(prof)
         if not args.style_guide and prof.get("style_guide"):
             args.style_guide = _project_path(prof, prof["style_guide"])
         if not args.terminology and prof.get("terminology"):
@@ -345,6 +355,7 @@ def cmd_read(args):
             seg_id = len(segments)
             segments.append({
                 "id": seg_id,
+                "row_index": i,
                 "source": src,
                 "target": tgt,
                 "corrected": None,
@@ -400,11 +411,13 @@ def cmd_read(args):
                 terms_path = str(terms_file)
                 print(f"[lqe_io] terminology: {len(terms)} entries → {terms_file}")
 
-    lang = (getattr(args, "target_lang", None) or "").strip().lower() \
-        or _target_lang(prof.get("language_pair", "") if prof else "")
+    source_lang = _source_lang({"source_lang": getattr(args, "source_lang", None)}) \
+        or _source_lang(prof if prof else {})
+    lang = _target_lang({"target_lang": getattr(args, "target_lang", None)}) \
+        or _target_lang(prof if prof else {})
     lang_cfg = _load_lang(lang)
     if lang_cfg:
-        print(f"[lqe_io] language attributes: languages/{lang}/attributes.json")
+        print(f"[lqe_io] target language attributes: target_languages/{lang}/attributes.json")
 
     # 语言级评估关注点（固定名 eval_notes.md，存在即挂载）→ 拷入 job，Step 2 注入（效力低于项目 SG/裁决）
     lang_notes_path = ""
@@ -467,7 +480,10 @@ def cmd_read(args):
         "text_type_markers": text_type_markers,
         "aipe_url": None,
         "project": prof.get("name", "") if prof else "",
-        "language_pair": prof.get("language_pair", "") if prof else "",
+        "language_pair": prof.get("language_pair", "") if prof else (
+            f"{source_lang}-{lang}" if source_lang and lang else ""
+        ),
+        "source_lang": source_lang,
         "target_lang": lang,
         "lang_notes_path": lang_notes_path,
         "background_path": background_path,
@@ -758,9 +774,11 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
     c.font  = Font(color="FFFFFF", size=16, bold=True)
     c.alignment = _CENTER
 
+    source_lang = state.get("source_lang") or "-"
+    target_lang = state.get("target_lang") or "-"
     info = [
         ("File", Path(state["input_path"]).name, "Wordcount", state.get("wordcount", 0)),
-        ("Source language", "Chinese (Simplified)", "Target language", "English"),
+        ("Source language", source_lang, "Target language", target_lang),
         ("Total iterations", len(history), "Threshold", threshold),
         ("Date", date.today().isoformat(), "", ""),
     ]
@@ -1007,6 +1025,21 @@ def cmd_pre_check(args):
 
 # ── export ───────────────────────────────────────────────────────────────────
 
+def _export_choice(seg):
+    orig = seg.get("target", "")
+    corr = seg.get("corrected")
+    if seg.get("locked"):
+        return orig, "TM保护", "lock"
+    if corr and corr != orig:
+        return corr, "AI修正", "fixed"
+    return orig, "未改", "same"
+
+
+def _pad(row: list, width: int):
+    while len(row) < width:
+        row.append("")
+
+
 def cmd_export(args):
     state_path = Path(args.state)
     state = read_json(state_path)
@@ -1036,37 +1069,63 @@ def cmd_export(args):
             sys.exit(1)
 
     src_path = Path(state["input_path"])
+    n_fixed = n_lock = n_same = 0
+
+    if src_path.suffix.lower() in (".csv", ".tsv"):
+        delim = "\t" if src_path.suffix.lower() == ".tsv" else ","
+        raw_rows = list(csv.reader(io.StringIO(src_path.read_bytes().decode("utf-8-sig")), delimiter=delim))
+        ncol = max((len(r) for r in raw_rows), default=0)
+        status_col = ncol
+        if not no_header and raw_rows:
+            _pad(raw_rows[0], ncol)
+            raw_rows[0].append("修正状态 Status")
+        for row in raw_rows[1 if not no_header else 0:]:
+            _pad(row, status_col + 1)
+        offset = 0 if no_header else 1
+        for seg in segments:
+            row_idx = offset + int(seg.get("row_index", seg.get("id", 0)))
+            if row_idx < 0 or row_idx >= len(raw_rows):
+                continue
+            final_text, status, kind = _export_choice(seg)
+            row = raw_rows[row_idx]
+            _pad(row, status_col + 1)
+            if ti < len(row):
+                row[ti] = final_text
+            row[status_col] = status
+            if kind == "fixed": n_fixed += 1
+            elif kind == "lock": n_lock += 1
+            else: n_same += 1
+        out_path = state_path.parent / (_job_label(state_path) + "_corrected" + src_path.suffix.lower())
+        enc = "utf-8-sig" if src_path.suffix.lower() == ".csv" else "utf-8"
+        with out_path.open("w", newline="", encoding=enc) as f:
+            csv.writer(f, delimiter=delim).writerows(raw_rows)
+        print(f"[export] AI修正 {n_fixed} / TM保护 {n_lock} / 未改 {n_same} → {out_path}")
+        return
+
     wb = openpyxl.load_workbook(str(src_path))
     ws = wb.active
     ncol = ws.max_column
 
-    # 成品文件：只在原结构后加一列「修正状态」（AI修正/未改/TM保护）。
-    # 「为什么改/原译/类别」属审计证据，归报告 sheet2，不在此重复。
-    fill_fixed = PatternFill("solid", fgColor="FFF3CD")   # AI修正：浅琥珀
-    fill_lock = PatternFill("solid", fgColor="D1E7DD")    # TM保护：浅绿
+    fill_fixed = PatternFill("solid", fgColor="FFF3CD")
+    fill_lock = PatternFill("solid", fgColor="D1E7DD")
 
     start_row = 1 if no_header else 2
     if not no_header:
         ws.cell(row=1, column=ncol + 1, value="修正状态 Status").font = Font(bold=True)
 
-    n_fixed = n_lock = n_same = 0
-    for i, row_cells in enumerate(ws.iter_rows(min_row=start_row)):
-        seg = seg_map.get(i)
-        if seg is None:
+    for seg in segments:
+        row_num = start_row + int(seg.get("row_index", seg.get("id", 0)))
+        if row_num < start_row or row_num > ws.max_row:
             continue
-        orig = seg.get("target", "")
-        corr = seg.get("corrected")
-        if seg.get("locked"):
-            final_text, status, fill = orig, "TM保护", fill_lock; n_lock += 1
-        elif corr and corr != orig:
-            final_text, status, fill = corr, "AI修正", fill_fixed; n_fixed += 1
+        final_text, status, kind = _export_choice(seg)
+        ws.cell(row=row_num, column=ti + 1, value=final_text)
+        c = ws.cell(row=row_num, column=ncol + 1, value=status)
+        if kind == "fixed":
+            c.fill = fill_fixed; n_fixed += 1
+        elif kind == "lock":
+            c.fill = fill_lock; n_lock += 1
         else:
-            final_text, status, fill = orig, "未改", None; n_same += 1
-        if ti < len(row_cells):
-            row_cells[ti].value = final_text
-        c = ws.cell(row=row_cells[0].row, column=ncol + 1, value=status)
-        if fill is not None:
-            c.fill = fill
+            n_same += 1
 
     out_path = state_path.parent / (_job_label(state_path) + "_corrected.xlsx")
     wb.save(str(out_path))
@@ -1096,7 +1155,9 @@ def main():
     r.add_argument("--terminology", default=None, help="术语表文件路径（.csv/.tsv/.json/.xlsx）")
     r.add_argument("--style-guide", default=None, dest="style_guide", help="风格指南文件路径（.txt/.md/.docx/.xlsx）")
     r.add_argument("--target-lang", default=None, dest="target_lang",
-                   help="目标语言代码（en/th 等）；挂载 languages/<code>/ 语言属性。项目 profile 会自动从 language_pair 解析，无需传")
+                   help="目标语言代码（en/th/zh 等）；挂载 target_languages/<code>/ 目标语言属性。项目 profile 必须显式写 target_lang")
+    r.add_argument("--source-lang", default=None, dest="source_lang",
+                   help="源语言代码（zh/en 等）；项目 profile 必须显式写 source_lang，显式参数优先")
     r.add_argument("--wordcount-basis", default=None, choices=["target-words", "source-chars"],
                    dest="wordcount_basis",
                    help="词数基准：target-words=译文空格分词（EN 等）；source-chars=源文 CJK 字符数+拉丁词数（泰语等无空格译文用）")

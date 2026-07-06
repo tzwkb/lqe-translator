@@ -164,7 +164,7 @@ def cmd_merge(a):
                     merged[i] = {**v, "id": i, "errors": list(v["errors"])}
     # 保留 pre-check 的确定性硬错——空译文/中文残留 Untranslated 是确定性 Major，
     # 却易落在 T（划归 A）与 A（沉默推回 pre-check）的职责缝隙里被丢（实证：
-    # 2026-06-23 nrc/th 10 段空译文漏计、分数虚高 97.98 vs 实际 97.09）。
+    # 2026-06-23 nrc/zh-th 10 段空译文漏计、分数虚高 97.98 vs 实际 97.09）。
     # A lens 沉默 ≠ 甄别为 FP，故从基底补回；在 reconcile 之后注入以绕过其
     # 「A 未确认即剔 A_OWNED」（否则刚补就被剔）。
     reinstated = 0

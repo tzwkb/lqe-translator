@@ -48,8 +48,8 @@ ROWS = [
      "新增内置检查（拟编 N5，句尾子集）＋ AI 评估关注点（句中数量）",
      "句尾比对不必用 AI 计数，确定性代码即可：源文以「。！？…」结尾而译文句尾无终止标点（.!?…），或源文无句尾标点而译文擅自添加 → Punctuation Minor。"
      "句中句号不做 1:1 数量对账——中英句子合法拆合（一句中文译成两句英文）会大量误报，该部分写入 AI 评估关注点，由 AI 结合语义判断是否漏句。"
-     "泰语等无句号体系语言由语言属性（languages/th/：sentence_terminator=none）自动判定不适用，无需逐项目配置。",
-     "scripts/lqe_io.py；languages/th/（属性自动判定）；清单文档",
+     "泰语等无句号体系语言由目标语言属性（target_languages/th/：sentence_terminator=none）自动判定不适用，无需逐项目配置。",
+     "scripts/lqe_io.py；target_languages/th/（属性自动判定）；清单文档",
      "无需提供——批准即可实施"],
     ["2", "中文数字对应（如「三次」→ 3/three）",
      "需要",
@@ -62,7 +62,7 @@ ROWS = [
     ["3", "标签（TAG）正则按项目单独配置（现内置仅燕云 #G…#E）",
      "需要（方向正确，架构已支持一半）",
      "扩展项目自定义检查架构（约 15 行）＋各项目配置",
-     "现行 projects/<game>/<lang>/checks.json 的 custom 正则已实现「按项目喂正则」，但仅支持单边命中报错，无法做源↔译对账。"
+     "现行 projects/<game>/<track>/checks.json 的 custom 正则已实现「按项目喂正则」，但仅支持单边命中报错，无法做源↔译对账。"
      "扩展：custom 增加 type 字段——search（现状，单边命中）／count_match（新增：正则在源、译分别取全部匹配，数量不等报 Markup Major），"
      "即可覆盖 <color=>、[b][/b] 等任意项目标签体系。燕云专属 #G…#E 内置项，其他项目以 \"color_tags\": false 关闭（机制已有）。"
      "标签嵌套、相对位置等复杂校验仍归 AI 评估。",

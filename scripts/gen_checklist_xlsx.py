@@ -116,11 +116,11 @@ r += 1
 r = put_table(ws, r, ["编号", "事项", "涉及文件", "状态"], [
     [1, "重复错误计分规则（N4）", "scripts/lqe_calc.py", "已完成（2026-06-12）"],
     [2, "拼音残留检查（N1）、同源异译检查（N2，含 ≥20 字分档）", "scripts/lqe_checks.py", "已完成（2026-06-12）"],
-    [3, "罗马数字检查（N3）", "projects/wwm/en/checks.json", "已完成（2026-06-12）"],
-    [4, "0512 报告术语与风格裁决归档", "projects/wwm/en/adjudications.md", "已完成（2026-06-11）"],
+    [3, "罗马数字检查（N3）", "projects/wwm/zh-en/checks.json", "已完成（2026-06-12）"],
+    [4, "0512 报告术语与风格裁决归档", "projects/wwm/zh-en/adjudications.md", "已完成（2026-06-11）"],
     [5, "评估流程引用本清单", "SKILL.md", "已完成（2026-06-12）"],
     [6, "题目类文本按组送评（read --group-col + SKILL.md 合并评估指引）", "scripts/lqe_io.py、SKILL.md", "已完成（2026-06-12）"],
-    [7, "PM 反馈新增检查 N5–N9 及 #3/#7/#10（详见《PM反馈检查项修改报告》）", "scripts/lqe_io.py、SKILL.md、languages/", "已完成（2026-06-12，PM 批准）"],
+    [7, "PM 反馈新增检查 N5–N9 及 #3/#7/#10（详见《PM反馈检查项修改报告》）", "scripts/lqe_io.py、SKILL.md、target_languages/", "已完成（2026-06-12，PM 批准）"],
     [8, "异源同译长度分档（≥20 字才报，PM 已拍板）", "随事项 2 的 N2 实施", "已完成（2026-06-12）"],
 ])
 for col, w in zip("ABCDEFG", [26, 64, 40, 42, 14, 12, 10]):
@@ -144,7 +144,7 @@ rows2 = [
     ["13", "terminology", "术语表命中但译文未采用", "Terminology", "Major", "Skill 沿用", "按术语状态区分：Approved 直接判错；New/WorkingTB 结合语境判断；通用词汇命中不等于错误", "内置"],
     ["N1", "pinyin_residue", "拼音残留", "Mistranslation", "Critical", "新增·LQE报告", "已实施（2026-06-12，确定性层抓强特征：大写头+≥2音节+zh/x/q 或撇号分隔；TB 词形豁免；弱信号由 AI 评估关注点覆盖）。报告实例：“画卯”译为 Mark Mao（第 105 段）、“平安”译为 Ping'an（第 54 段），均评为 Critical。属半确定性检查：正则初筛后须人工或 AI 复核", "scripts/lqe_checks.py（已实施 2026-06-12）"],
     ["N2", "intra_consistency", "同文件内同源异译", "Inconsistency", "Minor", "新增·LQE报告", "同一文件内相同源文对应不同译文；以及相同译文对应不同源文。系报告 Inconsistency 类错误（第 82–94 段）中可程序化检出的子集。已实施（2026-06-12）：双向检出，异源同译仅当涉及源文全部 ≥20 字（PM 拍板）；组内首段为基准不报", "scripts/lqe_checks.py（已实施 2026-06-12）"],
-    ["N3", "roman_numeral", "序号用罗马数字字符", "Company style", "Minor", "新增·LQE报告", "序号、卷号应使用 Unicode 罗马数字（Ⅰ Ⅱ Ⅲ），不使用 ASCII 字母拼写。报告实例：“其一”修订为“Ⅰ”（第 194 段）、“卷二”修订为“Volume Ⅱ”（第 268 段）", "projects/wwm/en/checks.json（已实施 2026-06-12）"],
+    ["N3", "roman_numeral", "序号用罗马数字字符", "Company style", "Minor", "新增·LQE报告", "序号、卷号应使用 Unicode 罗马数字（Ⅰ Ⅱ Ⅲ），不使用 ASCII 字母拼写。报告实例：“其一”修订为“Ⅰ”（第 194 段）、“卷二”修订为“Volume Ⅱ”（第 268 段）", "projects/wwm/zh-en/checks.json（已实施 2026-06-12）"],
     ["N5", "terminal_punct", "句尾终止标点不对齐", "Punctuation", "Minor", "PM反馈#1", "源以终止标点结尾而译文句尾无（.!?…），或源无句尾标点而译文添加句号；句中标点数量交 AI 评估；无句号体系语言（th）由语言属性自动关闭", "scripts/lqe_io.py（已实施 2026-06-12）"],
     ["N6", "cn_numbers", "中文数字+量词漏译", "Mistranslation", "Major", "PM反馈#2", "仅「中文数字+量词」强模式触发（含「一」）；译侧接受阿拉伯数字、英文数词、泰文数字与泰语数词", "scripts/lqe_io.py（已实施 2026-06-12）"],
     ["N7", "word_repeat", "单词连续重复", "Grammar", "Minor", "PM反馈#6", "the the 类；白名单豁免合法重复；非空格分词语言由语言属性自动关闭", "scripts/lqe_io.py（已实施 2026-06-12）"],
@@ -192,7 +192,7 @@ rows3 = [
         "同一事物跨段落统一译名：“手札”统一为 Journal（第 198 段）〔LQE报告〕",
         "不得将通用名词自创为专有名词：“异色灵蝶”应译 strangely colored butterflies，误译 Spectral Butterfly（第 292 段）〔LQE报告〕",
         "系列名称格式：“赋神·乘桴归梦”＝Fu Shen - Rippling Dream，系列前缀保留（第 13 段）；间隔号“·”转写为“ - ”〔LQE报告＋Skill〕",
-        "本报告确认的强制译名清单见 projects/wwm/en/adjudications.md《0512 裁决》〔LQE报告〕；通用词汇命中术语表时结合语境判断〔Skill 沿用〕"),
+        "本报告确认的强制译名清单见 projects/wwm/zh-en/adjudications.md《0512 裁决》〔LQE报告〕；通用词汇命中术语表时结合语境判断〔Skill 沿用〕"),
      "一律 Major"],
     ["Fluency", "Inconsistency 不一致", 1.5, "—", "Minor 5（另重复 2）",
      fp("平行句式统一句型：任务、成就列表采用同一模板（Complete any X once with a Veteran/Recruit，第 82–94 段；原译文 Team up with… and complete… 与之混用被判错）〔LQE报告〕",

@@ -1,0 +1,137 @@
+
+======================================================================
+SHEET [How to Fill] rows=60
+======================================================================
+--- r1: ! | Remember that there usually is more than one correct way to translate a segment. When assessing the correctness of a translation unit, apply the following 3-point rule:
+--- r2: Three-Point Rule To Identify a Preferential Variation
+--- r3: A translation unit is assumed to be correct if it meets these 3 criteria:
+1) It is accurate (the core meaning is preserved).
+2) It is compliant (to the style guide, the instructions, and the glossaries provided).
+3) It is grammatically correct (according to generally accepted language conventions).
+--- r4: ! | Please make an effort to distinguish between actual errors and preferential variations.
+--- r6: Error Categories
+--- r7: Examples
+--- r8: Accuracy
+--- r9: Errors classified under the Accuracy category denote translation errors. They are normally detected by comparing the source and target texts.
+--- r10: A - Omission/Addition | Source text information has been deleted from the target text, or information not found in the source text has been added to the target text.
+--- r11: A - Incorrect Meaning | The target language does not accurately reflect the meaning of the source text.  This may include ambiguously or literally translated passages if the meaning of the original is lost or altered.
+--- r12: A - Untranslation | A portion of the source text has incorrectly been left untranslated (this does not include items left untranslated as per the project team’s instructions).
+--- r13: Language
+--- r14: Errors under the Language category denote language errors. Usually, these are deviations from generally accepted language conventions.
+--- r15: L - Punctuation | The translation does not adhere to the punctuation rules of the target language. May include hyphenation and spacing rules.
+--- r16: L - Spelling/Typo | The translation does not adhere to the target language-specific rules with regard to spelling. Misspellings and typographic errors. May include incorrect accentuation and capitalization.
+--- r17: L - Grammar/Syntax | The translation does not adhere to the target language-specific rules with regard to grammar or syntax.
+--- r18: L - Word Choice | Word choice: better choice of words/phrases can be applied. by better, it means the new choice of word is more applicable in the context.
+**If word used does not match the phrase meaning, it should be counted as Mistranslation
+--- r19: Terminology
+--- r20: Errors classified under the Terminology category denote compliance errors. Usually, these are deviations from an approved translation glossary.
+--- r21: T - Industry-Standard Terminology | The terminology does not follow generally accepted industry terminology.
+--- r22: T - Inconsistency | Terms or expressions are translated inconsistently throughout the text. This includes headers or titles translated with a verb and then with a noun.
+--- r23: T - Glossary | The terminology used does not comply with the approved glossaries for the client, project, or software platform.
+--- r24: Style
+--- r25: Errors under the Style category denote deviations from an approved style guide or from the general style required by the text.
+--- r26: S - General Style | The translation does not comply with the language style guide also including Wrong register, inappropriate level of formality, style conventions not followed, unidiomatic usage of target language.
+Note: Poor style may be difficult to describe in terms of individual errors. In that case it is possible to log one "generic" error, which should be supported by a number of examples.
+--- r27: Functional
+--- r28: Errors under the Functional category usually denote technical, non-language-related errors. They are flagged only if they were the responsibility of the translator.
+--- r29: F - Format | Formatting errors, such as  tags changed, incorrect styles, fonts, bulleted and numbered lists.
+--- r30: Natural
+--- r31: Naturalness | Naturalness: how natural is the translation to a native speaker
+--- r32: Severity Levels
+--- r33: The quality of the translation as assessed by the form depends on two factors: (a) the number of errors found in a given sample and (b) the severity of each error. When selecting a severity level, be as objective as possible. The examples below should help you select the appropriate severity level.
+--- r34: Critical
+--- r35: Critical errors are immediate fails. Use this severity level only for errors of extreme consequence and for errors that have been pointed out by the client as particularly severe for a particular project.
+--- r36: Examples
+--- r37: ●  Errors in a highly visible part of the documentation or software, e.g. cover page, menu command.
+--- r38: ●  Error causing an application to crash or negatively modifying/misrepresenting the functionality of the software.
+--- r39: ●  Error resulting in potentially offensive statements.
+--- r40: Major
+--- r41: Major errors are errors of a lesser severity than a critical error. Very serious errors that jeopardize the meaning of a translated segment. Major errors are severe failures in accuracy, compliance, or language.
+--- r43: Examples
+--- r44: ●  Accuracy errors that result in a significant change in meaning. "Significant" means that the user is very likely to be misled. Mistranslations resulting in misrepresentation of the source, severe omissions.
+--- r45: ●  Errors in a visible part of documentation or software (header, TOC, chapter titles, help topic titles).
+--- r46: Minor
+--- r47: Minor errors are errors of a lesser severity than major error or critical error. Minor errors do not compromise the intelligibility of a translated segment.
+--- r48: Examples
+--- r49: ●  Accuracy errors that result in a slight change in meaning.
+--- r50: ●  Small errors that would not confuse or mislead a user but could be noticed.
+--- r51: ●  Formatting errors not resulting in a loss of meaning, e.g. wrong use of bold or italics.
+--- r52: ●  Wrong use of punctuation or capitalization not resulting in a loss of meaning.
+--- r53: ●  Generic error to indicate generally inadequate style (e.g. literal translation, "stilted" style, etc.)
+--- r54: ●  Grammar or syntax errors that are minor violations of generally accepted language conventions.
+--- r55: ●  Typos and misspellings that do not result in a loss of meaning.
+--- r56: Preferential Variations
+--- r57: Any translation variation that is accurate, grammatically correct, and compliant to the instructions and reference material.
+--- r58: Any stylistic variation of a grammatically correct translation, where the instructions have been duly followed, and the target text conveys the meaning of the source text are thus considered preferential variations.
+--- r59: Preferential variations are not counted as errors and will not affect the score or the Evaluation results.
+--- r60: However, this category is included as an option to give the LQI Specialist the possibility of suggesting improvements to the overall translation.
+
+======================================================================
+SHEET [Error Log] rows=4
+======================================================================
+--- r1: 原文 Source | 原始翻译 
+Original Translation | 修改 
+Revision | 错误类型 
+Error Category | 严重等级 
+Error Severity | 错误描述 
+Error Description | 原始译员反馈 
+Original Translator's Comments
+--- r2: 受取済 | 受取済み
+--- r3: 武将は出撃済み | 出陣済みの武将です
+--- r4: 禁止された武将 | 使用できない武将です
+
+======================================================================
+SHEET [Score-for evaluator] rows=201
+======================================================================
+--- r1: Item | Full Score (0 to 10) | Score | Item Description | Score Guideline | Double Count?
+--- r2: Omission/Addition | 10 | Missing context: adjectives/terms/phrases that are not translated
+Extra content: adjectives/terms/phrases that are not in source text
+Minor errors: do not affect the meaning of phrase
+Major errors: affect the meaning of phrase | 0: >10 Minor errors, >1 Major errors
+3: > 7 Minor errors, 1 or 0 Major errors
+5: > 5 Minor errors, 1 or 0 Major errors
+7: > 3 Minor errors, 0 Major errors
+10: No missing context
+--- r3: Incorrect Meaning/Mistranslation | 20 | Mistranslation: words/phrases mistranslated and would affect the meaning of the translation.
+**If word used has not significantly affect the meaning of the translation but a better choice of word can more accurately describe the original text, it should be considered as Word Choice | 0: >2 Mistranslations
+6: 2 Mistranslations
+10: 1 Mistranslation
+20: NO Mistranslations
+--- r4: Untranslation | 20 | Untranslation: words/phrases that is still in source language | 0:>1 Untranslation
+10: 1 Untranslation
+20: NO Untranslations
+--- r5: Punctuation & Formatting | 5 | Punctuation & Formatting: punctuation errors that would affect the readability of the translation, e.g. lack of "," in long phrases, missing placeholders, Capitalization issues | 0: >10 errors
+1.5: > 7 errors
+2.5: > 5 errors
+3.5: > 3 errors
+5: No errors
+--- r6: Spelling/Typo | 10 | Typo: wrong spellings | 0: >4 errors
+3: 3~4 errors
+5: 2 errors
+7: 1 error
+10: No errors
+--- r7: Grammatical Errors | 10 | Grammatical Errors | 0: >7 Minor errors, 
+3: > 5 Minor errors, 
+5: > 3 Minor errors, 
+7: > 1 Minor error,
+10: No grammatical errors
+--- r8: Term Consistency | 10 | Term consistency: same term but translated differently, especially nouns | 0: > 1 inconsistency
+5: 1 inconsistency
+10: No inconsistencies
+--- r9: Style/Tone | 5 | Tone: does the tone fully imitate that of source language and follow client's requirement | 0: Tone does not match the project at all
+2.5: Tone does not Fully imitate source text's, but acceptable
+5: Tone matches source text's
+--- r10: Word Choice | 5 | Word choice: better choice of words/phrases can be applied. by better, it means the new choice of word is more applicable in the context.
+**If word used does not match the phrase meaning, it should be counted as Mistranslation | 0: >10 errors
+1.5: > 7 errors
+2.5: > 5 errors
+3.5: > 3 errors
+5: No errors
+--- r11: Naturalness | 5 | Naturalness: how natural is the translation to a native speaker | 0~1.5: Native speaker finds it difficult to understand
+1.5~3.5: Literal translation but Native speaker still able to understand
+3.5~5: Natural to a native speaker, rates it as Good Writing
+--- r12: 100 | 0
+--- r14: General Naturalness(?/10):
+write your score and comment of naturalness here: | 0~3: Native speaker finds it difficult to understand
+3~7: Literal translation but Native speaker still able to understand
+7~10: Natural to a native speaker, rates it as Good Writing

@@ -1,0 +1,80 @@
+[
+ {
+  "source": "伊贝儿",
+  "senses": [
+   {
+    "target": "ไอเบอร์รี",
+    "category": "Creature Species"
+   },
+   {
+    "target": "อีเบย์",
+    "category": "Creature Individual"
+   }
+  ]
+ },
+ {
+  "source": "里奥",
+  "senses": [
+   {
+    "target": "ไลเอล",
+    "category": "Creature Species"
+   },
+   {
+    "target": "ลีโอ",
+    "category": "Creature Individual"
+   }
+  ]
+ },
+ {
+  "source": "黄蜂后",
+  "senses": [
+   {
+    "target": "บัมเบล",
+    "category": "Creature Species"
+   },
+   {
+    "target": "นางพญาผึ้ง",
+    "category": "Creature Individual"
+   }
+  ]
+ },
+ {
+  "source": "呱呱",
+  "senses": [
+   {
+    "target": "บันนี่",
+    "category": "Creature Species"
+   },
+   {
+    "target": "ก๊าบก๊าบ",
+    "category": "Creature Individual"
+   }
+  ]
+ },
+ {
+  "source": "裘卡",
+  "senses": [
+   {
+    "target": "เฟลวาร์ด",
+    "category": "Creature Species"
+   },
+   {
+    "target": "จูคา",
+    "category": "Named NPC"
+   }
+  ]
+ },
+ {
+  "source": "克制",
+  "senses": [
+   {
+    "target": "ชนะทาง",
+    "category": "Jini Combat System"
+   },
+   {
+    "target": "ข่ม",
+    "category": "Jini Combat System"
+   }
+  ]
+ }
+]

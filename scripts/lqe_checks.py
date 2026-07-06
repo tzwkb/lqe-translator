@@ -204,6 +204,9 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
     on = lambda key: toggles.get(key, True)
 
     numerals = lang_attrs.get("numerals", [])
+    target_terminal = lang_attrs.get("sentence_terminator") or _TGT_TERMINAL
+    if target_terminal == "none":
+        target_terminal = ""
     # N8 豁免：术语表译法中出现过的词形（官方 CamelCase 名不报）
     term_tokens = {w for senses in term_map.values() for s in senses
                    for w in re.findall(r'[A-Za-z]+', s["target"])}
@@ -370,7 +373,7 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
             s_tail = _RE_TAIL_TRIM.sub('', src.strip())
             t_tail = _RE_TAIL_TRIM.sub('', tgt.strip())
             if s_tail and t_tail:
-                s_term, t_term = s_tail[-1] in _SRC_TERMINAL, t_tail[-1] in _TGT_TERMINAL
+                s_term, t_term = s_tail[-1] in _SRC_TERMINAL, t_tail[-1] in target_terminal
                 if s_term and not t_term:
                     errs.append({"category": "Punctuation", "severity": "Minor",
                                  "comment": f"Source ends with terminal punctuation '{s_tail[-1]}'; target does not"})

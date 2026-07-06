@@ -7,7 +7,7 @@
   <label>_LQE报告.xlsx     汇总 sheet（各子表分数 + 按词数加权总分）+ 各子表 LQE Results 明细。
 
 子 job 发现：父 job 目录下含 state.json 的直接子目录即一个 sheet 子 job。
-段→行映射：segment.id == 源(state.input_path，回退 src.xlsx)数据行枚举位置（与 lqe_io.read/export 一致）。
+段→行映射：优先使用 segment.row_index；旧 state 缺该字段时才回退 segment.id。
 
 ⚠ read_only 空行坑：openpyxl 普通模式 load_workbook 会静默裁掉全空尾行
   （社媒 src 真有 171 行/XML dimension A1:B171，普通模式只报 88）。凡「镜像原始
@@ -103,7 +103,8 @@ def main():
         state = read_json(sj / "state.json")
         errors = read_json(sj / "errors.json")
         tidx = _target_idx(state)
-        corr = {e["id"]: e["corrected"] for e in errors if e.get("corrected")}
+        seg_rows = {s["id"]: int(s.get("row_index", s["id"])) for s in state.get("segments", [])}
+        corr = {seg_rows[e["id"]]: e["corrected"] for e in errors if e.get("corrected") and e["id"] in seg_rows}
         res = _calc(sj, a.threshold)
         tot_L += res["npt"] * res["wordcount"] / 1000.0
         tot_wc += res["wordcount"]
@@ -128,7 +129,7 @@ def main():
         rows = list(sws.iter_rows(values_only=True))
         if rows:
             ws.append(list(rows[0]))                  # header
-            for p, row in enumerate(rows[1:]):        # p == segment.id
+            for p, row in enumerate(rows[1:]):
                 row = list(row)
                 if p in corr:
                     while len(row) <= tidx:

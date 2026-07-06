@@ -93,7 +93,7 @@ python "$SCRIPTS/lqe_calc.py" \
 ### 目录结构
 
 - `scripts/` 保存 LQE 读取、预检查、评分、分块、多 lens 合并和报告生成脚本。
-- `languages/<code>/` 保存语言属性和语言层评估说明。
+- `target_languages/<code>/` 保存目标语言属性和语言层评估说明。
 - `projects/<game>/<lang>/` 保存项目 profile、检查规则、术语、风格指南和输入资源。
 - `jobs/<file_stem>/` 是每个 LQE 任务的工作目录，保存状态、错误、迭代报告和最终报告。
 
@@ -173,7 +173,7 @@ PM 操作说明放在 `PM_GUIDE.html`；README 面向维护者和执行 Agent，
 
 ### Profile 维护
 
-项目 profile 应维护语言、术语、风格指南、检查规则和 adjudication 说明。新增语言或项目时，不应只复制脚本，还要补齐 `languages/` 和 `projects/` 下的配置层。
+项目 profile 应维护语言、术语、风格指南、检查规则和 adjudication 说明。新增语言或项目时，不应只复制脚本，还要补齐 `target_languages/` 和 `projects/` 下的配置层。
 
 ### Lens 维护
 

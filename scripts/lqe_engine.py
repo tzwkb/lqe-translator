@@ -214,24 +214,46 @@ import re
 
 RE_CJK = re.compile(r'[一-鿿]')
 
-# 语言属性层：languages/<code>/（skill 根，锚定脚本位置而非 CWD）。
+# 目标语言属性层：target_languages/<code>/（skill 根，锚定脚本位置而非 CWD）。
 # 每语言一个文件夹，固定文件名：attributes.json（语言学事实声明）+ eval_notes.md（语言级
 # AI 评估关注点，存在即挂载）。属性不放检查开关；开关由 _lang_toggle_defaults 从属性推导。
 # 入层标准：项目 SG 可能推翻的不是属性（em_dash/省略号/引号样式=项目取向，留 checks.json）。
 # 合并顺序：内置默认 < 属性推导 < 项目 checks.json < CLI 显式参数。
 _SKILL_ROOT = Path(__file__).resolve().parent.parent
-_LANG_DIR = _SKILL_ROOT / "languages"
+_LANG_DIR = _SKILL_ROOT / "target_languages"
+
+
+_LANG_ALIASES = {
+    "zhcn": "zh",
+    "zh-cn": "zh",
+    "zh_hans": "zh",
+    "zh-hans": "zh",
+}
+
+
+def _lang_code(value) -> str:
+    raw = str(value or "").strip().lower()
+    return _LANG_ALIASES.get(raw, raw)
+
+
+def _split_language_pair(pair) -> tuple[str, str]:
+    raw = _lang_code(pair)
+    if "-" not in raw:
+        return "", ""
+    source, target = raw.rsplit("-", 1)
+    return _lang_code(source), _lang_code(target)
+
+
+def _source_lang(state_or_pair) -> str:
+    if isinstance(state_or_pair, dict):
+        return _lang_code(state_or_pair.get("source_lang", ""))
+    return _split_language_pair(state_or_pair or "")[0]
 
 
 def _target_lang(state_or_pair) -> str:
     if isinstance(state_or_pair, dict):
-        lang = state_or_pair.get("target_lang", "")
-        pair = state_or_pair.get("language_pair", "")
-    else:
-        lang, pair = "", state_or_pair or ""
-    if not lang and pair and "-" in pair:
-        lang = pair.rsplit("-", 1)[-1]
-    return lang.strip().lower()
+        return _lang_code(state_or_pair.get("target_lang", ""))
+    return _split_language_pair(state_or_pair or "")[1]
 
 
 def _load_lang(lang: str) -> dict:
@@ -248,6 +270,7 @@ def _lang_toggle_defaults(attrs: dict) -> dict:
     d = {}
     if attrs.get("script") == "cjk":
         d["fullwidth_punct"] = False  # CJK 目标语言（ja 等）全角标点合法
+        d["untranslated_cjk"] = False # CJK 目标语言本身会含 CJK 字符
     if attrs.get("sentence_terminator", ".") == "none":
         d["terminal_punct"] = False   # N5：无句号体系语言（th）
     if attrs.get("word_delim", "space") != "space":
