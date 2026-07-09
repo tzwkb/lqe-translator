@@ -98,11 +98,23 @@ Read `$JOB/state.json`，提取：
 
 ### Step 1.2：TM / 100% match 保护
 
-评估前必须检查输入列名和样例值，识别 TM/memory 100% match 句段。Agent 自行判断，不由脚本硬编码列名。
+评估前必须检查输入列名和样例值，识别 TM/memory 100% match 句段。**Agent 自行判断是否存在锁定指示列；脚本不得根据列名/值自动猜测。**
 
-识别信号：
+判断线索（只供 agent 判读，不是脚本规则）：
 - 列名含 `rag` / `tm` / `memory` / `match` / `score` / `exact` / `locked` / `100%`
 - 值含 `100%` / `1.0` / `exact` / `perfect` / `locked` / `true` / `yes`
+
+若 agent 判定输入自带明确锁定信号，先产出显式 locked ids 文件，再交给脚本落 state：
+```json
+{"locked_ids":[0, 12], "source":"agent_decision", "evidence":"tm_exact_match_used=true + score=1.0"}
+```
+```bash
+python "$SCRIPTS/lqe_io.py" lock-segments \
+  --state "$JOB/state.json" \
+  --locked-file "$JOB/tm_locked.agent_decision.json" \
+  --reason TM_100_MATCH
+```
+`lock-segments` 只消费 agent 给出的 ids/file，负责把 `state.segments[].locked=true` 写入 state，并输出 `$JOB/tm_locked.json` 作为审计记录；它不读取原表、不推断列名、不自行识别 TM。
 
 若某 segment 明确为 100% / exact / locked match：
 - 不修改 target
@@ -117,7 +129,7 @@ python "$SCRIPTS/tm_index.py" tm-match \
   --state "$JOB/state.json" --index <profile.tm.index> \
   --out-locked "$JOB/tm_locked.json"
 ```
-命中规则：源**精确匹配** TM **且** 译文 = 库译（含一源多译的变体集）→ 锁定；其余（含「源命中但译被改」「源未命中」）照常评估。产物 `tm_locked.json`（`{"locked_ids":[…]}`）即 Step 5 `apply-fixes --locked-file` 的锁定来源，与上面「输入自带 match 列」两种来源等价、可并用。全本地、不调外部 API。
+命中规则：源**精确匹配** TM **且** 译文 = 库译（含一源多译的变体集）→ 锁定；其余（含「源命中但译被改」「源未命中」）照常评估。产物 `tm_locked.json`（`{"locked_ids":[…]}`）须继续用 `lqe_io.py lock-segments --locked-file "$JOB/tm_locked.json"` 落入 state；之后与「输入自带 match 列」两种来源等价、可并用。全本地、不调外部 API。
 
 ### Step 1.5：pre-check（仅第一轮）
 
@@ -306,6 +318,8 @@ python "$SCRIPTS/lqe_calc.py" \
 
 输出：`SCORE=XX.XX STATUS=PASS/FAIL ERRORS=N WORDCOUNT=N CRITICAL=N REPEATED=N NPT/1000=X`，以及错误分布。
 
+已通过 `lock-segments` 写入 `state.segments[].locked=true` 的段会自动跳过计分；若只持有 locked ids 文件且尚未落 state，可额外传 `--locked-file "$JOB/tm_locked.json"`。
+
 **N4 重复错误计分**（默认开，`--no-repeat-dedup` 关）：相同源译文段的同类同级错误仅首段计分，其余自动标 `repeated`（写回 errors.json，报表 repeated 列呈现、罚分不计）——客户评分卡口径。
 
 ### Step 5：判断与处理
@@ -326,6 +340,8 @@ python "$SCRIPTS/lqe_io.py" apply-fixes \
   --locked-ids "<逗号分隔的TM 100% match segment ids>"
 ```
 Agent 识别到 TM/memory 100% match 后，必须通过 `--locked-ids` 或 `--locked-file` 传给脚本。脚本会强制跳过 locked 段修正，并在 LQE 表中显示 `TM Protected / TM Evidence`。自动存档本轮 errors → `errors_iter{N}.json`，生成 `*_lqe_iter{N}.xlsx`，将非 locked 修正写回 state。报告结果，等待下一次 `/loop`。
+
+优先在 Step 1.2 用 `lock-segments` 持久化 locked 状态；Step 5 的 `--locked-ids/--locked-file` 只作为未提前落 state 时的兼容入口。
 
 ---
 

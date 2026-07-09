@@ -14,6 +14,29 @@ from lqe_engine import (
 )
 
 
+def _parse_locked_ids(text: str | None) -> set[int]:
+    return {int(x.strip()) for x in (text or "").split(",") if x.strip()}
+
+
+def _load_locked_file(path: str | None) -> set[int]:
+    ids: set[int] = set()
+    if not path:
+        return ids
+    data = read_json(path)
+    if isinstance(data, dict):
+        data = data.get("locked_ids") or data.get("segments") or []
+    for item in data:
+        if isinstance(item, int):
+            ids.add(item)
+        elif isinstance(item, str) and item.strip():
+            ids.add(int(item.strip()))
+        elif isinstance(item, dict):
+            sid = item.get("id", item.get("seg_id", item.get("segment_id")))
+            if sid is not None:
+                ids.add(int(sid))
+    return ids
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--state",  required=True)
@@ -27,6 +50,8 @@ def main():
                    help="评分卡 profile id/目录/profile.json 路径；默认 legacy（当前原有评分标准）")
     p.add_argument("--locked-ids", default=None, dest="locked_ids",
                    help="逗号分隔的 locked seg id，其错误不计入 Critical 门")
+    p.add_argument("--locked-file", default=None, dest="locked_file",
+                   help="locked ids JSON 文件（如 {\"locked_ids\":[...]}），其错误不计分")
     p.add_argument("--no-repeat-dedup", action="store_true", dest="no_repeat_dedup",
                    help="关闭 N4 重复错误去重（重复全额计分，旧行为）。默认：相同源译文段的同类同级错误仅首段计分，其余标 repeated（客户评分卡口径）")
     p.add_argument("--json", action="store_true",
@@ -35,10 +60,12 @@ def main():
 
     scorecard_profile = load_scorecard_profile(args.scorecard_profile)
     sev_points = scorecard_severity_points(scorecard_profile, args.severity_scale)
-    locked = {int(x.strip()) for x in (args.locked_ids or "").split(",") if x.strip()}
 
     state  = read_json(args.state)
     errors = read_json(args.errors)
+    locked = _parse_locked_ids(args.locked_ids)
+    locked.update(_load_locked_file(args.locked_file))
+    locked.update(s["id"] for s in state.get("segments", []) if s.get("locked"))
 
     wordcount = state["wordcount"]
     if wordcount == 0:

@@ -75,7 +75,7 @@ def cmd_split(a):
     # merge broadcasts the verdict back to every id in the group.
     groups = {}
     for seg in segs:
-        groups.setdefault((seg.get("source", ""), seg.get("target", "")), []).append(seg)
+        groups.setdefault((seg.get("source", ""), seg.get("target", ""), bool(seg.get("locked"))), []).append(seg)
     reps, dedup_map = [], {}
     for gsegs in groups.values():          # dict 保序：组按首次出现序
         rep = min(gsegs, key=lambda s: s["id"])
@@ -122,6 +122,8 @@ def cmd_split(a):
                 "target": seg.get("target", ""),
                 "content_type": seg.get("content_type"),
                 "text_type_context": seg.get("text_type_context"),
+                "locked": bool(seg.get("locked")),
+                "lock_reason": seg.get("lock_reason"),
                 "kind": _seg_kind(src_txt),
                 "precheck": pre_by_id.get(seg["id"], []),
                 "term_hits": hits,
@@ -143,11 +145,15 @@ def cmd_merge(a):
     state = load(a.state)
     pre = load(a.errors)
     ids = [s["id"] for s in state["segments"]]
+    locked_ids = {s["id"] for s in state.get("segments", []) if s.get("locked")}
     pre_by_id = {e["id"]: e.get("errors", []) for e in pre}
     merged = {}
     files = sorted(Path(a.outdir).glob("chunk_*.out.json"))
     for f in files:
         for e in load(f):
+            if e["id"] in locked_ids:
+                merged[e["id"]] = {"id": e["id"], "errors": [], "corrected": None}
+                continue
             merged[e["id"]] = {
                 "id": e["id"],
                 "errors": e.get("errors", []),
@@ -169,6 +175,8 @@ def cmd_merge(a):
     # 「A 未确认即剔 A_OWNED」（否则刚补就被剔）。
     reinstated = 0
     for i in ids:
+        if i in locked_ids:
+            continue
         if i not in merged:
             continue
         have = {e.get("category") for e in merged[i]["errors"]}
@@ -176,10 +184,12 @@ def cmd_merge(a):
             if pe.get("category") in _DETERMINISTIC_PRECHECK and pe.get("category") not in have:
                 merged[i]["errors"].append(pe)
                 reinstated += 1
-    missing = [i for i in ids if i not in merged]
+    missing = [i for i in ids if i not in merged and i not in locked_ids]
     out = []
     for i in ids:
-        if i in merged:
+        if i in locked_ids:
+            out.append({"id": i, "errors": [], "corrected": None})
+        elif i in merged:
             out.append(merged[i])
         else:  # subagent didn't cover it -> keep pre-check errors, no corrected
             out.append({"id": i, "errors": pre_by_id.get(i, []), "corrected": None})
