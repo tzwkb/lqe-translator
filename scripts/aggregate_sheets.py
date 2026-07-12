@@ -104,7 +104,13 @@ def main():
         errors = read_json(sj / "errors.json")
         tidx = _target_idx(state)
         seg_rows = {s["id"]: int(s.get("row_index", s["id"])) for s in state.get("segments", [])}
-        corr = {seg_rows[e["id"]]: e["corrected"] for e in errors if e.get("corrected") and e["id"] in seg_rows}
+        corr = {
+            seg_rows[e["id"]]: e["corrected"]
+            for e in errors
+            if e.get("corrected")
+            and e.get("correction_status") != "pending_adjudication"
+            and e["id"] in seg_rows
+        }
         res = _calc(sj, a.threshold)
         tot_L += res["npt"] * res["wordcount"] / 1000.0
         tot_wc += res["wordcount"]

@@ -33,6 +33,13 @@ from lqe_engine import (
 )
 
 
+_CORRECTION_STATUSES = {"suggested", "pending_adjudication", "approved"}
+
+
+def _correction_status(entry):
+    return entry.get("correction_status") or "suggested"
+
+
 # ── read ──────────────────────────────────────────────────────────────────────
 
 _SRC_KEYS = {"source", "zh", "src", "原文", "中文_cn", "中文", "chinese", "chinese_prc", "zh_cn", "zh-cn", "简中", "中文简体", "source text"}
@@ -626,9 +633,27 @@ def cmd_apply_fixes(args):
     for msg in issues:
         print(f"[validate] {msg}")
 
-    attempted = {e["id"]: e["corrected"] for e in errors_data if e.get("corrected")}
+    pending = {
+        e["id"]: e["corrected"]
+        for e in errors_data
+        if e.get("corrected") and _correction_status(e) == "pending_adjudication"
+    }
+    attempted_entries = {
+        e["id"]: e
+        for e in errors_data
+        if e.get("corrected") and _correction_status(e) != "pending_adjudication"
+    }
+    attempted = {sid: entry["corrected"] for sid, entry in attempted_entries.items()}
     corrections = {sid: text for sid, text in attempted.items() if sid not in locked_ids}
-    skipped = [{"id": sid, "reason": "TM_100_MATCH", "attempted": text} for sid, text in attempted.items() if sid in locked_ids]
+    locked_skipped = [
+        {"id": sid, "reason": "TM_100_MATCH", "attempted": text}
+        for sid, text in attempted.items()
+        if sid in locked_ids
+    ]
+    skipped = locked_skipped + [
+        {"id": sid, "reason": "PENDING_ADJUDICATION", "attempted": text}
+        for sid, text in pending.items()
+    ]
     if not corrections and not skipped:
         print("[lqe_io] apply-fixes: no corrections found, state unchanged.")
         return
@@ -646,7 +671,7 @@ def cmd_apply_fixes(args):
     history.append(cur_entry)
     state["error_history"] = history
 
-    next_iter = cur_iter + 1
+    next_iter = cur_iter + (1 if corrections or locked_skipped else 0)
     for seg in state["segments"]:
         if seg["id"] in locked_ids:
             seg["locked"] = True
@@ -655,6 +680,7 @@ def cmd_apply_fixes(args):
             continue
         if seg["id"] in corrections:
             seg["corrected"] = corrections[seg["id"]]
+            seg["correction_status"] = _correction_status(attempted_entries[seg["id"]])
             seg["iter"] = next_iter
 
     state["iteration"] = next_iter
@@ -694,6 +720,9 @@ def _validate_errors(errors_data: list, seg_ids: set, scorecard_profile: dict | 
         if sid not in seg_ids:
             issues.append(f"[seg {sid}] 未知 segment id")
             continue
+        correction_status = _correction_status(entry)
+        if correction_status not in _CORRECTION_STATUSES:
+            issues.append(f"[seg {sid}] 非法 correction_status: '{correction_status}'")
         errs = entry.get("errors", [])
         if errs and entry.get("corrected") is None:
             issues.append(f"[seg {sid}] 有 {len(errs)} 条错误但 corrected=null")
@@ -749,6 +778,7 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
             if seg["id"] in all_locked_ids:
                 continue
             corrected = e_seg.get("corrected") or seg.get("corrected") or seg["target"]
+            correction_status = _correction_status(e_seg)
             for e in e_seg.get("errors", []):
                 cat = normalize_category_for_profile(e.get("category", "Other"), scorecard_profile)
                 sev = apply_severity(cat, e.get("severity", "Minor"), scorecard_profile)
@@ -769,6 +799,7 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
                     "iteration": f"Iter {entry['iteration']}",
                     "comment":  ("[Repeated] " if e.get("repeated") else "") + e.get("comment", ""),
                     "fixed":    fixed,
+                    "correction_status": correction_status,
                 })
 
     total_counts = {"Neutral": 0, "Minor": 0, "Major": 0, "Critical": 0}
@@ -804,6 +835,7 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
         ("2. 审校/译员到「LQE Results」，只处理有「错误详情」的行，照「Suggest translation」列改稿。", "", "", ""),
         ("3. 「Suggest translation」留空 = 该段正确、无需改。", "", "", ""),
         ("4. 修正若要落地，按项目流程（如改在线 memoQ）。", "", "", ""),
+        ("5. Pending Adjudication 建议必须先经人工裁决，未批准前不得应用。", "", "", ""),
     ]:
         intro.append(r)
         for c in intro[intro.max_row]:
@@ -983,7 +1015,7 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
             (5, dr["corrected"]),(6, dr["parent"]),
             (7, dr["category"]), (8, dr["severity"]),
             (9, dr["iteration"]),(10, dr["comment"]),
-            (11, "✓" if dr["fixed"] else "—"),
+            (11, "Pending" if dr["correction_status"] == "pending_adjudication" else ("✓" if dr["fixed"] else "—")),
             (12, "Yes" if dr["seg_id"] in all_locked_ids else "No"),
             (13, "TM_100_MATCH" if dr["seg_id"] in all_locked_ids else ""),
         ]:
@@ -1023,13 +1055,20 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
         current_entry = current_entries.get(seg["id"], {})
         errs = [] if is_locked else current_entry.get("errors", [])
         has_error = bool(errs)
+        is_pending = bool(current_entry) and _correction_status(current_entry) == "pending_adjudication"
         row_fill = _ORANGE if has_error else _GREEN_LIGHT if (is_locked or seg.get("corrected")) else None
+        if is_locked:
+            suggestion = ""
+        elif is_pending:
+            suggestion = current_entry.get("corrected") or ""
+        elif is_final_report:
+            suggestion = seg.get("corrected") or current_entry.get("corrected") or ""
+        else:
+            suggestion = current_entry.get("corrected") or ""
         row_data = list(raw_row) + [
-            "" if is_locked else (
-                (seg.get("corrected") or current_entry.get("corrected") or "") if is_final_report else (current_entry.get("corrected") or "")
-            ),
+            suggestion,
             _fmt_errors(errs),
-            "TM Protected" if is_locked else ("Error" if has_error else ("Fixed" if seg.get("corrected") else "OK")),
+            "TM Protected" if is_locked else ("Pending Adjudication" if is_pending else ("Error" if has_error else ("Fixed" if seg.get("corrected") else "OK"))),
             seg.get("iter", 0),
             "Yes" if is_locked else "No",
             seg.get("lock_reason") or ("TM_100_MATCH" if is_locked else ""),
@@ -1072,10 +1111,12 @@ def cmd_write(args):
 
     history = state.get("error_history", [])
     final_iter = state.get("iteration", 0)
-    if not history or history[-1].get("iteration") != final_iter:
+    if history and history[-1].get("iteration") == final_iter:
+        history[-1] = final_entry
+    else:
         history.append(final_entry)
-        state["error_history"] = history
-        state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    state["error_history"] = history
+    state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
 
     src = Path(state["input_path"])
     out_path = state_path.parent / (_job_label(state_path) + "_lqe.xlsx")
@@ -1094,8 +1135,13 @@ def cmd_pre_check(args):
 def _export_choice(seg):
     orig = seg.get("target", "")
     corr = seg.get("corrected")
+    correction_status = _correction_status(seg)
     if seg.get("locked"):
         return orig, "TM保护", "lock"
+    if correction_status == "pending_adjudication":
+        return seg.get("_pending_baseline", orig), "待人工裁决", "pending"
+    if correction_status == "approved" and corr is not None:
+        return corr, "人工批准", "approved"
     if corr and corr != orig:
         return corr, "AI修正", "fixed"
     return orig, "未改", "same"
@@ -1117,8 +1163,15 @@ def cmd_export(args):
         n_overlay = 0
         for e in read_json(args.errors):
             seg = seg_map.get(e["id"])
-            if seg is not None and not seg.get("corrected") and e.get("corrected"):
-                seg["corrected"] = e["corrected"]; n_overlay += 1
+            if seg is None:
+                continue
+            correction_status = _correction_status(e)
+            if correction_status == "pending_adjudication":
+                seg["_pending_baseline"] = seg.get("corrected") or seg.get("target", "")
+            if e.get("corrected"):
+                seg["corrected"] = e["corrected"]
+                n_overlay += 1
+            seg["correction_status"] = correction_status
         if n_overlay:
             print(f"[export] overlaid {n_overlay} suggested corrections from {args.errors}")
 
@@ -1135,7 +1188,7 @@ def cmd_export(args):
             sys.exit(1)
 
     src_path = Path(state["input_path"])
-    n_fixed = n_lock = n_same = 0
+    n_fixed = n_approved = n_pending = n_lock = n_same = 0
 
     if src_path.suffix.lower() in (".csv", ".tsv"):
         delim = "\t" if src_path.suffix.lower() == ".tsv" else ","
@@ -1159,13 +1212,16 @@ def cmd_export(args):
                 row[ti] = final_text
             row[status_col] = status
             if kind == "fixed": n_fixed += 1
+            elif kind == "approved": n_approved += 1
+            elif kind == "pending": n_pending += 1
             elif kind == "lock": n_lock += 1
             else: n_same += 1
         out_path = state_path.parent / (_job_label(state_path) + "_corrected" + src_path.suffix.lower())
         enc = "utf-8-sig" if src_path.suffix.lower() == ".csv" else "utf-8"
         with out_path.open("w", newline="", encoding=enc) as f:
             csv.writer(f, delimiter=delim).writerows(raw_rows)
-        print(f"[export] AI修正 {n_fixed} / TM保护 {n_lock} / 未改 {n_same} → {out_path}")
+        print(f"[export] AI修正 {n_fixed} / 人工批准 {n_approved} / 待人工裁决 {n_pending} / "
+              f"TM保护 {n_lock} / 未改 {n_same} → {out_path}")
         return
 
     wb = openpyxl.load_workbook(str(src_path))
@@ -1173,6 +1229,8 @@ def cmd_export(args):
     ncol = ws.max_column
 
     fill_fixed = PatternFill("solid", fgColor="FFF3CD")
+    fill_approved = PatternFill("solid", fgColor="D1E7DD")
+    fill_pending = PatternFill("solid", fgColor="F8D7DA")
     fill_lock = PatternFill("solid", fgColor="D1E7DD")
 
     start_row = 1 if no_header else 2
@@ -1188,6 +1246,10 @@ def cmd_export(args):
         c = ws.cell(row=row_num, column=ncol + 1, value=status)
         if kind == "fixed":
             c.fill = fill_fixed; n_fixed += 1
+        elif kind == "approved":
+            c.fill = fill_approved; n_approved += 1
+        elif kind == "pending":
+            c.fill = fill_pending; n_pending += 1
         elif kind == "lock":
             c.fill = fill_lock; n_lock += 1
         else:
@@ -1195,7 +1257,8 @@ def cmd_export(args):
 
     out_path = state_path.parent / (_job_label(state_path) + "_corrected.xlsx")
     wb.save(str(out_path))
-    print(f"[export] AI修正 {n_fixed} / TM保护 {n_lock} / 未改 {n_same} → {out_path}")
+    print(f"[export] AI修正 {n_fixed} / 人工批准 {n_approved} / 待人工裁决 {n_pending} / "
+          f"TM保护 {n_lock} / 未改 {n_same} → {out_path}")
 
 
 # ── ingest-corpus (stub) ──────────────────────────────────────────────────────
