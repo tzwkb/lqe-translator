@@ -29,6 +29,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lqe_engine import read_json, _SKILL_ROOT  # noqa: E402
 
 THRESH_DEFAULT = 98
+_APPLICABLE_CORRECTION_STATUSES = {"suggested", "approved"}
+
+
+def _correction_status(entry):
+    return entry.get("correction_status") or "suggested"
 
 
 def _label(p: Path) -> str:
@@ -103,14 +108,28 @@ def main():
         state = read_json(sj / "state.json")
         errors = read_json(sj / "errors.json")
         tidx = _target_idx(state)
-        seg_rows = {s["id"]: int(s.get("row_index", s["id"])) for s in state.get("segments", [])}
+        seg_by_id = {s["id"]: s for s in state.get("segments", [])}
+        seg_rows = {sid: int(seg.get("row_index", sid)) for sid, seg in seg_by_id.items()}
+        for entry in errors:
+            status = _correction_status(entry)
+            if status not in _APPLICABLE_CORRECTION_STATUSES | {"pending_adjudication"}:
+                print(f"[validate] [seg {entry.get('id')}] 非法 correction_status: '{status}'")
         corr = {
             seg_rows[e["id"]]: e["corrected"]
             for e in errors
             if e.get("corrected")
-            and e.get("correction_status") != "pending_adjudication"
+            and _correction_status(e) in _APPLICABLE_CORRECTION_STATUSES
             and e["id"] in seg_rows
         }
+        gated_baselines = {
+            seg_rows[e["id"]]: seg_by_id[e["id"]]["corrected"]
+            for e in errors
+            if e.get("corrected")
+            and _correction_status(e) not in _APPLICABLE_CORRECTION_STATUSES
+            and e["id"] in seg_rows
+            and seg_by_id[e["id"]].get("corrected")
+        }
+        delivery_corr = {**gated_baselines, **corr}
         res = _calc(sj, a.threshold)
         tot_L += res["npt"] * res["wordcount"] / 1000.0
         tot_wc += res["wordcount"]
@@ -137,10 +156,10 @@ def main():
             ws.append(list(rows[0]))                  # header
             for p, row in enumerate(rows[1:]):
                 row = list(row)
-                if p in corr:
+                if p in delivery_corr:
                     while len(row) <= tidx:
                         row.append(None)
-                    row[tidx] = corr[p]
+                    row[tidx] = delivery_corr[p]
                 ws.append(row)
         src.close()
 

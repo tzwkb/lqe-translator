@@ -40,6 +40,10 @@ def _correction_status(entry):
     return entry.get("correction_status") or "suggested"
 
 
+def _is_pending_correction(entry):
+    return _correction_status(entry) not in {"suggested", "approved"}
+
+
 # ── read ──────────────────────────────────────────────────────────────────────
 
 _SRC_KEYS = {"source", "zh", "src", "原文", "中文_cn", "中文", "chinese", "chinese_prc", "zh_cn", "zh-cn", "简中", "中文简体", "source text"}
@@ -636,12 +640,12 @@ def cmd_apply_fixes(args):
     pending = {
         e["id"]: e["corrected"]
         for e in errors_data
-        if e.get("corrected") and _correction_status(e) == "pending_adjudication"
+        if e.get("corrected") and _is_pending_correction(e)
     }
     attempted_entries = {
         e["id"]: e
         for e in errors_data
-        if e.get("corrected") and _correction_status(e) != "pending_adjudication"
+        if e.get("corrected") and not _is_pending_correction(e)
     }
     attempted = {sid: entry["corrected"] for sid, entry in attempted_entries.items()}
     corrections = {sid: text for sid, text in attempted.items() if sid not in locked_ids}
@@ -712,17 +716,25 @@ _CENTER     = Alignment(horizontal="center", vertical="center", wrap_text=True)
 _LEFT_TOP   = Alignment(horizontal="left", vertical="top", wrap_text=True)
 _LEFT_MID   = Alignment(horizontal="left", vertical="center")
 
-def _validate_errors(errors_data: list, seg_ids: set, scorecard_profile: dict | None = None) -> list[str]:
+
+def _validate_correction_statuses(errors_data: list, seg_ids: set) -> list[str]:
     issues = []
+    for entry in errors_data:
+        sid = entry.get("id")
+        correction_status = _correction_status(entry)
+        if sid in seg_ids and correction_status not in _CORRECTION_STATUSES:
+            issues.append(f"[seg {sid}] 非法 correction_status: '{correction_status}'")
+    return issues
+
+
+def _validate_errors(errors_data: list, seg_ids: set, scorecard_profile: dict | None = None) -> list[str]:
+    issues = _validate_correction_statuses(errors_data, seg_ids)
     valid_categories = set(scorecard_category_order(scorecard_profile))
     for entry in errors_data:
         sid = entry.get("id")
         if sid not in seg_ids:
             issues.append(f"[seg {sid}] 未知 segment id")
             continue
-        correction_status = _correction_status(entry)
-        if correction_status not in _CORRECTION_STATUSES:
-            issues.append(f"[seg {sid}] 非法 correction_status: '{correction_status}'")
         errs = entry.get("errors", [])
         if errs and entry.get("corrected") is None:
             issues.append(f"[seg {sid}] 有 {len(errs)} 条错误但 corrected=null")
@@ -1015,7 +1027,7 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
             (5, dr["corrected"]),(6, dr["parent"]),
             (7, dr["category"]), (8, dr["severity"]),
             (9, dr["iteration"]),(10, dr["comment"]),
-            (11, "Pending" if dr["correction_status"] == "pending_adjudication" else ("✓" if dr["fixed"] else "—")),
+            (11, "Pending" if _is_pending_correction(dr) else ("✓" if dr["fixed"] else "—")),
             (12, "Yes" if dr["seg_id"] in all_locked_ids else "No"),
             (13, "TM_100_MATCH" if dr["seg_id"] in all_locked_ids else ""),
         ]:
@@ -1055,7 +1067,7 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
         current_entry = current_entries.get(seg["id"], {})
         errs = [] if is_locked else current_entry.get("errors", [])
         has_error = bool(errs)
-        is_pending = bool(current_entry) and _correction_status(current_entry) == "pending_adjudication"
+        is_pending = bool(current_entry) and _is_pending_correction(current_entry)
         row_fill = _ORANGE if has_error else _GREEN_LIGHT if (is_locked or seg.get("corrected")) else None
         if is_locked:
             suggestion = ""
@@ -1099,6 +1111,9 @@ def cmd_write(args):
     if scrubbed:
         Path(args.errors).write_text(json.dumps(final_errors_data, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"[write] scrubbed {scrubbed} locked-segment issue(s) from {args.errors}")
+    seg_ids = {s["id"] for s in state["segments"]}
+    for msg in _validate_correction_statuses(final_errors_data, seg_ids):
+        print(f"[validate] {msg}")
     score = float(args.score)
 
     final_entry = {
@@ -1138,7 +1153,7 @@ def _export_choice(seg):
     correction_status = _correction_status(seg)
     if seg.get("locked"):
         return orig, "TM保护", "lock"
-    if correction_status == "pending_adjudication":
+    if _is_pending_correction(seg):
         return seg.get("_pending_baseline", orig), "待人工裁决", "pending"
     if correction_status == "approved" and corr is not None:
         return corr, "人工批准", "approved"
@@ -1161,12 +1176,15 @@ def cmd_export(args):
     # 单轮无 apply-fixes 时 state.corrected 为空：可从 errors.json 取建议修正填充（仅本次导出，不写回 state）
     if getattr(args, "errors", None):
         n_overlay = 0
-        for e in read_json(args.errors):
+        overlay_entries = read_json(args.errors)
+        for msg in _validate_correction_statuses(overlay_entries, set(seg_map)):
+            print(f"[validate] {msg}")
+        for e in overlay_entries:
             seg = seg_map.get(e["id"])
             if seg is None:
                 continue
             correction_status = _correction_status(e)
-            if correction_status == "pending_adjudication":
+            if _is_pending_correction(e):
                 seg["_pending_baseline"] = seg.get("corrected") or seg.get("target", "")
             if e.get("corrected"):
                 seg["corrected"] = e["corrected"]
