@@ -36,6 +36,7 @@
 ## 报告行为
 
 - 错误仍进入 `LQA Scorecard`，建议译文仍显示。
+- 同一 iteration 重新执行 `write` 时，必须用本次 errors 替换 `error_history` 的末条记录，保证状态迁移能够进入重生成报告。
 - `LQE Results.LQE_Status` 对 pending 行显示 `Pending Adjudication`。
 - 导读明确说明 pending 候选不可直接落地。
 - Scorecard 的 `Fixed` 列对 pending 行显示 `Pending`。
@@ -68,9 +69,10 @@
 1. XLSX 和 CSV 单轮导出：pending 候选不覆盖原译，状态和计数正确。
 2. `apply-fixes`：pending 不写入 state，普通建议仍写入。
 3. 报告：pending 行保留 Suggest translation，并显示 Pending Adjudication。
-4. lens merge：状态经过 nested/flat schema、multi-lens 和 dedup 后不丢失。
-5. 标准收尾：显式 job 路径可用，默认不生成第三份裁决表。
-6. 本批集成验证：143/76/610，76 个 pending 的目标文本均等于原译。
+4. 同轮重写报告：旧 history 被当前 errors 替换，不残留旧状态。
+5. lens merge：状态经过 nested/flat schema、multi-lens 和 dedup 后不丢失。
+6. 标准收尾：显式 job 路径可用，默认不生成第三份裁决表。
+7. 本批集成验证：143/76/610，76 个 pending 的目标文本均等于原译。
 
 ## 非目标
 

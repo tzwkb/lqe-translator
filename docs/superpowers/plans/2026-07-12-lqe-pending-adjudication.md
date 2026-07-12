@@ -109,6 +109,8 @@ Build `attempted` only from non-pending entries. Record pending candidates in `s
 
 Carry `correction_status` into Scorecard detail rows. Use `Pending` in the Scorecard `Fixed` column and `Pending Adjudication` in `LQE Results.LQE_Status`, while retaining the candidate in `Suggest translation`. Add one guide row explaining that pending suggestions must not be applied.
 
+When `cmd_write` is rerun for the same iteration, replace `error_history[-1]` with the new `final_entry` instead of silently retaining the old entry. Add a regression assertion that a same-iteration rewrite exposes the newly migrated pending status.
+
 - [ ] **Step 4: Gate XLSX/CSV export**
 
 When overlaying `errors.json`, copy both `corrected` and `correction_status` to the in-memory segment. Change `_export_choice` so pending returns the original target and `("待人工裁决", "pending")`; add pending fill and a separate count to CSV/XLSX output summaries.
