@@ -735,9 +735,21 @@ def t24():
     check("T24 no stale languages path refs", not stale, "; ".join(stale))
 
 
+def t25():
+    test_file = SCRIPTS.parent / "tests/test_pending_adjudication.py"
+    result = subprocess.run(
+        [sys.executable, "-m", "unittest", "-v", str(test_file)],
+        cwd=SCRIPTS.parent,
+        capture_output=True,
+        text=True,
+    )
+    output = (result.stdout + result.stderr).strip()
+    check("T25 pending adjudication suite", result.returncode == 0, output[-2000:])
+
+
 if __name__ == "__main__":
     for t in (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15, t16, t17,
-              t18, t19, t20, t21, t22, t23, t24):
+              t18, t19, t20, t21, t22, t23, t24, t25):
         t()
     rag = subprocess.run([sys.executable, str(SCRIPTS / "tm_index_test.py")], capture_output=True, text=True)
     check("TM suite (tm_index_test.py)", rag.returncode == 0,
