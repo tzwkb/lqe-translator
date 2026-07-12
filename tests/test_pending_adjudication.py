@@ -67,6 +67,13 @@ class PendingAdjudicationTests(unittest.TestCase):
             msg=f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}",
         )
 
+    def _assert_export_counts(self, result, ai, approved, pending):
+        with self.subTest(surface="stdout-counts"):
+            self.assertIn(
+                f"AI修正 {ai} / 人工批准 {approved} / 待人工裁决 {pending} /",
+                result.stdout,
+            )
+
     def _errors(self, pending_status="pending_adjudication", pending_candidate="候选A"):
         return [
             {
@@ -110,6 +117,7 @@ class PendingAdjudicationTests(unittest.TestCase):
             "lqe_io.py", "export", "--state", self.state_path, "--errors", self.errors_path
         )
         self._assert_success(result)
+        self._assert_export_counts(result, ai=1, approved=0, pending=1)
 
         workbook = openpyxl.load_workbook(self.job / "job_corrected.xlsx")
         sheet = workbook.active
@@ -139,6 +147,7 @@ class PendingAdjudicationTests(unittest.TestCase):
             "lqe_io.py", "export", "--state", self.state_path, "--errors", self.errors_path
         )
         self._assert_success(result)
+        self._assert_export_counts(result, ai=1, approved=0, pending=1)
 
         workbook = openpyxl.load_workbook(self.job / "job_corrected.xlsx")
         sheet = workbook.active
@@ -156,6 +165,7 @@ class PendingAdjudicationTests(unittest.TestCase):
             "lqe_io.py", "export", "--state", self.state_path, "--errors", self.errors_path
         )
         self._assert_success(result)
+        self._assert_export_counts(result, ai=1, approved=1, pending=0)
 
         workbook = openpyxl.load_workbook(self.job / "job_corrected.xlsx")
         sheet = workbook.active
@@ -198,6 +208,7 @@ class PendingAdjudicationTests(unittest.TestCase):
             "lqe_io.py", "export", "--state", csv_state, "--errors", csv_errors
         )
         self._assert_success(export_result)
+        self._assert_export_counts(export_result, ai=1, approved=0, pending=1)
 
         with (csv_job / "csv_job_corrected.csv").open(
             encoding="utf-8-sig", newline=""
@@ -265,6 +276,45 @@ class PendingAdjudicationTests(unittest.TestCase):
                 skipped.get(0, {}).get("reason"),
                 "PENDING_ADJUDICATION",
             )
+
+    def test_apply_fixes_persists_approved_status_for_export_without_errors(self):
+        self._write_json(self.errors_path, self._errors(pending_status="approved"))
+
+        apply_result = self._run_cli(
+            "lqe_io.py",
+            "apply-fixes",
+            "--state",
+            self.state_path,
+            "--errors",
+            self.errors_path,
+            "--score",
+            "80",
+        )
+        self._assert_success(apply_result)
+
+        state = json.loads(self.state_path.read_text(encoding="utf-8"))
+        segments = {segment["id"]: segment for segment in state["segments"]}
+        with self.subTest(surface="state-candidate"):
+            self.assertEqual(segments[0]["corrected"], "候选A")
+        with self.subTest(surface="state-status"):
+            self.assertEqual(segments[0].get("correction_status"), "approved")
+
+        export_result = self._run_cli(
+            "lqe_io.py",
+            "export",
+            "--state",
+            self.state_path,
+        )
+        self._assert_success(export_result)
+        self._assert_export_counts(export_result, ai=1, approved=1, pending=0)
+
+        workbook = openpyxl.load_workbook(self.job / "job_corrected.xlsx")
+        sheet = workbook.active
+        with self.subTest(surface="export-candidate"):
+            self.assertEqual(sheet.cell(2, 2).value, "候选A")
+        with self.subTest(surface="export-status"):
+            self.assertEqual(sheet.cell(2, 3).value, "人工批准")
+        workbook.close()
 
     def test_same_iteration_write_replaces_history_and_reports_pending(self):
         old_errors = self._errors(pending_status="suggested", pending_candidate="旧建议A")
