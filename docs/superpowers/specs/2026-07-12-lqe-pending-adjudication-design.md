@@ -24,6 +24,7 @@
 - `approved`：已由 PM/TB 批准，可正常落入修正稿或迭代。
 
 状态属于整段 correction，而不是单条 error，因为导出和迭代写回均以整段完整译文为单位。
+若同一段同时含普通可修错误和待裁决错误，`pending_adjudication` 优先，整段保持原译；普通修正也延后到裁决后统一落地。这样会牺牲局部自动修正率，但不会把多 lens 的完整句候选错误拆拼。本批 76 个 pending 段中有 7 个属于这种混合段。
 
 ## 状态传播
 
@@ -68,11 +69,12 @@
 
 1. XLSX 和 CSV 单轮导出：pending 候选不覆盖原译，状态和计数正确。
 2. `apply-fixes`：pending 不写入 state，普通建议仍写入。
-3. 报告：pending 行保留 Suggest translation，并显示 Pending Adjudication。
-4. 同轮重写报告：旧 history 被当前 errors 替换，不残留旧状态。
-5. lens merge：状态经过 nested/flat schema、multi-lens 和 dedup 后不丢失。
-6. 标准收尾：显式 job 路径可用，默认不生成第三份裁决表。
-7. 本批集成验证：143/76/610，76 个 pending 的目标文本均等于原译。
+3. 混合段：同时含普通错误和待裁决错误时，整段不导出、不迭代。
+4. 报告：pending 行保留 Suggest translation，并显示 Pending Adjudication。
+5. 同轮重写报告：旧 history 被当前 errors 替换，不残留旧状态。
+6. lens merge：状态经过 nested/flat schema、multi-lens 和 dedup 后不丢失。
+7. 标准收尾：显式 job 路径可用，默认不生成第三份裁决表。
+8. 本批集成验证：143/76/610，76 个 pending 的目标文本均等于原译。
 
 ## 非目标
 

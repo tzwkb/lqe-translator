@@ -14,6 +14,7 @@
 - Preserve the original input workbook and all source strings.
 - Missing `correction_status` remains compatible and means `suggested`.
 - `pending_adjudication` findings remain in the score and report but never alter target text in export or state in apply-fixes.
+- Pending is segment-level and fail-closed: if a segment mixes ordinary and pending errors, the full segment remains unchanged until adjudication.
 - Default delivery contains only `*_lqe.xlsx` and `*_corrected.xlsx`.
 - Preserve existing installed-runtime changes that are not present in the source repository.
 - Back up existing delivery files before replacing standard filenames.
@@ -42,6 +43,8 @@ self.assertEqual(exported.cell(3, 3).value, "AI修正")
 ```
 
 Run `apply-fixes` on the same fixture and assert segment 0 retains `corrected=None` while segment 1 receives `建议B`.
+
+Include more than one error on segment 0 so the test proves a mixed segment is held as a whole rather than partially applied.
 
 - [ ] **Step 2: Write the failing report test**
 
