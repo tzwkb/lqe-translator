@@ -74,6 +74,13 @@ class PendingAdjudicationTests(unittest.TestCase):
                 result.stdout,
             )
 
+    def _assert_invalid_status_warning(self, result, operation):
+        with self.subTest(operation=operation, surface="validation-warning"):
+            self.assertIn(
+                "非法 correction_status: 'unexpected_status'",
+                result.stdout + result.stderr,
+            )
+
     def _errors(self, pending_status="pending_adjudication", pending_candidate="候选A"):
         return [
             {
@@ -316,6 +323,111 @@ class PendingAdjudicationTests(unittest.TestCase):
             self.assertEqual(sheet.cell(2, 3).value, "人工批准")
         workbook.close()
 
+    def test_invalid_correction_status_fails_closed_across_io(self):
+        invalid_entry = self._errors(pending_status="unexpected_status")[0]
+        self._write_json(self.errors_path, [invalid_entry])
+
+        write_result = self._run_cli(
+            "lqe_io.py",
+            "write",
+            "--state",
+            self.state_path,
+            "--errors",
+            self.errors_path,
+            "--score",
+            "80",
+        )
+        self._assert_success(write_result)
+        self._assert_invalid_status_warning(write_result, "write")
+
+        report = openpyxl.load_workbook(self.job / "job_lqe.xlsx")
+        results = report["LQE Results"]
+        result_headers = {
+            cell.value: cell.column for cell in results[1] if cell.value is not None
+        }
+        with self.subTest(operation="write", surface="suggestion"):
+            self.assertEqual(
+                results.cell(2, result_headers["Suggest translation"]).value,
+                "候选A",
+            )
+        with self.subTest(operation="write", surface="result-status"):
+            self.assertEqual(
+                results.cell(2, result_headers["LQE_Status"]).value,
+                "Pending Adjudication",
+            )
+        scorecard = report["LQA Scorecard"]
+        header_row = next(
+            row
+            for row in range(1, scorecard.max_row + 1)
+            if scorecard.cell(row, 2).value == "Segment #"
+        )
+        score_headers = {
+            scorecard.cell(header_row, column).value: column
+            for column in range(1, scorecard.max_column + 1)
+        }
+        invalid_row = next(
+            row
+            for row in range(header_row + 1, scorecard.max_row + 1)
+            if scorecard.cell(row, score_headers["Segment #"]).value == 0
+        )
+        with self.subTest(operation="write", surface="scorecard"):
+            self.assertEqual(
+                scorecard.cell(invalid_row, score_headers["Fixed"]).value,
+                "Pending",
+            )
+        report.close()
+
+        before_apply = json.loads(self.state_path.read_text(encoding="utf-8"))
+        apply_result = self._run_cli(
+            "lqe_io.py",
+            "apply-fixes",
+            "--state",
+            self.state_path,
+            "--errors",
+            self.errors_path,
+            "--score",
+            "80",
+        )
+        self._assert_success(apply_result)
+        self._assert_invalid_status_warning(apply_result, "apply-fixes")
+
+        after_apply = json.loads(self.state_path.read_text(encoding="utf-8"))
+        segments = {segment["id"]: segment for segment in after_apply["segments"]}
+        with self.subTest(operation="apply-fixes", surface="iteration"):
+            self.assertEqual(
+                after_apply.get("iteration", 0),
+                before_apply.get("iteration", 0),
+            )
+        with self.subTest(operation="apply-fixes", surface="candidate"):
+            self.assertIsNone(segments[0]["corrected"])
+        latest = after_apply.get("error_history", [{}])[-1]
+        skipped = {entry.get("id"): entry for entry in latest.get("skipped_corrections", [])}
+        with self.subTest(operation="apply-fixes", surface="skip-reason"):
+            self.assertEqual(
+                skipped.get(0, {}).get("reason"),
+                "PENDING_ADJUDICATION",
+            )
+
+        export_result = self._run_cli(
+            "lqe_io.py",
+            "export",
+            "--state",
+            self.state_path,
+            "--errors",
+            self.errors_path,
+        )
+        self._assert_success(export_result)
+        self._assert_invalid_status_warning(export_result, "export")
+        self._assert_export_counts(export_result, ai=0, approved=0, pending=1)
+
+        corrected = openpyxl.load_workbook(self.job / "job_corrected.xlsx")
+        corrected_sheet = corrected.active
+        with self.subTest(operation="export", surface="translation"):
+            self.assertEqual(corrected_sheet.cell(2, 2).value, "原译A")
+        with self.subTest(operation="export", surface="status"):
+            self.assertEqual(corrected_sheet.cell(2, 3).value, "待人工裁决")
+        corrected.close()
+
     def test_same_iteration_write_replaces_history_and_reports_pending(self):
         old_errors = self._errors(pending_status="suggested", pending_candidate="旧建议A")
         self._write_json(self.errors_path, old_errors)
@@ -525,6 +637,34 @@ class PendingAdjudicationTests(unittest.TestCase):
         with self.subTest(surface="correction-count"):
             self.assertEqual(summary.cell(5, headers["建议修正数"]).value, 1)
         report.close()
+
+    def test_aggregate_sheets_preserves_existing_baseline_for_pending_candidate(self):
+        aggregate_job = self.tmp / "aggregate_baseline_job"
+        sheet_job = aggregate_job / "sheet_a"
+        sheet_job.mkdir(parents=True)
+        state = json.loads(self.state_path.read_text(encoding="utf-8"))
+        state["iteration"] = 1
+        state["segments"][0]["corrected"] = "已生效基线A"
+        state["segments"][0]["correction_status"] = "approved"
+        state["segments"][0]["iter"] = 1
+        self._write_json(sheet_job / "state.json", state)
+        self._write_json(
+            sheet_job / "errors.json",
+            self._errors(pending_candidate="待裁决新候选A"),
+        )
+
+        result = self._run_cli("aggregate_sheets.py", "--job", aggregate_job)
+        self._assert_success(result)
+
+        corrected = openpyxl.load_workbook(
+            aggregate_job / "aggregate_baseline_job_corrected.xlsx"
+        )
+        sheet = corrected.active
+        with self.subTest(surface="pending-baseline"):
+            self.assertEqual(sheet.cell(2, 2).value, "已生效基线A")
+        with self.subTest(surface="suggested-control"):
+            self.assertEqual(sheet.cell(3, 2).value, "建议B")
+        corrected.close()
 
 
 if __name__ == "__main__":
