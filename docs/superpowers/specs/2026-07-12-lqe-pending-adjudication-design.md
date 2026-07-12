@@ -47,8 +47,12 @@
 
 - `suggested` / `approved`：按现有逻辑输出建议译文，状态分别显示 `AI修正` / `人工批准`。
 - `pending_adjudication`：保留原译，状态显示 `待人工裁决`。
+- 多轮任务若该段已有此前合法落地的 `seg.corrected`，pending 保留这一当前基线，不回退到最初 `target`。
+- `approved` 落入 state 时同步保存状态，后续导出显示 `人工批准`。
 - `apply-fixes` 必须跳过 pending，并将跳过原因记录到本轮历史。
+- 当本轮全部候选均为 pending 时，不增加 iteration，但仍记录跳过原因。
 - CSV/TSV/XLSX 使用同一门禁和计数口径。
+- 多 Sheet `aggregate_sheets.py` 使用相同门禁，不能成为绕过路径。
 
 ## 标准收尾与产物
 
@@ -70,11 +74,14 @@
 1. XLSX 和 CSV 单轮导出：pending 候选不覆盖原译，状态和计数正确。
 2. `apply-fixes`：pending 不写入 state，普通建议仍写入。
 3. 混合段：同时含普通错误和待裁决错误时，整段不导出、不迭代。
-4. 报告：pending 行保留 Suggest translation，并显示 Pending Adjudication。
-5. 同轮重写报告：旧 history 被当前 errors 替换，不残留旧状态。
-6. lens merge：状态经过 nested/flat schema、multi-lens 和 dedup 后不丢失。
-7. 标准收尾：显式 job 路径可用，默认不生成第三份裁决表。
-8. 本批集成验证：143/76/610，76 个 pending 的目标文本均等于原译。
+4. pending-only 迭代：iteration 不变，history 记录跳过原因。
+5. 多轮基线：pending 保留已落地合法 correction，不退回最初 target。
+6. approved、CSV/TSV 与多 Sheet aggregate 使用同一门禁。
+7. 报告：pending 行保留 Suggest translation，并显示 Pending Adjudication。
+8. 同轮重写报告：旧 history 被当前 errors 替换，不残留旧状态。
+9. lens merge：状态经过 nested/flat schema、multi-lens 和 dedup 后不丢失。
+10. 标准收尾：显式 job 路径可用，默认不生成第三份裁决表。
+11. 本批集成验证：143/76/610，76 个 pending 的目标文本均等于原译。
 
 ## 非目标
 

@@ -85,6 +85,7 @@ git commit -m "test: cover pending adjudication gate"
 
 **Files:**
 - Modify: `scripts/lqe_io.py`
+- Modify: `scripts/aggregate_sheets.py`
 - Test: `tests/test_pending_adjudication.py`
 
 **Interfaces:**
@@ -118,7 +119,13 @@ When `cmd_write` is rerun for the same iteration, replace `error_history[-1]` wi
 
 When overlaying `errors.json`, copy both `corrected` and `correction_status` to the in-memory segment. Change `_export_choice` so pending returns the original target and `("待人工裁决", "pending")`; add pending fill and a separate count to CSV/XLSX output summaries.
 
-- [ ] **Step 5: Run focused tests to verify GREEN**
+For iterative state, use the already-landed `seg.corrected` as the pending baseline and keep the new pending candidate separately in the report input. Preserve `approved` on state and export it as `人工批准`.
+
+- [ ] **Step 5: Gate multi-Sheet aggregation**
+
+Update `aggregate_sheets.py` so its `corr` map excludes `pending_adjudication`. Its suggested-correction count must use the same filtered map.
+
+- [ ] **Step 6: Run focused tests to verify GREEN**
 
 ```bash
 python3 -m unittest -v tests/test_pending_adjudication.py
@@ -126,10 +133,10 @@ python3 -m unittest -v tests/test_pending_adjudication.py
 
 Expected: all I/O/report tests pass; merge tests may remain failing until Task 3.
 
-- [ ] **Step 6: Commit I/O implementation**
+- [ ] **Step 7: Commit I/O implementation**
 
 ```bash
-git add scripts/lqe_io.py
+git add scripts/lqe_io.py scripts/aggregate_sheets.py
 git commit -m "fix: gate pending adjudication corrections"
 ```
 
