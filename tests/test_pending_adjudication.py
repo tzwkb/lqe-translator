@@ -1,3 +1,4 @@
+import csv
 import json
 import subprocess
 import sys
@@ -123,6 +124,95 @@ class PendingAdjudicationTests(unittest.TestCase):
                 self.assertEqual(sheet.cell(*cell).value, value)
         workbook.close()
 
+    def test_export_keeps_existing_corrected_baseline_for_pending_segment(self):
+        state = json.loads(self.state_path.read_text(encoding="utf-8"))
+        state["iteration"] = 1
+        state["segments"][0]["corrected"] = "已生效基线A"
+        state["segments"][0]["iter"] = 1
+        self._write_json(self.state_path, state)
+        self._write_json(
+            self.errors_path,
+            self._errors(pending_candidate="待裁决新候选A"),
+        )
+
+        result = self._run_cli(
+            "lqe_io.py", "export", "--state", self.state_path, "--errors", self.errors_path
+        )
+        self._assert_success(result)
+
+        workbook = openpyxl.load_workbook(self.job / "job_corrected.xlsx")
+        sheet = workbook.active
+        with self.subTest(field="translation"):
+            self.assertEqual(sheet.cell(2, 2).value, "已生效基线A")
+        with self.subTest(field="status"):
+            self.assertEqual(sheet.cell(2, 3).value, "待人工裁决")
+        workbook.close()
+
+    def test_export_applies_approved_candidate_with_approved_status(self):
+        errors = self._errors(pending_status="approved")
+        self._write_json(self.errors_path, errors)
+
+        result = self._run_cli(
+            "lqe_io.py", "export", "--state", self.state_path, "--errors", self.errors_path
+        )
+        self._assert_success(result)
+
+        workbook = openpyxl.load_workbook(self.job / "job_corrected.xlsx")
+        sheet = workbook.active
+        with self.subTest(field="translation"):
+            self.assertEqual(sheet.cell(2, 2).value, "候选A")
+        with self.subTest(field="status"):
+            self.assertEqual(sheet.cell(2, 3).value, "人工批准")
+        workbook.close()
+
+    def test_csv_export_keeps_pending_segment_unchanged(self):
+        csv_path = self.tmp / "source.csv"
+        with csv_path.open("w", encoding="utf-8-sig", newline="") as stream:
+            csv.writer(stream).writerows(
+                [["原文", "译文"], ["原文A", "原译A"], ["原文B", "原译B"]]
+            )
+        csv_job = self.tmp / "csv_job"
+        csv_job.mkdir()
+        csv_state = csv_job / "state.json"
+        csv_errors = csv_job / "errors.json"
+        read_result = self._run_cli(
+            "lqe_io.py",
+            "read",
+            "--input",
+            csv_path,
+            "--source-col",
+            "原文",
+            "--target-col",
+            "译文",
+            "--source-lang",
+            "zh",
+            "--target-lang",
+            "en",
+            "--out",
+            csv_state,
+        )
+        self._assert_success(read_result)
+        self._write_json(csv_errors, self._errors())
+
+        export_result = self._run_cli(
+            "lqe_io.py", "export", "--state", csv_state, "--errors", csv_errors
+        )
+        self._assert_success(export_result)
+
+        with (csv_job / "csv_job_corrected.csv").open(
+            encoding="utf-8-sig", newline=""
+        ) as stream:
+            rows = list(csv.reader(stream))
+        expected = {
+            (1, 1): "原译A",
+            (1, 2): "待人工裁决",
+            (2, 1): "建议B",
+            (2, 2): "AI修正",
+        }
+        for (row, column), value in expected.items():
+            with self.subTest(row=row, column=column):
+                self.assertEqual(rows[row][column], value)
+
     def test_apply_fixes_skips_entire_pending_segment(self):
         self._write_json(self.errors_path, self._errors())
 
@@ -144,6 +234,37 @@ class PendingAdjudicationTests(unittest.TestCase):
             self.assertIsNone(segments[0]["corrected"])
         with self.subTest(segment=1):
             self.assertEqual(segments[1]["corrected"], "建议B")
+
+    def test_pending_only_apply_fixes_records_skip_without_advancing_iteration(self):
+        self._write_json(self.errors_path, [self._errors()[0]])
+        before = json.loads(self.state_path.read_text(encoding="utf-8"))
+
+        result = self._run_cli(
+            "lqe_io.py",
+            "apply-fixes",
+            "--state",
+            self.state_path,
+            "--errors",
+            self.errors_path,
+            "--score",
+            "80",
+        )
+        self._assert_success(result)
+
+        state = json.loads(self.state_path.read_text(encoding="utf-8"))
+        segments = {segment["id"]: segment for segment in state["segments"]}
+        with self.subTest(field="iteration"):
+            self.assertEqual(state.get("iteration", 0), before.get("iteration", 0))
+        with self.subTest(field="corrected"):
+            self.assertIsNone(segments[0]["corrected"])
+        history = state.get("error_history", [])
+        latest = history[-1] if history else {}
+        skipped = {entry.get("id"): entry for entry in latest.get("skipped_corrections", [])}
+        with self.subTest(field="skip-reason"):
+            self.assertEqual(
+                skipped.get(0, {}).get("reason"),
+                "PENDING_ADJUDICATION",
+            )
 
     def test_same_iteration_write_replaces_history_and_reports_pending(self):
         old_errors = self._errors(pending_status="suggested", pending_candidate="旧建议A")
@@ -174,9 +295,26 @@ class PendingAdjudicationTests(unittest.TestCase):
         self._assert_success(second)
 
         state = json.loads(self.state_path.read_text(encoding="utf-8"))
-        latest = state["error_history"][-1]["errors"][0]
-        with self.subTest(surface="history"):
-            self.assertEqual(latest.get("correction_status"), "pending_adjudication")
+        current_iteration = state.get("iteration", 0)
+        current_history = [
+            entry
+            for entry in state["error_history"]
+            if entry.get("iteration") == current_iteration
+        ]
+        with self.subTest(surface="history-count"):
+            self.assertEqual(len(current_history), 1)
+        current_errors = {
+            entry["id"]: entry
+            for entry in (current_history[-1].get("errors", []) if current_history else [])
+        }
+        pending_entry = current_errors.get(0, {})
+        with self.subTest(surface="history-candidate"):
+            self.assertEqual(pending_entry.get("corrected"), "候选A")
+        with self.subTest(surface="history-status"):
+            self.assertEqual(
+                pending_entry.get("correction_status"),
+                "pending_adjudication",
+            )
 
         workbook = openpyxl.load_workbook(self.job / "job_lqe.xlsx")
         results = workbook["LQE Results"]
@@ -305,6 +443,38 @@ class PendingAdjudicationTests(unittest.TestCase):
         self._assert_success(result)
         entry = json.loads((chunks / "chunk_00.out.json").read_text(encoding="utf-8"))[0]
         self.assertEqual(entry.get("correction_status"), "pending_adjudication")
+
+    def test_aggregate_sheets_does_not_apply_pending_candidate(self):
+        aggregate_job = self.tmp / "aggregate_job"
+        sheet_job = aggregate_job / "sheet_a"
+        sheet_job.mkdir(parents=True)
+        state = json.loads(self.state_path.read_text(encoding="utf-8"))
+        self._write_json(sheet_job / "state.json", state)
+        self._write_json(sheet_job / "errors.json", self._errors())
+
+        result = self._run_cli("aggregate_sheets.py", "--job", aggregate_job)
+        self._assert_success(result)
+
+        corrected = openpyxl.load_workbook(
+            aggregate_job / "aggregate_job_corrected.xlsx"
+        )
+        sheet = corrected.active
+        with self.subTest(surface="pending-translation"):
+            self.assertEqual(sheet.cell(2, 2).value, "原译A")
+        with self.subTest(surface="suggested-control"):
+            self.assertEqual(sheet.cell(3, 2).value, "建议B")
+        corrected.close()
+
+        report = openpyxl.load_workbook(
+            aggregate_job / "aggregate_job_LQE报告.xlsx"
+        )
+        summary = report["汇总"]
+        headers = {
+            cell.value: cell.column for cell in summary[4] if cell.value is not None
+        }
+        with self.subTest(surface="correction-count"):
+            self.assertEqual(summary.cell(5, headers["建议修正数"]).value, 1)
+        report.close()
 
 
 if __name__ == "__main__":
