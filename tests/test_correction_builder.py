@@ -379,6 +379,223 @@ class CorrectionBuilderTests(unittest.TestCase):
                 self.assertTrue(unsafe_result["errors"][0]["needs_confirmation"])
                 self.assertIsNone(unsafe_result["errors"][0]["edit"])
 
+    def test_desc_confirmed_term_evidence_cannot_authorize_a_different_term(self):
+        segment = {
+            "id": 1,
+            "target": "Old A and Old B today.",
+            "kind": "desc",
+            "term_hits": [
+                {
+                    "source": "术语A",
+                    "target": "New A",
+                    "confirmed": True,
+                    "matched_text": "Old A",
+                }
+            ],
+        }
+        evidence = {
+            "type": "confirmed_term",
+            "source": "术语A",
+            "target": "New A",
+        }
+
+        result = build_segment_result(
+            segment,
+            [
+                issue(edit("Old B", "New A", evidence=evidence), comment="unsafe"),
+                issue(edit("today", "now"), comment="safe"),
+            ],
+        )
+
+        self.assertEqual(result["corrected"], "Old A and Old B now.")
+        self.assertTrue(result["errors"][0]["needs_confirmation"])
+        self.assertIsNone(result["errors"][0]["edit"])
+        self.assertFalse(result["errors"][1]["needs_confirmation"])
+        self.assertIsNotNone(result["errors"][1]["edit"])
+
+    def test_desc_confirmed_term_evidence_requires_matched_text(self):
+        segment = {
+            "id": 1,
+            "target": "Old Name",
+            "kind": "desc",
+            "term_hits": [
+                {"source": "旧名", "target": "New Name", "confirmed": True}
+            ],
+        }
+        evidence = {
+            "type": "confirmed_term",
+            "source": "旧名",
+            "target": "New Name",
+        }
+
+        result = build_segment_result(
+            segment,
+            [issue(edit("Old Name", "New Name", evidence=evidence))],
+        )
+
+        self.assertIsNone(result["corrected"])
+        self.assertTrue(result["errors"][0]["needs_confirmation"])
+        self.assertIsNone(result["errors"][0]["edit"])
+
+    def test_desc_confirmed_term_span_must_match_edit(self):
+        segment = {
+            "id": 1,
+            "target": "Old Name and Old Name",
+            "kind": "desc",
+            "term_hits": [
+                {
+                    "source": "旧名",
+                    "target": "New Name",
+                    "confirmed": True,
+                    "matched_text": "Old Name",
+                    "span": [0, 8],
+                }
+            ],
+        }
+        evidence = {
+            "type": "confirmed_term",
+            "source": "旧名",
+            "target": "New Name",
+        }
+
+        result = build_segment_result(
+            segment,
+            [issue(edit("Old Name", "New Name", 13, 21, evidence=evidence))],
+        )
+
+        self.assertIsNone(result["corrected"])
+        self.assertTrue(result["errors"][0]["needs_confirmation"])
+        self.assertIsNone(result["errors"][0]["edit"])
+
+    def test_desc_edit_touching_matched_text_requires_confirmed_evidence(self):
+        segment = {
+            "id": 1,
+            "target": "Meet Old Name today.",
+            "kind": "desc",
+            "term_hits": [
+                {
+                    "source": "旧名",
+                    "target": "New Name",
+                    "confirmed": True,
+                    "matched_text": "Old Name",
+                }
+            ],
+        }
+
+        result = build_segment_result(
+            segment,
+            [issue(edit("Old Name", "Other Name", 5, 13))],
+        )
+
+        self.assertIsNone(result["corrected"])
+        self.assertTrue(result["errors"][0]["needs_confirmation"])
+        self.assertIsNone(result["errors"][0]["edit"])
+
+    def test_desc_matching_confirmed_term_evidence_authorizes_edit(self):
+        segment = {
+            "id": 1,
+            "target": "Meet Old Name today.",
+            "kind": "desc",
+            "term_hits": [
+                {
+                    "source": "旧名",
+                    "target": "New Name",
+                    "confirmed": True,
+                    "matched_text": "Old Name",
+                    "span": [5, 13],
+                }
+            ],
+        }
+        evidence = {
+            "type": "confirmed_term",
+            "source": "旧名",
+            "target": "New Name",
+        }
+
+        result = build_segment_result(
+            segment,
+            [issue(edit("Old Name", "New Name", 5, 13, evidence=evidence))],
+        )
+
+        self.assertEqual(result["corrected"], "Meet New Name today.")
+        self.assertFalse(result["errors"][0]["needs_confirmation"])
+        self.assertIsNotNone(result["errors"][0]["edit"])
+
+    def test_confirmed_term_evidence_target_must_equal_edit_replacement(self):
+        segment = {
+            "id": 1,
+            "target": "Old Name",
+            "kind": "name",
+            "term_hits": [
+                {"source": "旧名", "target": "Canonical Name", "confirmed": True}
+            ],
+        }
+        evidence = {
+            "type": "confirmed_term",
+            "source": "旧名",
+            "target": "Canonical Name",
+        }
+
+        result = build_segment_result(
+            segment,
+            [issue(edit("Old Name", "Different Name", evidence=evidence))],
+        )
+
+        self.assertIsNone(result["corrected"])
+        self.assertTrue(result["errors"][0]["needs_confirmation"])
+        self.assertIsNone(result["errors"][0]["edit"])
+
+    def test_name_confirmed_term_evidence_requires_full_target_edit(self):
+        segment = {
+            "id": 1,
+            "target": "The Old Name",
+            "kind": "name",
+            "term_hits": [
+                {"source": "旧名", "target": "New Name", "confirmed": True}
+            ],
+        }
+        evidence = {
+            "type": "confirmed_term",
+            "source": "旧名",
+            "target": "New Name",
+        }
+
+        result = build_segment_result(
+            segment,
+            [issue(edit("Old Name", "New Name", evidence=evidence))],
+        )
+
+        self.assertIsNone(result["corrected"])
+        self.assertTrue(result["errors"][0]["needs_confirmation"])
+        self.assertIsNone(result["errors"][0]["edit"])
+
+    def test_name_confirmed_term_evidence_requires_unique_hit(self):
+        confirmed_hit = {
+            "source": "旧名",
+            "target": "New Name",
+            "confirmed": True,
+        }
+        segment = {
+            "id": 1,
+            "target": "Old Name",
+            "kind": "name",
+            "term_hits": [confirmed_hit, copy.deepcopy(confirmed_hit)],
+        }
+        evidence = {
+            "type": "confirmed_term",
+            "source": "旧名",
+            "target": "New Name",
+        }
+
+        result = build_segment_result(
+            segment,
+            [issue(edit("Old Name", "New Name", evidence=evidence))],
+        )
+
+        self.assertIsNone(result["corrected"])
+        self.assertTrue(result["errors"][0]["needs_confirmation"])
+        self.assertIsNone(result["errors"][0]["edit"])
+
     def test_unconfirmed_term_evidence_becomes_confirmation(self):
         segment = {
             "id": 1,

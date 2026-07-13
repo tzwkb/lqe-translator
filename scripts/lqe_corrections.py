@@ -156,13 +156,18 @@ def _term_spans(original: str, term_hits: object) -> list[tuple[int, int]]:
     for hit in term_hits:
         if not isinstance(hit, dict):
             continue
-        target = hit.get("target")
-        if not isinstance(target, str) or not target:
+        matched_text = hit.get("matched_text")
+        value = (
+            matched_text
+            if isinstance(matched_text, str) and matched_text
+            else hit.get("target")
+        )
+        if not isinstance(value, str) or not value:
             continue
-        start = original.find(target)
+        start = original.find(value)
         while start >= 0:
-            spans.append((start, start + len(target)))
-            start = original.find(target, start + 1)
+            spans.append((start, start + len(value)))
+            start = original.find(value, start + 1)
     return spans
 
 
@@ -182,16 +187,60 @@ def _requires_term_evidence(segment: dict, resolved: dict, original: str) -> boo
     return any(target and target in resolved["to"] for target in targets)
 
 
-def _has_matching_confirmed_term(segment: dict, evidence: object) -> bool:
+def _hit_span_matches(hit: dict, resolved: dict) -> bool:
+    expected = (resolved["start"], resolved["end"])
+    if "span" in hit:
+        span = hit["span"]
+        if isinstance(span, dict):
+            actual = (span.get("start"), span.get("end"))
+        elif isinstance(span, (list, tuple)) and len(span) == 2:
+            actual = tuple(span)
+        else:
+            return False
+        if not all(type(value) is int for value in actual) or actual != expected:
+            return False
+    if "start" in hit or "end" in hit:
+        actual = (hit.get("start"), hit.get("end"))
+        if not all(type(value) is int for value in actual) or actual != expected:
+            return False
+    return True
+
+
+def _has_matching_confirmed_term(
+    segment: dict, resolved: dict, original: str
+) -> bool:
+    evidence = resolved["evidence"]
     if not isinstance(evidence, dict) or evidence.get("type") != "confirmed_term":
         return False
-    for hit in segment.get("term_hits", []):
+    if evidence.get("target") != resolved["to"]:
+        return False
+    term_hits = segment.get("term_hits")
+    if not isinstance(term_hits, list):
+        return False
+    if segment.get("kind") == "name":
+        if resolved["start"] != 0 or resolved["end"] != len(original):
+            return False
+        confirmed_hits = [
+            hit
+            for hit in term_hits
+            if isinstance(hit, dict) and hit.get("confirmed") is True
+        ]
+        if len(confirmed_hits) != 1:
+            return False
+        hit = confirmed_hits[0]
+        return (
+            hit.get("source") == evidence.get("source")
+            and hit.get("target") == evidence.get("target")
+        )
+    for hit in term_hits:
         if not isinstance(hit, dict):
             continue
         if (
             hit.get("source") == evidence.get("source")
             and hit.get("target") == evidence.get("target")
             and hit.get("confirmed") is True
+            and hit.get("matched_text") == resolved["from"]
+            and _hit_span_matches(hit, resolved)
         ):
             return True
     return False
@@ -246,8 +295,17 @@ def build_segment_result(segment: dict, issues: list[dict]) -> dict:
         resolved = _resolve_edit(
             edit, original, label=f"segment {segment['id']}.issues[{index}]"
         )
-        if _requires_term_evidence(segment, resolved, original) and not (
-            _has_matching_confirmed_term(segment, resolved["evidence"])
+        evidence = resolved["evidence"]
+        evidence_target_mismatch = (
+            isinstance(evidence, dict) and evidence.get("target") != resolved["to"]
+        )
+        has_confirmed_term_evidence = (
+            isinstance(evidence, dict) and evidence.get("type") == "confirmed_term"
+        )
+        requires_term_evidence = _requires_term_evidence(segment, resolved, original)
+        if evidence_target_mismatch or (
+            (requires_term_evidence or has_confirmed_term_evidence)
+            and not _has_matching_confirmed_term(segment, resolved, original)
         ):
             error["needs_confirmation"] = True
             error["edit"] = None
