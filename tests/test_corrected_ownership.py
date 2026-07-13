@@ -3,7 +3,11 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,6 +18,7 @@ REQUIRED_MODULES = ("terminology", "accuracy", "grammar", "naturalness")
 sys.path.insert(0, str(SCRIPTS))
 
 from lqe_checks import run_pre_check
+import lqe_chunk
 
 
 def write_json(path, value):
@@ -54,6 +59,11 @@ def replacement(frm, to, *, evidence=None, start=None, end=None):
 
 def confirmed_evidence(source, target):
     return {"type": "confirmed_term", "source": source, "target": target}
+
+
+def call_quietly(function, *args, **kwargs):
+    with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+        return function(*args, **kwargs)
 
 
 class CorrectedOwnershipChunkTests(unittest.TestCase):
@@ -213,6 +223,43 @@ class CorrectedOwnershipChunkTests(unittest.TestCase):
         self.assertNotIn("corrected", merged[0])
         self.assertNotIn("errors", merged[0])
 
+    def test_accuracy_owned_issue_uses_only_accuracy_module_edit(self):
+        segment = {
+            "id": 0,
+            "source": "source",
+            "target": "bad",
+            "kind": "desc",
+            "term_hits": [],
+            "protected_texts": [],
+        }
+        terminology_issue = check_issue(
+            category="Mistranslation",
+            severity="Major",
+            comment="terminology rewrite",
+            edit=replacement("bad", "term guess"),
+        )
+        accuracy_issue = check_issue(
+            category="Mistranslation",
+            severity="Major",
+            comment="accuracy rewrite",
+            edit=replacement("bad", "accurate"),
+        )
+        self.make_job([segment])
+        self.write_modules(
+            [0],
+            issues_by_module={
+                "terminology": {0: [terminology_issue]},
+                "accuracy": {0: [accuracy_issue]},
+            },
+        )
+
+        checks = self.merge_checks()
+        merged = self.merge_final()
+
+        self.assertEqual(checks, [{"id": 0, "issues": [accuracy_issue]}])
+        self.assertEqual(merged[0]["errors"], [accuracy_issue])
+        self.assertEqual(merged[0]["corrected"], "accurate")
+
     def test_precheck_emits_issues_and_a_local_deterministic_edit(self):
         state_path = self.job / "state.json"
         output_path = self.job / "errors_precheck.json"
@@ -225,7 +272,7 @@ class CorrectedOwnershipChunkTests(unittest.TestCase):
             },
         )
 
-        run_pre_check(state_path, output_path)
+        call_quietly(run_pre_check, state_path, output_path)
         result = read_json(output_path)
 
         self.assertEqual(set(result[0]), {"id", "issues"})
@@ -242,6 +289,114 @@ class CorrectedOwnershipChunkTests(unittest.TestCase):
                 "end": 2,
                 "evidence": None,
             },
+        )
+
+    def test_em_dash_edit_absorbs_adjacent_spaces(self):
+        variants = ("A—B", "A — B", "A— B", "A —B")
+        for target in variants:
+            with self.subTest(target=target):
+                state_path = self.job / "state.json"
+                output_path = self.job / "errors_precheck.json"
+                write_json(
+                    state_path,
+                    {
+                        "source_lang": "en",
+                        "target_lang": "en",
+                        "segments": [
+                            {"id": 0, "source": "A-B", "target": target}
+                        ],
+                    },
+                )
+                call_quietly(run_pre_check, state_path, output_path)
+                issues = read_json(output_path)[0]["issues"]
+
+                result = lqe_chunk.build_segment_result(
+                    {
+                        "id": 0,
+                        "target": target,
+                        "kind": "desc",
+                        "term_hits": [],
+                        "protected_texts": [],
+                    },
+                    issues,
+                )
+
+                self.assertEqual(result["corrected"], "A - B")
+
+    def test_precheck_issue_schema_is_complete_for_all_output_modes(self):
+        cases = (
+            ("empty", "Text", ""),
+            ("reminder", "Hello {name}", "Hello"),
+            ("double_space", "A B", "A  B"),
+            ("fullwidth", "A,B", "A，B"),
+        )
+        required = {
+            "category",
+            "severity",
+            "comment",
+            "needs_confirmation",
+            "edit",
+        }
+        for label, source, target in cases:
+            with self.subTest(case=label):
+                state_path = self.job / "state.json"
+                output_path = self.job / "errors_precheck.json"
+                write_json(
+                    state_path,
+                    {
+                        "source_lang": "en",
+                        "target_lang": "en",
+                        "segments": [
+                            {"id": 0, "source": source, "target": target}
+                        ],
+                    },
+                )
+
+                call_quietly(run_pre_check, state_path, output_path)
+                issues = read_json(output_path)[0]["issues"]
+
+                self.assertTrue(issues)
+                for issue in issues:
+                    self.assertTrue(required.issubset(issue))
+                    self.assertTrue(
+                        issue["edit"] is None or isinstance(issue["edit"], dict)
+                    )
+
+    def test_locked_segment_still_uses_correction_builder(self):
+        segment = {
+            "id": 0,
+            "source": "protected",
+            "target": "original",
+            "locked": True,
+            "kind": "desc",
+            "term_hits": [],
+            "protected_texts": ["original"],
+        }
+        self.make_job([segment])
+        output = self.job / "errors.json"
+
+        with mock.patch.object(
+            lqe_chunk,
+            "build_segment_result",
+            wraps=lqe_chunk.build_segment_result,
+        ) as builder:
+            call_quietly(
+                lqe_chunk.cmd_merge,
+                SimpleNamespace(
+                    state=str(self.job / "state.json"),
+                    errors=str(self.job / "errors_precheck.json"),
+                    outdir=str(self.chunks),
+                    out=str(output),
+                ),
+            )
+
+        builder.assert_called_once()
+        called_segment, called_issues = builder.call_args.args
+        self.assertEqual(called_segment["id"], 0)
+        self.assertEqual(called_issues, [])
+        self.assertEqual(
+            read_json(output),
+            [{"id": 0, "errors": [], "corrected": None}],
         )
 
     def test_term_hits_flatten_senses_and_preserve_explicit_confirmation(self):
@@ -513,13 +668,13 @@ class CorrectedOwnershipChunkTests(unittest.TestCase):
             category="Mistranslation",
             severity="Major",
             comment="confirmed by accuracy",
-            needs_confirmation=True,
+            edit=replacement("x", "accurate"),
         )
         dropped_issue = check_issue(
-            category="Omission",
+            category="Mistranslation",
             severity="Major",
-            comment="not confirmed",
-            needs_confirmation=True,
+            comment="other module guess",
+            edit=replacement("x", "guess"),
         )
         self.write_modules([0], issues_by_module={"accuracy": {0: [accuracy_issue]}})
         write_json(

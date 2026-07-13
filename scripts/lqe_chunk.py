@@ -223,10 +223,6 @@ def cmd_merge(a):
     missing = [i for i in ids if i not in merged and i not in locked_ids]
     out = []
     for i in ids:
-        if i in locked_ids:
-            out.append({"id": i, "errors": [], "corrected": None})
-            continue
-
         representative = representative_by_id.get(i, i)
         context = chunk_contexts.get(representative, {})
         original = state_by_id[i]
@@ -240,7 +236,11 @@ def cmd_merge(a):
             "term_hits": context.get("term_hits", []),
             "protected_texts": protected_texts,
         }
-        issues = merged.get(i, copy.deepcopy(pre_by_id.get(i, [])))
+        issues = (
+            []
+            if i in locked_ids
+            else merged.get(i, copy.deepcopy(pre_by_id.get(i, [])))
+        )
         out.append(build_segment_result(segment, issues))
 
     Path(a.out).write_text(json.dumps(out, ensure_ascii=False, indent=1),
@@ -345,12 +345,6 @@ def cmd_merge_checks(a):
             module: {entry["id"]: entry["issues"] for entry in entries}
             for module, entries in module_entries.items()
         }
-        accuracy_confirmed = {
-            (entry["id"], issue.get("category"))
-            for entry in module_entries["accuracy"]
-            for issue in entry["issues"]
-            if issue.get("category") in _ACCURACY_OWNED
-        }
         output = []
         for segment_id in ids:
             seen = set()
@@ -358,10 +352,7 @@ def cmd_merge_checks(a):
             for module in _REQUIRED_MODULES + _OPTIONAL_MODULES:
                 for issue in entries_by_module.get(module, {}).get(segment_id, []):
                     category = issue.get("category")
-                    if (
-                        category in _ACCURACY_OWNED
-                        and (segment_id, category) not in accuracy_confirmed
-                    ):
+                    if category in _ACCURACY_OWNED and module != "accuracy":
                         continue
                     key = _issue_key(issue)
                     if key in seen:
@@ -389,11 +380,12 @@ def cmd_reconcile(a):
     dropped = []
     for ci in _chunk_idxs(outdir):
         accuracy_path = outdir / f"chunk_{ci:02d}.accuracy.json"
-        accuracy_confirmed = set()
+        accuracy_issues = set()
         if accuracy_path.exists():
             for entry in _normalize_module_output(load(accuracy_path), accuracy_path):
                 for issue in entry["issues"]:
-                    accuracy_confirmed.add((entry["id"], issue.get("category")))
+                    if issue.get("category") in _ACCURACY_OWNED:
+                        accuracy_issues.add((entry["id"], _issue_key(issue)))
 
         output_path = outdir / f"chunk_{ci:02d}.out.json"
         if not output_path.exists():
@@ -404,8 +396,7 @@ def cmd_reconcile(a):
             for issue in entry["issues"]:
                 if (
                     issue.get("category") in _ACCURACY_OWNED
-                    and (entry["id"], issue.get("category"))
-                    not in accuracy_confirmed
+                    and (entry["id"], _issue_key(issue)) not in accuracy_issues
                 ):
                     dropped.append({"chunk": ci, "id": entry["id"], **issue})
                 else:

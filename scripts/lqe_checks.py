@@ -289,11 +289,16 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
                          "comment": "Target contains Chinese characters"})
 
         for match in (_RE_DASH.finditer(tgt) if on("em_dash") else ()):
+            start, end = match.start(), match.end()
+            while start > 0 and tgt[start - 1] in " \t":
+                start -= 1
+            while end < len(tgt) and tgt[end] in " \t":
+                end += 1
             errs.append({
                 "category": "Punctuation",
                 "severity": "Minor",
                 "comment": "Em dash '—' found; use ' - '",
-                "edit": _local_edit("—", " - ", match.start(), match.end()),
+                "edit": _local_edit(tgt[start:end], " - ", start, end),
             })
 
         for c, pat in (_RE_COLOR.items() if on("color_tags") else ()):
