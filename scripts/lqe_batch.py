@@ -15,6 +15,7 @@ import json
 import re
 from pathlib import Path
 
+from lqe_corrections import build_results, normalize_check_entries
 from lqe_engine import RE_CJK as _RE_CJK
 
 
@@ -93,45 +94,21 @@ def cmd_merge(args):
     merged = {}
     for f in evals:
         try:
-            for r in json.loads(f.read_text(encoding="utf-8")):
+            entries = normalize_check_entries(
+                json.loads(f.read_text(encoding="utf-8")), label=str(f)
+            )
+            for r in entries:
                 merged[r["id"]] = r          # 后到覆盖：子批(04a)覆盖原批(04)残留
         except json.JSONDecodeError as e:
             print(f"[warn] skip malformed {f.name}: {e}")
 
-    # 关卡：计分错误必须有非空 comment。缺则从 Working TB 回填（术语类）或占位。
-    terms = json.loads((job / "terms.json").read_text(encoding="utf-8")) if (job / "terms.json").exists() else []
-    tmap = sorted([(t["source"], t["target"], t.get("status", "")) for t in terms if len(t["source"]) >= 2],
-                  key=lambda x: -len(x[0]))
-    segs = {s["id"]: s for s in state["segments"]}
-    backfilled = 0
-    for sid, r in merged.items():
-        seg = segs.get(sid, {})
-        src, tgt = seg.get("source", ""), (r.get("corrected") or seg.get("target", ""))
-        for e in r.get("errors", []):
-            if e.get("severity") == "Neutral" or e.get("comment", "").strip():
-                continue
-            if e.get("category") == "Terminology":
-                miss = [(zh, th, st) for zh, th, st in tmap if zh in src and th.lower() not in tgt.lower()]
-                if miss:
-                    zh, th, st = miss[0]
-                    e["comment"] = f"WorkingTB: {zh}={th}; locked term not applied in target [TB:{st}]"
-                else:
-                    e["comment"] = "Terminology deviation from Working TB (reviewer to specify)"
-            else:
-                e["comment"] = f"{e.get('category','?')} flagged (reviewer comment missing)"
-            backfilled += 1
-
     seg_ids = [s["id"] for s in state["segments"]]
     missing = [i for i in seg_ids if i not in merged]
-    out = []
-    for s in state["segments"]:
-        out.append(merged.get(s["id"], {"id": s["id"], "errors": [], "corrected": None}))
+    out = build_results(state["segments"], list(merged.values()))
     (job / "errors.json").write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
 
     done = len(seg_ids) - len(missing)
     print(f"[merge] {len(evals)} eval files → {done}/{len(seg_ids)} segs covered → errors.json")
-    if backfilled:
-        print(f"[merge] ⚠ {backfilled} scoring errors had EMPTY comment (reviewer skipped) — backfilled from TB/placeholder")
     if missing:
         # 压缩成区间显示
         runs, a = [], missing[0]

@@ -31,6 +31,7 @@ from lqe_engine import (
     load_scorecard_profile, normalize_category_for_profile, scorecard_category_order,
     scorecard_category_parent, scorecard_category_weight,
 )
+from lqe_corrections import build_results, normalize_check_entries
 
 
 _CORRECTION_STATUSES = {"suggested", "pending_adjudication", "approved"}
@@ -623,6 +624,18 @@ def cmd_lock_segments(args):
     print(f"[lock-segments] locked file → {out_path}")
     if unknown:
         print(f"[lock-segments] ignored unknown ids: {unknown[:20]}")
+
+
+def cmd_build_results(args):
+    state = json.loads(Path(args.state).read_text(encoding="utf-8"))
+    entries = normalize_check_entries(
+        json.loads(Path(args.checks).read_text(encoding="utf-8")),
+        label=args.checks,
+    )
+    results = build_results(state["segments"], entries)
+    Path(args.out).write_text(
+        json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
 
 def cmd_apply_fixes(args):
@@ -1350,6 +1363,11 @@ def main():
     ls.add_argument("--reason", default="TM_100_MATCH")
     ls.add_argument("--out", default=None, help="输出 locked ids JSON，默认 {job}/tm_locked.json")
 
+    br = sub.add_parser("build-results")
+    br.add_argument("--state", required=True)
+    br.add_argument("--checks", required=True)
+    br.add_argument("--out", required=True)
+
     w = sub.add_parser("write")
     w.add_argument("--state",     required=True)
     w.add_argument("--errors",    required=True)
@@ -1379,6 +1397,7 @@ def main():
         "read":           cmd_read,
         "pre-check":      cmd_pre_check,
         "lock-segments":  cmd_lock_segments,
+        "build-results":  cmd_build_results,
         "apply-fixes":    cmd_apply_fixes,
         "write":          cmd_write,
         "export":         cmd_export,

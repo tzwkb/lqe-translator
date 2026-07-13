@@ -27,6 +27,8 @@ from pathlib import Path
 
 import openpyxl
 
+from lqe_corrections import build_results, normalize_check_entries
+
 ZW = {0x200b: None, 0x200c: None, 0x200d: None, 0xfeff: None, 0x2060: None}
 SRC_HDR = "术语 ZHCN"
 STATUS_HDRS = {"术语状态 status", "status", "术语状态"}
@@ -192,17 +194,19 @@ chunk JSON 的 `terms[]`，每条字段：
 Major=含义/品牌/功能/专名认不出/粗俗；Minor=表面（单声调符号、轻微拼写、标点、略生硬）。**Untranslated 永远 Major**。Major/Minor 拿不准 → 取 Major。
 
 ## 输出
-只写**有问题**的词条（errors 非空），UTF-8 JSON 写到指定 out 文件：
+只写**有问题**的词条（issues 非空），UTF-8 JSON 写到指定 out 文件：
 ```json
 {"chunk": NN, "reviewed_first": F, "reviewed_last": L, "reviewed_count": N,
  "findings": [
    {"id": 123,
-    "errors": [{"category": "Mistranslation", "severity": "Major",
-                "comment": "中文'X' / EN'Y' / 泰译'Z'：说明问题"}],
-    "corrected": "建议的完整泰语词条"}
+    "issues": [{"category": "Mistranslation", "severity": "Major",
+                "comment": "中文'X' / EN'Y' / 泰译'Z'：说明问题",
+                "needs_confirmation": false,
+                "edit": {"from": "原 TH", "to": "修正 TH", "evidence": null}}]}
  ]}
 ```
-- `comment` 用中文，引用 ZHCN/EN/TH 片段。`corrected` = 修正后完整泰语词条（无把握时给最佳建议并在 comment 注明"待人工裁决"）。
+- `comment` 用中文，引用 ZHCN/EN/TH 片段。确定修正时 `edit.from` 必须是当前完整 TH，`edit.to` 是修正后的完整 TH。
+- 无把握时写 `needs_confirmation: true, edit: null`，不得输出整句 `corrected`。
 - **覆盖**：`reviewed_first/last` = chunk 的 `id_first/id_last`，`reviewed_count` = chunk 的 `count`，逐条过完不可截断。
 - 干净术语表应只有少量 findings——**重质不重量**，但真实的音译/正字/含义错必须抓出。
 """
@@ -276,7 +280,8 @@ def _load_findings(path):
     if not path.exists():
         return {}
     doc = json.loads(path.read_text("utf-8"))
-    return {f["id"]: f for f in doc.get("findings", [])}
+    entries = normalize_check_entries(doc.get("findings", []), label=str(path))
+    return {entry["id"]: entry for entry in entries}
 
 
 def _ekey(e):
@@ -291,31 +296,23 @@ def cmd_merge(a):
     nchunks = sum(1 for p in out.glob("chunk_*.json")
                   if re.fullmatch(r"chunk_\d+\.json", p.name))  # base chunks only, exclude .out/.p2
 
-    merged = {i: {"id": i, "errors": [], "corrected": None} for i in ids}
+    merged = {i: {"id": i, "issues": []} for i in ids}
     for ci in range(nchunks):
         p1 = _load_findings(out / f"chunk_{ci:02d}.out.json")
         p2 = _load_findings(out / f"chunk_{ci:02d}.p2.json")
         for sid in set(p1) | set(p2):
             f1, f2 = p1.get(sid), p2.get(sid)
-            both = bool(f1) and bool(f2)
-            conf = "high" if both else "medium"   # double-judged = high recall confidence
             errs = OrderedDict()
             for f in (f1, f2):
                 if not f:
                     continue
-                for e in f.get("errors", []):
+                for e in f.get("issues", []):
                     k = _ekey(e)
                     cand = dict(e)
-                    cand["confidence"] = conf
                     if k not in errs or len(cand.get("comment", "")) > len(errs[k].get("comment", "")):
-                        # keep richer comment; confidence stays high if both passes hit this key
-                        prev_conf = errs[k]["confidence"] if k in errs else conf
-                        cand["confidence"] = "high" if (both and k in errs) or prev_conf == "high" else conf
                         errs[k] = cand
-            corrected = (f1 or {}).get("corrected") or (f2 or {}).get("corrected")
             if sid in merged and errs:
-                merged[sid]["errors"] = list(errs.values())
-                merged[sid]["corrected"] = corrected
+                merged[sid]["issues"] = list(errs.values())
 
     # fold cross-term consistency (global; not judged locally by the rubric)
     cons_p = job / "consistency.json"
@@ -327,15 +324,17 @@ def cmd_merge(a):
             for x in members:
                 sid = x["id"]
                 if sid in merged and not any(e.get("category") == "Inconsistency"
-                                             for e in merged[sid]["errors"]):
-                    merged[sid]["errors"].append({
+                                             for e in merged[sid]["issues"]):
+                    merged[sid]["issues"].append({
                         "category": "Inconsistency", "severity": "Minor",
-                        "confidence": "high",
                         "comment": f"[一致性] 同源 '{src}' 跨词条出现多种泰译 {variants}；需统一。",
+                        "needs_confirmation": False,
+                        "edit": None,
                     })
                     folded += 1
 
-    errors = [merged[i] for i in ids]
+    checks = [merged[i] for i in ids]
+    errors = build_results(state["segments"], checks)
     (job / "errors.json").write_text(
         json.dumps(errors, ensure_ascii=False, indent=1), encoding="utf-8")
     flagged = sum(1 for e in errors if e["errors"])

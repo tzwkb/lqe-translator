@@ -9,15 +9,22 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+import openpyxl
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 CHUNK_SCRIPT = SCRIPTS / "lqe_chunk.py"
+IO_SCRIPT = SCRIPTS / "lqe_io.py"
+BATCH_SCRIPT = SCRIPTS / "lqe_batch.py"
+MASTERTB_SCRIPT = SCRIPTS / "mastertb_prep.py"
+FINALIZE_SCRIPT = SCRIPTS / "finalize_job.sh"
 REQUIRED_MODULES = ("terminology", "accuracy", "grammar", "naturalness")
 
 sys.path.insert(0, str(SCRIPTS))
 
 from lqe_checks import run_pre_check
+import aggregate_sheets
 import lqe_chunk
 
 
@@ -726,6 +733,169 @@ class CorrectedOwnershipChunkTests(unittest.TestCase):
         self.assertNotIn("merge-lenses", source)
         self.assertNotIn("validate-lenses", source)
         self.assertNotIn('"--lens"', source)
+
+
+class CorrectedOwnershipPipelineTests(unittest.TestCase):
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.root = Path(self.tempdir.name)
+
+    def tearDown(self):
+        self.tempdir.cleanup()
+
+    def run_script(self, script, *args):
+        return subprocess.run(
+            [sys.executable, str(script), *map(str, args)],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+
+    def test_build_results_is_required_before_apply(self):
+        state = self.root / "state.json"
+        checks = self.root / "checks.json"
+        errors = self.root / "errors.json"
+        write_json(
+            state,
+            {
+                "segments": [
+                    {
+                        "id": 0,
+                        "source": "ABC",
+                        "target": "A“B”C",
+                        "kind": "desc",
+                        "term_hits": [],
+                        "protected_texts": [],
+                    }
+                ]
+            },
+        )
+        write_json(
+            checks,
+            [
+                {
+                    "id": 0,
+                    "issues": [
+                        check_issue(edit=replacement("“B”", '\"B\"'))
+                    ],
+                }
+            ],
+        )
+
+        result = self.run_script(
+            IO_SCRIPT,
+            "build-results",
+            "--state",
+            state,
+            "--checks",
+            checks,
+            "--out",
+            errors,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(read_json(errors)[0]["corrected"], 'A"B"C')
+
+    def test_batch_merge_rejects_model_corrected(self):
+        job = self.root / "batch"
+        write_json(
+            job / "state.json",
+            {"segments": [{"id": 0, "source": "x", "target": "x"}]},
+        )
+        write_json(
+            job / "evals" / "eval_00.json",
+            [{"id": 0, "issues": [], "corrected": "model text"}],
+        )
+
+        result = self.run_script(BATCH_SCRIPT, "merge", "--job", job)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("corrected", result.stderr)
+
+    def test_mastertb_merge_rejects_model_corrected(self):
+        job = self.root / "mastertb"
+        write_json(
+            job / "state.json",
+            {"segments": [{"id": 0, "source": "x", "target": "x"}]},
+        )
+        write_json(job / "chunks" / "chunk_00.json", {"terms": []})
+        write_json(
+            job / "chunks" / "chunk_00.out.json",
+            {
+                "findings": [
+                    {"id": 0, "issues": [], "corrected": "model text"}
+                ]
+            },
+        )
+
+        result = self.run_script(
+            MASTERTB_SCRIPT,
+            "merge",
+            "--job-dir",
+            job,
+            "--no-consistency",
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("corrected", result.stderr)
+
+    def test_aggregate_applies_only_non_null_program_result(self):
+        job = self.root / "multi"
+        sheet_job = job / "Sheet1"
+        source = self.root / "source.xlsx"
+        workbook = openpyxl.Workbook()
+        worksheet = workbook.active
+        worksheet.title = "Sheet1"
+        worksheet.append(["Source", "Target"])
+        worksheet.append(["原文", "原译"])
+        workbook.save(source)
+        write_json(
+            sheet_job / "state.json",
+            {
+                "input_path": str(source),
+                "target_col": 1,
+                "headers": ["Source", "Target"],
+                "segments": [
+                    {
+                        "id": 0,
+                        "row_index": 0,
+                        "source": "原文",
+                        "target": "原译",
+                        "corrected": "旧状态修正",
+                    }
+                ],
+            },
+        )
+        write_json(
+            sheet_job / "errors.json",
+            [{"id": 0, "errors": [], "corrected": None}],
+        )
+        calc = {
+            "npt": 0,
+            "wordcount": 1,
+            "errors": 0,
+            "critical": 0,
+            "score": 100,
+            "status": "PASS",
+        }
+
+        with mock.patch.object(sys, "argv", ["aggregate_sheets.py", "--job", str(job)]):
+            with mock.patch.object(aggregate_sheets, "_calc", return_value=calc):
+                call_quietly(aggregate_sheets.main)
+
+        output = openpyxl.load_workbook(job / f"{job.name}_corrected.xlsx")
+        try:
+            self.assertEqual(output["Sheet1"]["B2"].value, "原译")
+        finally:
+            output.close()
+
+    def test_finalize_uses_only_new_check_commands(self):
+        source = FINALIZE_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn("validate-checks", source)
+        self.assertIn("merge-checks", source)
+        for old_command in ("merge-lenses", "validate-lenses"):
+            self.assertNotIn(old_command, source)
 
 
 if __name__ == "__main__":

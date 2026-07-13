@@ -1,9 +1,9 @@
 #!/bin/bash
 # finalize_job.sh <jobname> <nchunks> [single|iterate]
-# 多-lens 一键收尾：merge-lenses → validate-lenses → reconcile → merge → calc → report → export
+# 多模块一键收尾：validate-checks → merge-checks → reconcile → merge → calc → report → export
 #   single  = 单轮：FAIL 也只出报告（不 apply-fixes 迭代）
 #   iterate = 默认：FAIL 走 apply-fixes（自动迭代）
-# 幂等：仅当 N 个 T 脊柱(chunk_NN.T.json)齐了才跑。
+# 幂等：仅当 N 个基础 chunk 齐了才跑。
 SK="$(cd "$(dirname "$0")/.." && pwd)"   # skill 根（脚本位置锚定，与 HOME/CWD 无关）
 JOB_ARG="$1"
 if [ -d "$JOB_ARG" ] && [ -f "$JOB_ARG/state.json" ]; then
@@ -24,22 +24,22 @@ except Exception:
 PY
 )
 
-have=$(ls "$CH"/chunk_*.T.json 2>/dev/null | wc -l | tr -d ' ')
-if [ "$have" -lt "$N" ]; then echo "INCOMPLETE $1: T spines $have/$N"; exit 0; fi
+have=$(find "$CH" -maxdepth 1 -type f -name 'chunk_[0-9][0-9].json' | wc -l | tr -d ' ')
+if [ "$have" -lt "$N" ]; then echo "INCOMPLETE $1: chunks $have/$N"; exit 0; fi
 if [ -f "$JOB/.finalized" ]; then echo "ALREADY-FINALIZED $1"; exit 0; fi
 
-# 1) lens 合并（T 脊柱 union A/G/R）
-if ! python3 "$SK/scripts/lqe_chunk.py" merge-lenses --outdir "$CH"; then
-  echo "MERGE-LENSES FAIL $1"; exit 3; fi
-# 2) 结构守门（缺 id/坏类别/脊柱不全→非零退出，防静默丢数据）
-if ! python3 "$SK/scripts/lqe_chunk.py" validate-lenses --outdir "$CH"; then
-  echo "VALIDATE-LENSES FAIL $1 — not finalizing"; exit 4; fi
-# 3) 归属权威化（A_OWNED 仅留 A 确认项 + 存档 reconcile_dropped.json）
-python3 "$SK/scripts/lqe_chunk.py" reconcile --outdir "$CH"
+# 1) 检查四个必需模块的结构和 id 覆盖
+if ! python3 "$SK/scripts/lqe_chunk.py" validate-checks --job "$JOB"; then
+  echo "VALIDATE-CHECKS FAIL $1; not finalizing"; exit 4; fi
+# 2) 合并模块检查结果
+if ! python3 "$SK/scripts/lqe_chunk.py" merge-checks --job "$JOB"; then
+  echo "MERGE-CHECKS FAIL $1; not finalizing"; exit 3; fi
+# 3) 归属权威化
+python3 "$SK/scripts/lqe_chunk.py" reconcile --job "$JOB"
 # 4) 广播去重组 → errors.json（任一 id 未覆盖则非零退出）
 if ! python3 "$SK/scripts/lqe_chunk.py" merge --state "$JOB/state.json" \
      --errors "$JOB/errors_precheck.json" --outdir "$CH" --out "$JOB/errors.json"; then
-  echo "MERGE-INCOMPLETE $1 (some ids uncovered; see above) — not finalizing"; exit 3
+  echo "MERGE-INCOMPLETE $1 (some ids uncovered; see above); not finalizing"; exit 3
 fi
 # 5) 计分
 RES=$(python3 "$SK/scripts/lqe_calc.py" --state "$JOB/state.json" --errors "$JOB/errors.json" --threshold "$THRESH" --json)
