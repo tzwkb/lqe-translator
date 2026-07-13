@@ -187,9 +187,11 @@ def _requires_term_evidence(segment: dict, resolved: dict, original: str) -> boo
     return any(target and target in resolved["to"] for target in targets)
 
 
-def _hit_span_matches(hit: dict, resolved: dict) -> bool:
+def _hit_span_matches(hit: dict, resolved: dict, original: str) -> bool:
     expected = (resolved["start"], resolved["end"])
+    has_coordinates = False
     if "span" in hit:
+        has_coordinates = True
         span = hit["span"]
         if isinstance(span, dict):
             actual = (span.get("start"), span.get("end"))
@@ -200,9 +202,19 @@ def _hit_span_matches(hit: dict, resolved: dict) -> bool:
         if not all(type(value) is int for value in actual) or actual != expected:
             return False
     if "start" in hit or "end" in hit:
+        has_coordinates = True
         actual = (hit.get("start"), hit.get("end"))
         if not all(type(value) is int for value in actual) or actual != expected:
             return False
+    if not has_coordinates:
+        matched_text = hit.get("matched_text")
+        if not isinstance(matched_text, str) or not matched_text:
+            return False
+        starts = _occurrence_starts(original, matched_text)
+        return len(starts) == 1 and expected == (
+            starts[0],
+            starts[0] + len(matched_text),
+        )
     return True
 
 
@@ -240,7 +252,7 @@ def _has_matching_confirmed_term(
             and hit.get("target") == evidence.get("target")
             and hit.get("confirmed") is True
             and hit.get("matched_text") == resolved["from"]
-            and _hit_span_matches(hit, resolved)
+            and _hit_span_matches(hit, resolved, original)
         ):
             return True
     return False

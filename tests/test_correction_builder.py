@@ -467,6 +467,64 @@ class CorrectionBuilderTests(unittest.TestCase):
         self.assertTrue(result["errors"][0]["needs_confirmation"])
         self.assertIsNone(result["errors"][0]["edit"])
 
+    def test_desc_confirmed_term_without_span_rejects_repeated_matched_text(self):
+        segment = {
+            "id": 1,
+            "target": "Old Name and Old Name",
+            "kind": "desc",
+            "term_hits": [
+                {
+                    "source": "旧名",
+                    "target": "New Name",
+                    "confirmed": True,
+                    "matched_text": "Old Name",
+                }
+            ],
+        }
+        evidence = {
+            "type": "confirmed_term",
+            "source": "旧名",
+            "target": "New Name",
+        }
+
+        result = build_segment_result(
+            segment,
+            [issue(edit("Old Name", "New Name", 13, 21, evidence=evidence))],
+        )
+
+        self.assertIsNone(result["corrected"])
+        self.assertTrue(result["errors"][0]["needs_confirmation"])
+        self.assertIsNone(result["errors"][0]["edit"])
+
+    def test_desc_confirmed_term_without_span_allows_unique_matched_text(self):
+        segment = {
+            "id": 1,
+            "target": "Meet Old Name today.",
+            "kind": "desc",
+            "term_hits": [
+                {
+                    "source": "旧名",
+                    "target": "New Name",
+                    "confirmed": True,
+                    "matched_text": "Old Name",
+                }
+            ],
+        }
+        evidence = {
+            "type": "confirmed_term",
+            "source": "旧名",
+            "target": "New Name",
+        }
+
+        result = build_segment_result(
+            segment,
+            [issue(edit("Old Name", "New Name", 5, 13, evidence=evidence))],
+        )
+
+        self.assertEqual(result["corrected"], "Meet New Name today.")
+        self.assertFalse(result["errors"][0]["needs_confirmation"])
+        self.assertIsNotNone(result["errors"][0]["edit"])
+
     def test_desc_edit_touching_matched_text_requires_confirmed_evidence(self):
         segment = {
             "id": 1,
