@@ -34,19 +34,17 @@ from lqe_engine import (
 from lqe_corrections import build_results, normalize_check_entries
 
 
-_CORRECTION_STATUSES = {"suggested", "pending_adjudication", "approved"}
-_PRESERVE_SOURCE_TARGET = object()
-
-
-def _correction_status(entry):
-    status = entry.get("correction_status")
-    if status is None or status == "":
-        return "suggested"
-    return status if isinstance(status, str) else repr(status)
-
-
-def _is_pending_correction(entry):
-    return _correction_status(entry) not in {"suggested", "approved"}
+def _processing_label(entry: dict) -> str:
+    errors = entry.get("errors") or []
+    if any(error.get("protected") for error in errors):
+        return "已保护，不修改"
+    if any(error.get("needs_confirmation") for error in errors):
+        return "需要人工确认"
+    if entry.get("corrected") is not None:
+        return "建议修改"
+    if errors:
+        return "仅提醒"
+    return "无需修改"
 
 
 # ── read ──────────────────────────────────────────────────────────────────────
@@ -664,15 +662,10 @@ def cmd_apply_fixes(args):
     for msg in issues:
         print(f"[validate] {msg}")
 
-    pending = {
-        e["id"]: e["corrected"]
-        for e in errors_data
-        if e.get("corrected") and _is_pending_correction(e)
-    }
     attempted_entries = {
         e["id"]: e
         for e in errors_data
-        if e.get("corrected") and not _is_pending_correction(e)
+        if e.get("corrected")
     }
     attempted = {sid: entry["corrected"] for sid, entry in attempted_entries.items()}
     corrections = {sid: text for sid, text in attempted.items() if sid not in locked_ids}
@@ -681,10 +674,7 @@ def cmd_apply_fixes(args):
         for sid, text in attempted.items()
         if sid in locked_ids
     ]
-    skipped = locked_skipped + [
-        {"id": sid, "reason": "PENDING_ADJUDICATION", "attempted": text}
-        for sid, text in pending.items()
-    ]
+    skipped = locked_skipped
     if not corrections and not skipped:
         print("[lqe_io] apply-fixes: no corrections found, state unchanged.")
         return
@@ -711,7 +701,6 @@ def cmd_apply_fixes(args):
             continue
         if seg["id"] in corrections:
             seg["corrected"] = corrections[seg["id"]]
-            seg["correction_status"] = _correction_status(attempted_entries[seg["id"]])
             seg["iter"] = next_iter
 
     state["iteration"] = next_iter
@@ -744,18 +733,8 @@ _LEFT_TOP   = Alignment(horizontal="left", vertical="top", wrap_text=True)
 _LEFT_MID   = Alignment(horizontal="left", vertical="center")
 
 
-def _validate_correction_statuses(errors_data: list, seg_ids: set) -> list[str]:
-    issues = []
-    for entry in errors_data:
-        sid = entry.get("id")
-        correction_status = _correction_status(entry)
-        if sid in seg_ids and correction_status not in _CORRECTION_STATUSES:
-            issues.append(f"[seg {sid}] 非法 correction_status: '{correction_status}'")
-    return issues
-
-
 def _validate_errors(errors_data: list, seg_ids: set, scorecard_profile: dict | None = None) -> list[str]:
-    issues = _validate_correction_statuses(errors_data, seg_ids)
+    issues = []
     valid_categories = set(scorecard_category_order(scorecard_profile))
     for entry in errors_data:
         sid = entry.get("id")
@@ -763,8 +742,6 @@ def _validate_errors(errors_data: list, seg_ids: set, scorecard_profile: dict | 
             issues.append(f"[seg {sid}] 未知 segment id")
             continue
         errs = entry.get("errors", [])
-        if errs and entry.get("corrected") is None:
-            issues.append(f"[seg {sid}] 有 {len(errs)} 条错误但 corrected=null")
         for e in errs:
             raw_cat = e.get("category", "")
             cat = normalize_category_for_profile(raw_cat, scorecard_profile)
@@ -816,8 +793,8 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
                 continue
             if seg["id"] in all_locked_ids:
                 continue
-            corrected = e_seg.get("corrected") or seg.get("corrected") or seg["target"]
-            correction_status = _correction_status(e_seg)
+            corrected = e_seg.get("corrected")
+            processing = _processing_label(e_seg)
             for e in e_seg.get("errors", []):
                 cat = normalize_category_for_profile(e.get("category", "Other"), scorecard_profile)
                 sev = apply_severity(cat, e.get("severity", "Minor"), scorecard_profile)
@@ -838,7 +815,7 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
                     "iteration": f"Iter {entry['iteration']}",
                     "comment":  ("[Repeated] " if e.get("repeated") else "") + e.get("comment", ""),
                     "fixed":    fixed,
-                    "correction_status": correction_status,
+                    "processing": processing,
                 })
 
     total_counts = {"Neutral": 0, "Minor": 0, "Major": 0, "Critical": 0}
@@ -867,14 +844,14 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
         ("", "", "", ""),
         ("Sheet", "是什么", "给谁看", "怎么用"),
         ("LQA Scorecard（第 2 个）", "计分卡：过/不过 + 分数 + 错误(类别×严重度)分布 + 罚分", "PM / 客户", f"先看这里拿整体判定：是否达标(阈值 {threshold})、差在哪类"),
-        ("LQE Results（第 3 个）", "逐段明细：原文 / 译文 / 建议修正(Suggest translation) / 错误详情 / 状态", "审校 / 译员", "逐段改稿：照「Suggest translation」列改、看「错误详情」知原因"),
+        ("LQE Results（第 3 个）", "逐段明细：原文 / 原译 / 建议译文 / 错误详情 / 处理方式", "审校 / 译员", "逐段审阅「建议译文」与「处理方式」，结合错误详情处理"),
         ("", "", "", ""),
         ("建议使用思路：", "", "", ""),
         ("1. PM 先看「LQA Scorecard」拿整体判定（分数 / 状态 / 错误分布）。", "", "", ""),
-        ("2. 审校/译员到「LQE Results」，只处理有「错误详情」的行，照「Suggest translation」列改稿。", "", "", ""),
-        ("3. 「Suggest translation」留空 = 该段正确、无需改。", "", "", ""),
+        ("2. 审校/译员到「LQE Results」，结合「建议译文」「处理方式」和「错误详情」逐段处理。", "", "", ""),
+        ("3. 「建议译文」留空时保留原译；「处理方式」说明是否仅提醒或需要人工确认。", "", "", ""),
         ("4. 修正若要落地，按项目流程（如改在线 memoQ）。", "", "", ""),
-        ("5. Pending Adjudication 建议必须先经人工裁决，未批准前不得应用。", "", "", ""),
+        ("5. 已保护内容不修改；需要人工确认的问题由审校人员判断。", "", "", ""),
     ]:
         intro.append(r)
         for c in intro[intro.max_row]:
@@ -1038,9 +1015,9 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
 
     ws.row_dimensions[cur_row].height = 14.25
     for col, hdr in enumerate(
-        ["File name","Segment #","Source text","Original target translation",
-         "Corrected target translation","Error category","Error sub-category",
-         "Error severity","Iteration","Reviewer's comment","Fixed","TM Protected","TM Evidence"], start=1):
+        ["File name","Segment #","Source text","原译",
+         "建议译文","Error category","Error sub-category",
+         "Error severity","Iteration","Reviewer's comment","处理方式","TM Protected","TM Evidence"], start=1):
         c = ws.cell(row=cur_row, column=col, value=hdr)
         _s(c, fill=_DARK_BLUE, font=_WHITE_FONT, align=_CENTER)
     cur_row += 1
@@ -1054,7 +1031,7 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
             (5, dr["corrected"]),(6, dr["parent"]),
             (7, dr["category"]), (8, dr["severity"]),
             (9, dr["iteration"]),(10, dr["comment"]),
-            (11, "Pending" if _is_pending_correction(dr) else ("✓" if dr["fixed"] else "—")),
+            (11, dr["processing"]),
             (12, "Yes" if dr["seg_id"] in all_locked_ids else "No"),
             (13, "TM_100_MATCH" if dr["seg_id"] in all_locked_ids else ""),
         ]:
@@ -1080,10 +1057,16 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
     _WRAP_TOP = Alignment(wrap_text=True, vertical="top")
 
     current_entries = {e["id"]: e for e in history[-1].get("errors", [])} if history else {}
-    is_final_report = "_lqe_iter" not in out_path.name
-    translation_col = "Suggest translation"   # 统一列名，对齐客户 QAFeedback 格式（iter/final 同名）
+    report_headers = list(state["headers"])
+    target_col = state.get("target_col", 1)
+    try:
+        target_index = int(target_col)
+    except (ValueError, TypeError):
+        target_index = report_headers.index(target_col) if target_col in report_headers else 1
+    if 0 <= target_index < len(report_headers):
+        report_headers[target_index] = "原译"
 
-    ws2_headers = state["headers"] + [translation_col, "LQE_Error_Detail", "LQE_Status", "LQE_Iter", "TM Protected", "TM Evidence"]
+    ws2_headers = report_headers + ["建议译文", "处理方式", "错误详情", "LQE_Iter", "TM Protected", "TM Evidence"]
     for ci, h in enumerate(ws2_headers, start=1):
         c = ws2.cell(row=1, column=ci, value=h)
         _s(c, fill=_DARK_BLUE, font=_WHITE_FONT, align=_CENTER)
@@ -1091,23 +1074,25 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
 
     for ri, (raw_row, seg) in enumerate(zip(state["rows_raw"], segments), start=2):
         is_locked = seg["id"] in all_locked_ids
-        current_entry = current_entries.get(seg["id"], {})
-        errs = [] if is_locked else current_entry.get("errors", [])
+        current_entry = current_entries.get(seg["id"])
+        entry = current_entry if current_entry is not None else {
+            "errors": [],
+            "corrected": seg.get("corrected"),
+        }
+        errs = [] if is_locked else entry.get("errors", [])
         has_error = bool(errs)
-        is_pending = bool(current_entry) and _is_pending_correction(current_entry)
-        row_fill = _ORANGE if has_error else _GREEN_LIGHT if (is_locked or seg.get("corrected")) else None
         if is_locked:
-            suggestion = ""
-        elif is_pending:
-            suggestion = current_entry.get("corrected") or ""
-        elif is_final_report:
-            suggestion = seg.get("corrected") or current_entry.get("corrected") or ""
+            processing_entry = {"errors": [{"protected": True}], "corrected": None}
         else:
-            suggestion = current_entry.get("corrected") or ""
+            processing_entry = entry
+        processing = _processing_label(processing_entry)
+        corrected = entry.get("corrected")
+        suggestion = "" if processing == "已保护，不修改" else (corrected or "")
+        row_fill = _ORANGE if has_error else _GREEN_LIGHT if (is_locked or suggestion) else None
         row_data = list(raw_row) + [
             suggestion,
+            processing,
             _fmt_errors(errs),
-            "TM Protected" if is_locked else ("Pending Adjudication" if is_pending else ("Error" if has_error else ("Fixed" if seg.get("corrected") else "OK"))),
             seg.get("iter", 0),
             "Yes" if is_locked else "No",
             seg.get("lock_reason") or ("TM_100_MATCH" if is_locked else ""),
@@ -1138,9 +1123,6 @@ def cmd_write(args):
     if scrubbed:
         Path(args.errors).write_text(json.dumps(final_errors_data, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"[write] scrubbed {scrubbed} locked-segment issue(s) from {args.errors}")
-    seg_ids = {s["id"] for s in state["segments"]}
-    for msg in _validate_correction_statuses(final_errors_data, seg_ids):
-        print(f"[validate] {msg}")
     score = float(args.score)
 
     final_entry = {
@@ -1182,60 +1164,27 @@ def cmd_pre_check(args):
 
 # ── export ───────────────────────────────────────────────────────────────────
 
-def _export_choice(seg):
-    orig = seg.get("target", "")
-    corr = seg.get("corrected")
-    correction_status = _correction_status(seg)
-    if seg.get("locked"):
-        return orig, "TM保护", "lock"
-    if _is_pending_correction(seg):
-        if seg.get("_pending_preserve_source"):
-            return _PRESERVE_SOURCE_TARGET, "待人工裁决", "pending"
-        if "_pending_baseline" in seg:
-            return seg["_pending_baseline"], "待人工裁决", "pending"
-        if corr is None:
-            return _PRESERVE_SOURCE_TARGET, "待人工裁决", "pending"
-        return corr, "待人工裁决", "pending"
-    if correction_status == "approved" and corr is not None:
-        return corr, "人工批准", "approved"
-    if corr and corr != orig:
-        return corr, "AI修正", "fixed"
-    return orig, "未改", "same"
-
-
-def _pad(row: list, width: int):
-    while len(row) < width:
-        row.append("")
-
-
 def cmd_export(args):
     state_path = Path(args.state)
     state = read_json(state_path)
     segments = state["segments"]
     seg_map = {s["id"]: s for s in segments}
+    result_entries = {
+        segment["id"]: {
+            "errors": [],
+            "corrected": segment.get("corrected"),
+        }
+        for segment in segments
+    }
 
-    # 单轮无 apply-fixes 时 state.corrected 为空：可从 errors.json 取建议修正填充（仅本次导出，不写回 state）
     if getattr(args, "errors", None):
-        n_overlay = 0
         overlay_entries = read_json(args.errors)
-        for msg in _validate_correction_statuses(overlay_entries, set(seg_map)):
-            print(f"[validate] {msg}")
         for e in overlay_entries:
             seg = seg_map.get(e["id"])
             if seg is None:
                 continue
-            correction_status = _correction_status(e)
-            if _is_pending_correction(e):
-                if seg.get("corrected") is None:
-                    seg["_pending_preserve_source"] = True
-                else:
-                    seg["_pending_baseline"] = seg["corrected"]
-            if e.get("corrected"):
-                seg["corrected"] = e["corrected"]
-                n_overlay += 1
-            seg["correction_status"] = correction_status
-        if n_overlay:
-            print(f"[export] overlaid {n_overlay} suggested corrections from {args.errors}")
+            seg["corrected"] = e.get("corrected")
+            result_entries[e["id"]] = e
 
     no_header = isinstance(state.get("source_col"), int) or (
         isinstance(state.get("source_col"), str) and state["source_col"].isdigit()
@@ -1250,79 +1199,71 @@ def cmd_export(args):
             sys.exit(1)
 
     src_path = Path(state["input_path"])
-    n_fixed = n_approved = n_pending = n_lock = n_same = 0
+    counts = {
+        "建议修改": 0,
+        "需要人工确认": 0,
+        "保持原译": 0,
+        "已保护": 0,
+    }
+
+    def export_kind(segment):
+        if segment.get("locked"):
+            return "已保护"
+        label = _processing_label(result_entries[segment["id"]])
+        if label == "已保护，不修改":
+            return "已保护"
+        if label in ("建议修改", "需要人工确认"):
+            return label
+        return "保持原译"
+
+    def print_summary(out_path):
+        print(
+            f"[export] 建议修改 {counts['建议修改']} / "
+            f"需要人工确认 {counts['需要人工确认']} / "
+            f"保持原译 {counts['保持原译']} / "
+            f"已保护 {counts['已保护']} → {out_path}"
+        )
 
     if src_path.suffix.lower() in (".csv", ".tsv"):
         delim = "\t" if src_path.suffix.lower() == ".tsv" else ","
         raw_rows = list(csv.reader(io.StringIO(src_path.read_bytes().decode("utf-8-sig")), delimiter=delim))
-        ncol = max((len(r) for r in raw_rows), default=0)
-        status_col = ncol
-        if not no_header and raw_rows:
-            _pad(raw_rows[0], ncol)
-            raw_rows[0].append("修正状态 Status")
-        for row in raw_rows[1 if not no_header else 0:]:
-            _pad(row, status_col + 1)
         offset = 0 if no_header else 1
         for seg in segments:
             row_idx = offset + int(seg.get("row_index", seg.get("id", 0)))
             if row_idx < 0 or row_idx >= len(raw_rows):
                 continue
-            final_text, status, kind = _export_choice(seg)
             row = raw_rows[row_idx]
-            _pad(row, status_col + 1)
-            if final_text is not _PRESERVE_SOURCE_TARGET and ti < len(row):
-                row[ti] = final_text
-            row[status_col] = status
-            if kind == "fixed": n_fixed += 1
-            elif kind == "approved": n_approved += 1
-            elif kind == "pending": n_pending += 1
-            elif kind == "lock": n_lock += 1
-            else: n_same += 1
+            kind = export_kind(seg)
+            corrected = result_entries[seg["id"]].get("corrected")
+            if kind != "已保护" and corrected and ti < len(row):
+                row[ti] = corrected
+            counts[kind] += 1
         out_path = state_path.parent / (_job_label(state_path) + "_corrected" + src_path.suffix.lower())
         enc = "utf-8-sig" if src_path.suffix.lower() == ".csv" else "utf-8"
         with out_path.open("w", newline="", encoding=enc) as f:
             csv.writer(f, delimiter=delim).writerows(raw_rows)
-        print(f"[export] AI修正 {n_fixed} / 人工批准 {n_approved} / 待人工裁决 {n_pending} / "
-              f"TM保护 {n_lock} / 未改 {n_same} → {out_path}")
+        print_summary(out_path)
         return
 
     wb = openpyxl.load_workbook(str(src_path))
-    ws = wb.active
-    ncol = ws.max_column
-
-    fill_fixed = PatternFill("solid", fgColor="FFF3CD")
-    fill_approved = PatternFill("solid", fgColor="D1E7DD")
-    fill_pending = PatternFill("solid", fgColor="F8D7DA")
-    fill_lock = PatternFill("solid", fgColor="D1E7DD")
+    sheet_name = state.get("sheet_name")
+    ws = wb[sheet_name] if sheet_name in wb.sheetnames else wb.active
 
     start_row = 1 if no_header else 2
-    if not no_header:
-        ws.cell(row=1, column=ncol + 1, value="修正状态 Status").font = Font(bold=True)
-    ws.column_dimensions[get_column_letter(ncol + 1)].width = 18
-
     for seg in segments:
         row_num = start_row + int(seg.get("row_index", seg.get("id", 0)))
         if row_num < start_row or row_num > ws.max_row:
             continue
-        final_text, status, kind = _export_choice(seg)
-        if final_text is not _PRESERVE_SOURCE_TARGET:
-            ws.cell(row=row_num, column=ti + 1, value=final_text)
-        c = ws.cell(row=row_num, column=ncol + 1, value=status)
-        if kind == "fixed":
-            c.fill = fill_fixed; n_fixed += 1
-        elif kind == "approved":
-            c.fill = fill_approved; n_approved += 1
-        elif kind == "pending":
-            c.fill = fill_pending; n_pending += 1
-        elif kind == "lock":
-            c.fill = fill_lock; n_lock += 1
-        else:
-            n_same += 1
+        kind = export_kind(seg)
+        corrected = result_entries[seg["id"]].get("corrected")
+        if kind != "已保护" and corrected:
+            ws.cell(row=row_num, column=ti + 1, value=corrected)
+        counts[kind] += 1
 
     out_path = state_path.parent / (_job_label(state_path) + "_corrected.xlsx")
     wb.save(str(out_path))
-    print(f"[export] AI修正 {n_fixed} / 人工批准 {n_approved} / 待人工裁决 {n_pending} / "
-          f"TM保护 {n_lock} / 未改 {n_same} → {out_path}")
+    wb.close()
+    print_summary(out_path)
 
 
 # ── ingest-corpus (stub) ──────────────────────────────────────────────────────

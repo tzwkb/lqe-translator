@@ -29,6 +29,7 @@ sys.path.insert(0, str(SCRIPTS))
 from lqe_checks import run_pre_check
 import aggregate_sheets
 import lqe_chunk
+import lqe_io
 
 
 def write_json(path, value):
@@ -1130,6 +1131,254 @@ esac
                 "--out", str(job / "errors.json"),
             ],
         )
+
+
+class CorrectedOwnershipOutputTests(unittest.TestCase):
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.root = Path(self.tempdir.name)
+
+    def tearDown(self):
+        self.tempdir.cleanup()
+
+    @staticmethod
+    def workbook_signature(path):
+        workbook = openpyxl.load_workbook(path, data_only=False)
+        try:
+            return {
+                "sheetnames": workbook.sheetnames,
+                "dimensions": {
+                    sheet.title: sheet.calculate_dimension() for sheet in workbook
+                },
+                "headers": {
+                    sheet.title: [cell.value for cell in sheet[1]]
+                    for sheet in workbook
+                },
+            }
+        finally:
+            workbook.close()
+
+    def test_report_uses_plain_processing_labels(self):
+        output = self.root / "sample_lqe.xlsx"
+        targets = ["原译一", "原译二", "原译三", "原译四", "原译五"]
+        state = {
+            "input_path": str(self.root / "sample.xlsx"),
+            "headers": ["原文", "译文"],
+            "rows_raw": [
+                [f"Source {index}", target]
+                for index, target in enumerate(targets)
+            ],
+            "segments": [
+                {
+                    "id": index,
+                    "source": f"Source {index}",
+                    "target": target,
+                    "kind": "desc",
+                }
+                for index, target in enumerate(targets)
+            ],
+            "wordcount": len(targets),
+        }
+        protected = check_issue()
+        protected["protected"] = True
+        history = [
+            {
+                "iteration": 0,
+                "errors": [
+                    {
+                        "id": 0,
+                        "errors": [check_issue()],
+                        "corrected": "建议译文一",
+                    },
+                    {
+                        "id": 1,
+                        "errors": [check_issue(needs_confirmation=True)],
+                        "corrected": "安全修改二",
+                    },
+                    {"id": 2, "errors": [check_issue()], "corrected": None},
+                    {"id": 3, "errors": [], "corrected": None},
+                    {"id": 4, "errors": [protected], "corrected": None},
+                ],
+            }
+        ]
+
+        call_quietly(lqe_io._build_xlsx, state, history, 99, 98, output)
+
+        workbook = openpyxl.load_workbook(output)
+        try:
+            headers = [cell.value for cell in workbook["LQE Results"][1]]
+            self.assertIn("原译", headers)
+            self.assertIn("建议译文", headers)
+            self.assertIn("处理方式", headers)
+            processing_col = headers.index("处理方式") + 1
+            labels = [
+                workbook["LQE Results"].cell(row=row, column=processing_col).value
+                for row in range(2, 7)
+            ]
+            self.assertEqual(
+                labels,
+                ["建议修改", "需要人工确认", "仅提醒", "无需修改", "已保护，不修改"],
+            )
+        finally:
+            workbook.close()
+
+    def test_processing_label_uses_only_errors_and_corrected(self):
+        processing_label = getattr(lqe_io, "_processing_label", None)
+        self.assertIsNotNone(processing_label)
+        protected = check_issue()
+        protected["protected"] = True
+        cases = [
+            ({"errors": [protected], "corrected": "ignored"}, "已保护，不修改"),
+            (
+                {
+                    "errors": [check_issue(needs_confirmation=True)],
+                    "corrected": "安全修改",
+                },
+                "需要人工确认",
+            ),
+            ({"errors": [check_issue()], "corrected": "建议译文"}, "建议修改"),
+            ({"errors": [check_issue()], "corrected": None}, "仅提醒"),
+            ({"errors": [], "corrected": None}, "无需修改"),
+        ]
+        for entry, expected in cases:
+            with self.subTest(expected=expected):
+                self.assertEqual(processing_label(entry), expected)
+
+    def test_errors_without_corrected_are_valid(self):
+        issues = lqe_io._validate_errors(
+            [{"id": 0, "errors": [check_issue()], "corrected": None}],
+            {0},
+        )
+
+        self.assertFalse(
+            any("corrected=null" in issue for issue in issues),
+            issues,
+        )
+
+    def test_corrected_workbook_has_source_structure(self):
+        source = self.root / "sample.xlsx"
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.title = "Content"
+        sheet.append(["Source", "Target", "Formula"])
+        sheet.append(["Source", "原译", "=LEN(B2)"])
+        sheet.append(["Reminder", "保留原译", "=LEN(B3)"])
+        notes = workbook.create_sheet("Notes")
+        notes["A1"] = "untouched"
+        workbook.save(source)
+        workbook.close()
+        state_path = self.root / "state.json"
+        errors_path = self.root / "errors.json"
+        write_json(
+            state_path,
+            {
+                "input_path": str(source),
+                "source_col": "Source",
+                "target_col": 1,
+                "headers": ["Source", "Target", "Formula"],
+                "segments": [
+                    {
+                        "id": 0,
+                        "row_index": 0,
+                        "source": "Source",
+                        "target": "原译",
+                    },
+                    {
+                        "id": 1,
+                        "row_index": 1,
+                        "source": "Reminder",
+                        "target": "保留原译",
+                    },
+                ],
+            },
+        )
+        write_json(
+            errors_path,
+            [
+                {"id": 0, "errors": [check_issue()], "corrected": "建议译文"},
+                {"id": 1, "errors": [check_issue()], "corrected": None},
+            ],
+        )
+        before = self.workbook_signature(source)
+
+        call_quietly(
+            lqe_io.cmd_export,
+            SimpleNamespace(state=str(state_path), errors=str(errors_path)),
+        )
+
+        output = next(self.root.glob("*_corrected.xlsx"))
+        after = self.workbook_signature(output)
+        self.assertEqual(after["sheetnames"], before["sheetnames"])
+        self.assertEqual(after["dimensions"], before["dimensions"])
+        self.assertEqual(after["headers"], before["headers"])
+        output_workbook = openpyxl.load_workbook(output, data_only=False)
+        try:
+            self.assertEqual(output_workbook["Content"]["B2"].value, "建议译文")
+            self.assertEqual(output_workbook["Content"]["B3"].value, "保留原译")
+        finally:
+            output_workbook.close()
+
+    def test_export_prints_only_four_plain_counts(self):
+        source = self.root / "counts.xlsx"
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.append(["Source", "Target"])
+        for index in range(4):
+            sheet.append([f"Source {index}", f"原译{index}"])
+        workbook.save(source)
+        workbook.close()
+        state_path = self.root / "counts-state.json"
+        errors_path = self.root / "counts-errors.json"
+        segments = [
+            {
+                "id": index,
+                "row_index": index,
+                "source": f"Source {index}",
+                "target": f"原译{index}",
+            }
+            for index in range(4)
+        ]
+        segments[3]["locked"] = True
+        write_json(
+            state_path,
+            {
+                "input_path": str(source),
+                "source_col": "Source",
+                "target_col": 1,
+                "headers": ["Source", "Target"],
+                "segments": segments,
+            },
+        )
+        write_json(
+            errors_path,
+            [
+                {"id": 0, "errors": [check_issue()], "corrected": "建议译文"},
+                {
+                    "id": 1,
+                    "errors": [check_issue(needs_confirmation=True)],
+                    "corrected": "安全修改",
+                },
+                {"id": 2, "errors": [], "corrected": None},
+                {"id": 3, "errors": [], "corrected": None},
+            ],
+        )
+        stdout = StringIO()
+
+        with redirect_stdout(stdout):
+            lqe_io.cmd_export(
+                SimpleNamespace(state=str(state_path), errors=str(errors_path))
+            )
+
+        summary = stdout.getvalue()
+        for expected in [
+            "建议修改 1",
+            "需要人工确认 1",
+            "保持原译 1",
+            "已保护 1",
+        ]:
+            self.assertIn(expected, summary)
+        for legacy in ["AI修正", "人工批准", "待人工裁决", "未改", "TM保护"]:
+            self.assertNotIn(legacy, summary)
 
 
 if __name__ == "__main__":

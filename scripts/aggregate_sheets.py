@@ -3,7 +3,7 @@
 
 产出（父 job 目录）：
   <label>_corrected.xlsx  保留原始 workbook 的 sheet/公式/样式/合并单元格，
-                          仅替换译文列为程序重算的建议修正。
+                          仅将程序生成的非空 corrected 写回原译文列。
   <label>_LQE报告.xlsx     汇总 sheet（各子表分数 + 按词数加权总分）+ 各子表 LQE Results 明细。
 
 子 job 发现：父 job 目录下含 state.json 的直接子目录即一个 sheet 子 job。
@@ -130,7 +130,7 @@ def main():
 
     label = _label(job_dir)
 
-    # ── 1) 校验 corrected 权威归属，再从原工作簿原位修改──────────────────
+    # ── 1) 校验 corrected 权威归属，再从原工作簿原位写入建议译文──────────
     summary = []
     tot_L = tot_wc = tot_err = tot_crit = tot_seg = tot_fix = 0
     validated = []
@@ -193,7 +193,7 @@ def main():
     ws.append([f"LQE 质检汇总报告 · {label}"])
     ws.append([f"阈值 {a.threshold}  语言对 {s0.get('language_pair', '')}  项目 {s0.get('project', '')}"])
     ws.append([])
-    ws.append(["子表", "段数", "词数", "错误数", "Critical", "SCORE", "STATUS", "建议修正数"])
+    ws.append(["子表", "段数", "词数", "错误数", "Critical", "SCORE", "STATUS", "建议修改数"])
     for c in ws[ws.max_row]:
         c.font = Font(bold=True)
     for r in summary:

@@ -43,6 +43,7 @@ meta = [
     "〔LQA模板〕《LQA template to evaluate current cooperating translators.xlsx》：客户用于评估合作译员的 LQA 模板",
     "标注约定：〔Skill〕＝沿用现行体系；〔LQE报告〕〔LQA模板〕＝本次依据该文件新增；“第 N 段”指 LQE 报告错误明细中的 Segment 编号，便于核对原文；凡属归纳推断处均注明“归纳”，不作为客户明文规则",
     "报告基础数据：总词数 5,314；总分 82.78，低于阈值 98，判定 FAIL；计分错误 101 条（Minor 25、Major 35、Critical 41），另有重复标记错误 34 条（不计罚分）",
+    "输出约定：报告统一使用“原译、建议译文、处理方式”；处理方式仅由 errors[].needs_confirmation、errors[].protected 与 corrected 推导。建议译文工作簿只将非空 corrected 写回原目标列，不新增状态列或工作表；终端仅汇总“建议修改、需要人工确认、保持原译、已保护”四类数量",
     "源文档：docs/质量检查项清单.md（内容更新以该文件为准，本表由 scripts/gen_checklist_xlsx.py 重新导出）",
 ]
 r = 3
