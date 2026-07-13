@@ -32,6 +32,12 @@ _RE_MARKUP   = re.compile(r'<[^>]*>|\{[^}]*\}|%[sd]')
 # R5: 译文中不应出现的全角/CJK 标点与全角空格（适用 EN/TH 等非 CJK 目标语言；
 # CJK 目标语言如 ja 在语言层关闭 fullwidth_punct）
 _FORBIDDEN_FW = '，。！？；：、（）【】《》「」『』“”‘’　'
+_FULLWIDTH_REPLACEMENTS = {
+    '，': ',', '。': '.', '！': '!', '？': '?', '；': ';', '：': ':',
+    '（': '(', '）': ')', '【': '[', '】': ']', '《': '<', '》': '>',
+    '「': '"', '」': '"', '『': '"', '』': '"', '“': '"', '”': '"',
+    '‘': "'", '’': "'", '　': ' ',
+}
 
 # ── N5-N9 / #3 / #7 / #10（PM 批准 2026-06-12）────────────────────────────────
 # N5: 句尾终止标点（sentence_terminator=none 的语言由属性推导关闭）
@@ -187,6 +193,27 @@ def _fmt_sense(s: dict) -> str:
     return "".join(parts)
 
 
+def _local_edit(frm: str, to: str, start: int, end: int) -> dict:
+    return {
+        "from": frm,
+        "to": to,
+        "start": start,
+        "end": end,
+        "evidence": None,
+    }
+
+
+def _check_issues(errors: list[dict]) -> list[dict]:
+    issues = []
+    for error in errors:
+        issue = dict(error)
+        edit = issue.get("edit")
+        issue["needs_confirmation"] = edit is None
+        issue["edit"] = edit
+        issues.append(issue)
+    return issues
+
+
 def run_pre_check(state_path: Path, out_path: Path | None = None):
     state = read_json(state_path)
     segments = state["segments"]
@@ -220,7 +247,7 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
     src_first, src_variants = {}, defaultdict(set)
     tgt_first, tgt_sources = {}, defaultdict(set)
     for seg in segments:
-        t_ = seg.get("corrected") or seg["target"]
+        t_ = seg["target"]
         if '…' in t_:
             uni_ids.add(seg["id"])
         if _RE_ELLIPSIS_DOTS.search(t_):
@@ -243,7 +270,7 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
 
     for seg in segments:
         src = seg["source"]
-        tgt = seg.get("corrected") or seg["target"]
+        tgt = seg["target"]
         errs = []
 
         tgt_has_cjk = bool(_RE_CJK.search(tgt))
@@ -251,9 +278,9 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
 
         # R7: 空译文（仅报一条，跳过其余检查避免堆叠噪音）
         if on("empty_target") and src.strip() and not tgt.strip():
-            results.append({"id": seg["id"], "errors": [
+            results.append({"id": seg["id"], "issues": _check_issues([
                 {"category": "Untranslated", "severity": "Major",
-                 "comment": "Target is empty"}], "corrected": None})
+                 "comment": "Target is empty"}])})
             total += 1
             continue
 
@@ -261,9 +288,13 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
             errs.append({"category": "Untranslated", "severity": "Major",
                          "comment": "Target contains Chinese characters"})
 
-        if on("em_dash") and _RE_DASH.search(tgt):
-            errs.append({"category": "Punctuation", "severity": "Minor",
-                         "comment": "Em dash '—' found; use ' - '"})
+        for match in (_RE_DASH.finditer(tgt) if on("em_dash") else ()):
+            errs.append({
+                "category": "Punctuation",
+                "severity": "Minor",
+                "comment": "Em dash '—' found; use ' - '",
+                "edit": _local_edit("—", " - ", match.start(), match.end()),
+            })
 
         for c, pat in (_RE_COLOR.items() if on("color_tags") else ()):
             mm = _count_mismatch(pat, src, tgt)
@@ -358,15 +389,37 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
 
         # R5: 空白规范化 + EN 译文全角标点
         if on("whitespace") and tgt.strip() and tgt != tgt.strip():
-            errs.append({"category": "Punctuation", "severity": "Minor",
-                         "comment": "Leading/trailing whitespace in target"})
-        if on("whitespace") and '  ' in tgt.strip():
-            errs.append({"category": "Punctuation", "severity": "Minor",
-                         "comment": "Double space in target"})
+            errs.append({
+                "category": "Punctuation",
+                "severity": "Minor",
+                "comment": "Leading/trailing whitespace in target",
+            })
+        for match in (
+            re.finditer(r"(?<=\S) {2,}(?=\S)", tgt)
+            if on("whitespace")
+            else ()
+        ):
+            start, end = match.start(), match.end()
+            errs.append({
+                "category": "Punctuation",
+                "severity": "Minor",
+                "comment": "Double space in target",
+                "edit": _local_edit(tgt[start:end], " ", start, end),
+            })
         fw = sorted({ch for ch in tgt if ch in _FORBIDDEN_FW}) if on("fullwidth_punct") else []
-        if fw:
-            errs.append({"category": "Punctuation", "severity": "Minor",
-                         "comment": f"Full-width punctuation in target: {''.join(fw)}"})
+        for char in fw:
+            replacement = _FULLWIDTH_REPLACEMENTS.get(char)
+            for match in re.finditer(re.escape(char), tgt):
+                error = {
+                    "category": "Punctuation",
+                    "severity": "Minor",
+                    "comment": f"Full-width punctuation in target: {char}",
+                }
+                if replacement is not None:
+                    error["edit"] = _local_edit(
+                        char, replacement, match.start(), match.end()
+                    )
+                errs.append(error)
 
         # N5: 句尾终止标点对齐（sentence_terminator=none 的语言已由属性推导关闭）
         if on("terminal_punct") and src.strip() and tgt.strip():
@@ -478,13 +531,13 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
                              "comment": f"{c.get('comment', c.get('id', 'custom check'))} [match: {m.group(0)[:30]}]"})
 
         total += len(errs)
-        results.append({"id": seg["id"], "errors": errs, "corrected": None})
+        results.append({"id": seg["id"], "issues": _check_issues(errs)})
 
     out = out_path or state_path.parent / "errors_precheck.json"
     out.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    dist = Counter(e["category"] for r in results for e in r["errors"])
-    flagged = sum(1 for r in results if r["errors"])
+    dist = Counter(e["category"] for r in results for e in r["issues"])
+    flagged = sum(1 for r in results if r["issues"])
     print(f"[pre-check] {total} issues / {flagged} segments → {out}")
     for cat, n in dist.most_common():
         print(f"  {n:>4}x  {cat}")
