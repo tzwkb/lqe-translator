@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -10,6 +11,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 import openpyxl
+from openpyxl.styles import PatternFill
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,6 +21,7 @@ IO_SCRIPT = SCRIPTS / "lqe_io.py"
 BATCH_SCRIPT = SCRIPTS / "lqe_batch.py"
 MASTERTB_SCRIPT = SCRIPTS / "mastertb_prep.py"
 FINALIZE_SCRIPT = SCRIPTS / "finalize_job.sh"
+AGGREGATE_SCRIPT = SCRIPTS / "aggregate_sheets.py"
 REQUIRED_MODULES = ("terminology", "accuracy", "grammar", "naturalness")
 
 sys.path.insert(0, str(SCRIPTS))
@@ -751,6 +754,46 @@ class CorrectedOwnershipPipelineTests(unittest.TestCase):
             capture_output=True,
         )
 
+    def make_aggregate_job(self, *, errors, workbook=None, segments=None, name="multi"):
+        job = self.root / name
+        sheet_job = job / "Sheet1"
+        source = self.root / f"{name}-source.xlsx"
+        workbook = workbook or openpyxl.Workbook()
+        worksheet = workbook["Sheet1"] if "Sheet1" in workbook.sheetnames else workbook.active
+        worksheet.title = "Sheet1"
+        if worksheet.max_row == 1 and worksheet.max_column == 1 and worksheet["A1"].value is None:
+            worksheet["A1"] = "Source"
+            worksheet["B1"] = "Target"
+            worksheet["A2"] = "原文"
+            worksheet["B2"] = "原译"
+        workbook.save(source)
+        segments = segments or [
+            {
+                "id": 0,
+                "row_index": 0,
+                "source": "原文",
+                "target": "原译",
+                "kind": "desc",
+                "term_hits": [],
+                "protected_texts": [],
+            }
+        ]
+        write_json(
+            sheet_job / "state.json",
+            {
+                "input_path": str(source),
+                "target_col": 1,
+                "headers": ["Source", "Target"],
+                "wordcount": 1,
+                "segments": segments,
+            },
+        )
+        write_json(sheet_job / "errors.json", errors)
+        return job, source
+
+    def run_aggregate(self, job):
+        return self.run_script(AGGREGATE_SCRIPT, "--job", job)
+
     def test_build_results_is_required_before_apply(self):
         state = self.root / "state.json"
         checks = self.root / "checks.json"
@@ -883,62 +926,210 @@ class CorrectedOwnershipPipelineTests(unittest.TestCase):
         self.assertIn("corrected", result.stderr)
 
     def test_aggregate_applies_only_non_null_program_result(self):
-        job = self.root / "multi"
-        sheet_job = job / "Sheet1"
-        source = self.root / "source.xlsx"
-        workbook = openpyxl.Workbook()
-        worksheet = workbook.active
-        worksheet.title = "Sheet1"
-        worksheet.append(["Source", "Target"])
-        worksheet.append(["原文", "原译"])
-        workbook.save(source)
-        write_json(
-            sheet_job / "state.json",
-            {
-                "input_path": str(source),
-                "target_col": 1,
-                "headers": ["Source", "Target"],
-                "segments": [
-                    {
-                        "id": 0,
-                        "row_index": 0,
-                        "source": "原文",
-                        "target": "原译",
-                        "corrected": "旧状态修正",
-                    }
-                ],
-            },
+        job, _ = self.make_aggregate_job(
+            errors=[{"id": 0, "errors": [], "corrected": None}],
+            segments=[
+                {
+                    "id": 0,
+                    "row_index": 0,
+                    "source": "原文",
+                    "target": "原译",
+                    "corrected": "旧状态修正",
+                    "kind": "desc",
+                    "term_hits": [],
+                    "protected_texts": [],
+                }
+            ],
         )
-        write_json(
-            sheet_job / "errors.json",
-            [{"id": 0, "errors": [], "corrected": None}],
-        )
-        calc = {
-            "npt": 0,
-            "wordcount": 1,
-            "errors": 0,
-            "critical": 0,
-            "score": 100,
-            "status": "PASS",
-        }
 
-        with mock.patch.object(sys, "argv", ["aggregate_sheets.py", "--job", str(job)]):
-            with mock.patch.object(aggregate_sheets, "_calc", return_value=calc):
-                call_quietly(aggregate_sheets.main)
+        result = self.run_aggregate(job)
 
+        self.assertEqual(result.returncode, 0, result.stderr)
         output = openpyxl.load_workbook(job / f"{job.name}_corrected.xlsx")
         try:
             self.assertEqual(output["Sheet1"]["B2"].value, "原译")
         finally:
             output.close()
 
-    def test_finalize_uses_only_new_check_commands(self):
-        source = FINALIZE_SCRIPT.read_text(encoding="utf-8")
+    def test_aggregate_rejects_forged_corrected_before_writing_outputs(self):
+        job, _ = self.make_aggregate_job(
+            errors=[{"id": 0, "errors": [], "corrected": "伪造修正"}]
+        )
+        outputs = [job / "multi_corrected.xlsx", job / "multi_LQE报告.xlsx"]
+        for output in outputs:
+            output.write_bytes(b"existing output")
 
-        self.assertIn("validate-checks", source)
-        self.assertIn("merge-checks", source)
-        for old_command in ("merge-lenses", "validate-lenses"):
-            self.assertNotIn(old_command, source)
+        result = self.run_aggregate(job)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("corrected", result.stderr)
+        for output in outputs:
+            self.assertEqual(output.read_bytes(), b"existing output")
+
+    def test_aggregate_requires_errors_field(self):
+        job, _ = self.make_aggregate_job(
+            errors=[{"id": 0, "corrected": None}],
+        )
+
+        result = self.run_aggregate(job)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("errors", result.stderr)
+        self.assertFalse((job / "multi_corrected.xlsx").exists())
+        self.assertFalse((job / "multi_LQE报告.xlsx").exists())
+
+    def test_aggregate_requires_exact_result_id_coverage(self):
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.title = "Sheet1"
+        sheet.append(["Source", "Target"])
+        sheet.append(["one", "one"])
+        sheet.append(["two", "two"])
+        segments = [
+            {"id": 0, "row_index": 0, "source": "one", "target": "one"},
+            {"id": 1, "row_index": 1, "source": "two", "target": "two"},
+        ]
+        cases = {
+            "missing": (
+                [{"id": 0, "errors": [], "corrected": None}],
+                "missing=[1]",
+            ),
+            "extra": (
+                [
+                    {"id": 0, "errors": [], "corrected": None},
+                    {"id": 1, "errors": [], "corrected": None},
+                    {"id": 2, "errors": [], "corrected": None},
+                ],
+                "extra=[2]",
+            ),
+        }
+        for name, (errors, message) in cases.items():
+            with self.subTest(name=name):
+                job, _ = self.make_aggregate_job(
+                    errors=errors,
+                    workbook=workbook,
+                    segments=segments,
+                    name=name,
+                )
+
+                result = self.run_aggregate(job)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stderr)
+                self.assertFalse((job / f"{name}_corrected.xlsx").exists())
+                self.assertFalse((job / f"{name}_LQE报告.xlsx").exists())
+
+    def test_aggregate_preserves_complete_source_workbook(self):
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.title = "Sheet1"
+        sheet.append(["Source", "Target", "Formula", "Merged", None])
+        sheet.append(["原文", "原译", "=LEN(B2)", "keep", None])
+        sheet.merge_cells("D1:E1")
+        sheet.column_dimensions["A"].width = 18
+        sheet.column_dimensions["B"].width = 24
+        sheet["B2"].fill = PatternFill(fill_type="solid", fgColor="00FF00")
+        notes = workbook.create_sheet("Notes")
+        notes["A1"] = "untouched"
+        error = check_issue(
+            edit=replacement("原", "新"),
+        )
+        job, source = self.make_aggregate_job(
+            errors=[{"id": 0, "errors": [error], "corrected": "新译"}],
+            workbook=workbook,
+        )
+
+        result = self.run_aggregate(job)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        original = openpyxl.load_workbook(source, data_only=False)
+        output = openpyxl.load_workbook(job / "multi_corrected.xlsx", data_only=False)
+        try:
+            self.assertEqual(output.sheetnames, original.sheetnames)
+            self.assertEqual(output["Sheet1"]["B2"].value, "新译")
+            self.assertEqual(
+                output["Sheet1"]["B2"].style_id,
+                original["Sheet1"]["B2"].style_id,
+            )
+            self.assertEqual(output["Sheet1"]["C2"].value, "=LEN(B2)")
+            self.assertEqual(
+                list(output["Sheet1"].merged_cells.ranges),
+                list(original["Sheet1"].merged_cells.ranges),
+            )
+            self.assertEqual(output["Sheet1"].column_dimensions["A"].width, 18)
+            self.assertEqual(output["Sheet1"].column_dimensions["B"].width, 24)
+            self.assertEqual(output["Notes"]["A1"].value, "untouched")
+        finally:
+            original.close()
+            output.close()
+
+    def test_finalize_uses_only_new_check_commands(self):
+        syntax = subprocess.run(
+            ["bash", "-n", str(FINALIZE_SCRIPT)],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(syntax.returncode, 0, syntax.stderr)
+
+        job = self.root / "finalize"
+        (job / "chunks").mkdir(parents=True)
+        write_json(job / "state.json", {})
+        write_json(job / "chunks" / "chunk_00.json", {})
+        log = self.root / "python-calls.log"
+        bin_dir = self.root / "bin"
+        bin_dir.mkdir()
+        python_stub = bin_dir / "python3"
+        python_stub.write_text(
+            """#!/bin/sh
+printf '%s\\n' "$*" >> "$CALL_LOG"
+case "$1" in
+  -) printf '98\\n' ;;
+  *lqe_calc.py) printf '{"score":100,"status":"PASS","errors":0,"wordcount":1,"critical":0,"npt":0}\\n' ;;
+  -c)
+    case "$2" in
+      *score*) printf '100\\n' ;;
+      *status*) printf 'PASS\\n' ;;
+    esac
+    ;;
+esac
+""",
+            encoding="utf-8",
+        )
+        python_stub.chmod(0o755)
+        env = dict(os.environ)
+        env["CALL_LOG"] = str(log)
+        env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+
+        result = subprocess.run(
+            ["bash", str(FINALIZE_SCRIPT), str(job), "1", "single"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            env=env,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = [
+            line.split()
+            for line in log.read_text(encoding="utf-8").splitlines()
+            if "lqe_chunk.py" in line
+        ]
+        self.assertEqual(
+            [call[1] for call in calls],
+            ["validate-checks", "merge-checks", "reconcile", "merge"],
+        )
+        for call in calls[:3]:
+            self.assertEqual(call[2:4], ["--job", str(job)])
+        self.assertEqual(
+            calls[3][2:],
+            [
+                "--state", str(job / "state.json"),
+                "--errors", str(job / "errors_precheck.json"),
+                "--outdir", str(job / "chunks"),
+                "--out", str(job / "errors.json"),
+            ],
+        )
 
 
 if __name__ == "__main__":

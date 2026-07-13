@@ -2,16 +2,12 @@
 """多 sheet 任务顶层汇总：把已 finalize 的各子 job 合成跨 sheet 交付物。
 
 产出（父 job 目录）：
-  <label>_corrected.xlsx  原始多 sheet 结构（read_only 读，含尾部空行/全部列），
-                          仅替换译文列为建议修正（errors.json 的 corrected）。
+  <label>_corrected.xlsx  保留原始 workbook 的 sheet/公式/样式/合并单元格，
+                          仅替换译文列为程序重算的建议修正。
   <label>_LQE报告.xlsx     汇总 sheet（各子表分数 + 按词数加权总分）+ 各子表 LQE Results 明细。
 
 子 job 发现：父 job 目录下含 state.json 的直接子目录即一个 sheet 子 job。
 段→行映射：优先使用 segment.row_index；旧 state 缺该字段时才回退 segment.id。
-
-⚠ read_only 空行坑：openpyxl 普通模式 load_workbook 会静默裁掉全空尾行
-  （社媒 src 真有 171 行/XML dimension A1:B171，普通模式只报 88）。凡「镜像原始
-  行结构」必须 read_only 读，否则丢空行还不报错。本脚本读 src 一律 read_only。
 
 用法：
   python scripts/aggregate_sheets.py --job LQE测试用 [--sheets 剧情,功能,社媒] [--threshold 98]
@@ -27,6 +23,7 @@ from openpyxl.styles import Font
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lqe_engine import read_json, _SKILL_ROOT  # noqa: E402
+from lqe_corrections import build_segment_result  # noqa: E402
 
 THRESH_DEFAULT = 98
 
@@ -65,6 +62,47 @@ def _discover(job_dir: Path):
                   key=lambda d: d.name)
 
 
+def _validated_results(sj: Path, state: dict) -> tuple[list[dict], dict[int, dict]]:
+    entries = read_json(sj / "errors.json")
+    if not isinstance(entries, list):
+        sys.exit(f"[aggregate] {sj.name}/errors.json must be an array")
+
+    required = {"id", "errors", "corrected"}
+    for index, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            sys.exit(f"[aggregate] {sj.name}/errors.json[{index}] must be an object")
+        missing_fields = sorted(required - entry.keys())
+        if missing_fields:
+            sys.exit(
+                f"[aggregate] {sj.name}/errors.json[{index}] missing fields: "
+                f"{missing_fields}"
+            )
+
+    segments = state.get("segments", [])
+    segment_ids = [segment.get("id") for segment in segments]
+    result_ids = [entry["id"] for entry in entries]
+    missing = sorted(set(segment_ids) - set(result_ids))
+    extra = sorted(set(result_ids) - set(segment_ids))
+    duplicate_ids = sorted({value for value in result_ids if result_ids.count(value) > 1})
+    if missing or extra or duplicate_ids:
+        details = [f"missing={missing}", f"extra={extra}"]
+        if duplicate_ids:
+            details.append(f"duplicates={duplicate_ids}")
+        sys.exit(f"[aggregate] {sj.name}/errors.json id coverage: {' '.join(details)}")
+
+    by_id = {entry["id"]: entry for entry in entries}
+    rebuilt = []
+    for segment in segments:
+        entry = by_id[segment["id"]]
+        result = build_segment_result(segment, entry["errors"])
+        if entry["corrected"] != result["corrected"]:
+            sys.exit(
+                f"[aggregate] {sj.name} segment {segment['id']}: corrected mismatch"
+            )
+        rebuilt.append(result)
+    return rebuilt, {segment["id"]: segment for segment in segments}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--job", required=True,
@@ -92,24 +130,20 @@ def main():
 
     label = _label(job_dir)
 
-    # ── 1) 合并 corrected（镜像原始结构，仅替换译文列）──────────────────
-    cwb = openpyxl.Workbook()
-    cwb.remove(cwb.active)
+    # ── 1) 校验 corrected 权威归属，再从原工作簿原位修改──────────────────
     summary = []
     tot_L = tot_wc = tot_err = tot_crit = tot_seg = tot_fix = 0
-    used_titles = set()
+    validated = []
 
     for sj in subs:
         state = read_json(sj / "state.json")
-        errors = read_json(sj / "errors.json")
+        results, seg_by_id = _validated_results(sj, state)
         tidx = _target_idx(state)
-        seg_by_id = {s["id"]: s for s in state.get("segments", [])}
         seg_rows = {sid: int(seg.get("row_index", sid)) for sid, seg in seg_by_id.items()}
         corr = {
             seg_rows[e["id"]]: e["corrected"]
-            for e in errors
-            if e.get("corrected")
-            and e["id"] in seg_rows
+            for e in results
+            if e["corrected"] is not None
         }
         res = _calc(sj, a.threshold)
         tot_L += res["npt"] * res["wordcount"] / 1000.0
@@ -122,28 +156,27 @@ def main():
         src_path = state.get("input_path")
         if not src_path or not Path(src_path).exists():
             src_path = sj / "src.xlsx"   # 回退：read 记录的源不可达时，用子 job 内副本
-        src = openpyxl.load_workbook(src_path, read_only=True)  # read_only: 保全尾部空行
-        sws = src.active
-        title = sws.title or sj.name
-        while title in used_titles:
-            title += "_"
-        used_titles.add(title)
-        ws = cwb.create_sheet(title)
-        rows = list(sws.iter_rows(values_only=True))
+        validated.append((sj, state, Path(src_path), tidx, corr, res, nseg))
+
+    source_paths = {item[2].resolve() for item in validated}
+    if len(source_paths) != 1:
+        sys.exit(f"[aggregate] sub-jobs must share one source workbook: {sorted(map(str, source_paths))}")
+    cwb = openpyxl.load_workbook(next(iter(source_paths)), data_only=False)
+    for sj, state, _src_path, tidx, corr, res, nseg in validated:
+        sheet_name = state.get("sheet_name") or sj.name
+        if sheet_name in cwb.sheetnames:
+            ws = cwb[sheet_name]
+        elif len(subs) == 1:
+            ws = cwb.active
+        else:
+            cwb.close()
+            sys.exit(f"[aggregate] source workbook missing sheet: {sheet_name}")
         delivery_replacements = 0
-        if rows:
-            ws.append(list(rows[0]))                  # header
-            for p, row in enumerate(rows[1:]):
-                row = list(row)
-                if p in corr:
-                    source_target = row[tidx] if tidx < len(row) else None
-                    if corr[p] != source_target:
-                        delivery_replacements += 1
-                    while len(row) <= tidx:
-                        row.append(None)
-                    row[tidx] = corr[p]
-                ws.append(row)
-        src.close()
+        for row_index, corrected in corr.items():
+            cell = ws.cell(row=row_index + 2, column=tidx + 1)
+            if cell.value != corrected:
+                delivery_replacements += 1
+            cell.value = corrected
         tot_fix += delivery_replacements
         summary.append([sj.name, nseg, res["wordcount"], res["errors"],
                         res["critical"], res["score"], res["status"], delivery_replacements])
