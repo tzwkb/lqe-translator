@@ -1099,7 +1099,7 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
     n_orig = len(state["headers"])
     for ci in range(1, n_orig + 1):
         ws2.column_dimensions[get_column_letter(ci)].width = 20
-    for ci, w in enumerate([35, 45, 10, 8, 12, 18], start=n_orig + 1):
+    for ci, w in enumerate([35, 45, 22, 8, 12, 18], start=n_orig + 1):
         ws2.column_dimensions[get_column_letter(ci)].width = w
 
     wb.save(str(out_path))
@@ -1275,6 +1275,7 @@ def cmd_export(args):
     start_row = 1 if no_header else 2
     if not no_header:
         ws.cell(row=1, column=ncol + 1, value="修正状态 Status").font = Font(bold=True)
+    ws.column_dimensions[get_column_letter(ncol + 1)].width = 18
 
     for seg in segments:
         row_num = start_row + int(seg.get("row_index", seg.get("id", 0)))

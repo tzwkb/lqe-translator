@@ -395,6 +395,45 @@ class PendingAdjudicationTests(unittest.TestCase):
         self.assertEqual(workbook.active.cell(2, 2).value, " 原译A ")
         workbook.close()
 
+    def test_pending_status_columns_are_wide_enough(self):
+        self._write_json(self.errors_path, self._errors())
+        write_result = self._run_cli(
+            "lqe_io.py",
+            "write",
+            "--state",
+            self.state_path,
+            "--errors",
+            self.errors_path,
+            "--score",
+            "80",
+        )
+        self._assert_success(write_result)
+        export_result = self._run_cli(
+            "lqe_io.py", "export", "--state", self.state_path, "--errors", self.errors_path
+        )
+        self._assert_success(export_result)
+
+        report = openpyxl.load_workbook(self.job / "job_lqe.xlsx")
+        results = report["LQE Results"]
+        result_headers = {
+            cell.value: cell.column_letter for cell in results[1] if cell.value is not None
+        }
+        self.assertGreaterEqual(
+            results.column_dimensions[result_headers["LQE_Status"]].width,
+            20,
+        )
+        report.close()
+
+        corrected = openpyxl.load_workbook(self.job / "job_corrected.xlsx")
+        status_column = corrected.active.max_column
+        self.assertGreaterEqual(
+            corrected.active.column_dimensions[
+                openpyxl.utils.get_column_letter(status_column)
+            ].width,
+            18,
+        )
+        corrected.close()
+
     def test_export_keeps_existing_corrected_baseline_for_pending_segment(self):
         state = json.loads(self.state_path.read_text(encoding="utf-8"))
         state["iteration"] = 1
