@@ -154,11 +154,15 @@ def cmd_merge(a):
             if e["id"] in locked_ids:
                 merged[e["id"]] = {"id": e["id"], "errors": [], "corrected": None}
                 continue
-            merged[e["id"]] = {
+            entry = {
                 "id": e["id"],
                 "errors": e.get("errors", []),
                 "corrected": e.get("corrected"),
             }
+            for key in ("correction_status", "corr_candidates"):
+                if key in e:
+                    entry[key] = e[key]
+            merged[e["id"]] = entry
     # broadcast each representative's verdict to all ids in its dedup group
     dmap_path = Path(a.outdir) / "dedup_map.json"
     if dmap_path.exists():
@@ -235,6 +239,8 @@ def _norm_lens(arr, path):
         i = e["id"]
         if i not in out:
             out[i] = {"id": i, "errors": [], "corrected": e.get("corrected")}
+            if "correction_status" in e:
+                out[i]["correction_status"] = e.get("correction_status")
             order.append(i)
         if isinstance(e.get("errors"), list):
             out[i]["errors"].extend(e["errors"])
@@ -245,6 +251,11 @@ def _norm_lens(arr, path):
                                      "comment": e.get("comment", "")})
         if not out[i]["corrected"] and e.get("corrected"):
             out[i]["corrected"] = e["corrected"]
+        status = e.get("correction_status")
+        if status == "pending_adjudication":
+            out[i]["correction_status"] = status
+        elif "correction_status" not in out[i] and "correction_status" in e:
+            out[i]["correction_status"] = status
     if flat_n:
         print(f"[lens] {Path(path).name}: 归并 {flat_n} 条扁平 schema → 嵌套", file=sys.stderr)
     return [out[i] for i in order]
@@ -259,7 +270,7 @@ def cmd_merge_lenses(a):
       spine   = chunk_NN.T.json   (all segments, pre-check triaged; terminology axis)
       additive= chunk_NN.{A,G,R}.json (only flagged segments)
     T carries every id + clean verdicts; A/G/R append their findings. A segment
-    flagged by >1 lens takes the highest-priority non-null corrected (A>T>G>R) as floor
+    flagged by >1 lens takes the highest-priority non-null corrected (N>A>T>G>R) as floor
     + stashes all candidates in corr_candidates (Suggest translation never empty)."""
     outdir = Path(a.outdir)
     idxs = sorted(int(re.fullmatch(r"chunk_(\d+)", p.stem).group(1))
@@ -279,7 +290,8 @@ def cmd_merge_lenses(a):
         for e in _norm_lens(load(spine), spine):
             corr = resolve_corrected(e.get("corrected"), tgt_by_id.get(e["id"], ""))
             by_id[e["id"]] = {"errors": list(e.get("errors", [])),
-                              "corr": {"T": corr}}
+                              "corr": {"T": corr},
+                              "status": {"T": e.get("correction_status")}}
             flags[e["id"]] = {"T"} if e.get("errors") else set()
         for L in _LENS_ADD:
             f = outdir / f"chunk_{ci:02d}.{L}.json"
@@ -289,9 +301,10 @@ def cmd_merge_lenses(a):
             for e in _norm_lens(load(f), f):
                 if not e.get("errors"):
                     continue
-                slot = by_id.setdefault(e["id"], {"errors": [], "corr": {}})
+                slot = by_id.setdefault(e["id"], {"errors": [], "corr": {}, "status": {}})
                 slot["errors"].extend(e["errors"])
                 slot["corr"][L] = resolve_corrected(e.get("corrected"), tgt_by_id.get(e["id"], ""))
+                slot["status"][L] = e.get("correction_status")
                 flags.setdefault(e["id"], set()).add(L)
         out = []
         for sid in sorted(by_id):
@@ -306,16 +319,21 @@ def cmd_merge_lenses(a):
             cands = {L: c for L, c in slot["corr"].items() if c}  # 非空候选
             entry = {"id": sid, "errors": errs, "corrected": None}
             if errs:
-                if len(cands) <= 1:
-                    entry["corrected"] = next(iter(cands.values()), None)
-                else:
-                    # 多 lens 各修各的错(同一基底)：取优先级最高的非空候选作底
-                    # (A 准确>T 术语>G 语法>R 语域),保证 Suggest translation 永不空
-                    # (PM 0622 两度反馈「没有AI改的译文」);全部候选存入 corr_candidates,
-                    # 供 SKILL 大文件流程的可选整合步合并多处修正。
-                    entry["corrected"] = next((cands[L] for L in ("N", "A", "T", "G", "R") if L in cands), None)
+                priority = ("N", "A", "T", "G", "R")
+                selected_lens = next((L for L in priority if L in cands), None)
+                entry["corrected"] = cands.get(selected_lens) if selected_lens else None
+                statuses = slot.get("status", {})
+                status = statuses.get(selected_lens) if selected_lens else None
+                if "pending_adjudication" in statuses.values():
+                    status = "pending_adjudication"
+                if len(set(cands.values())) > 1:
                     entry["corr_candidates"] = cands
+                    status = "pending_adjudication"
                     multi += 1
+                else:
+                    status = status or next((s for s in statuses.values() if s), None)
+                if status is not None:
+                    entry["correction_status"] = status
             out.append(entry)
         (outdir / f"chunk_{ci:02d}.out.json").write_text(
             json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -398,6 +416,8 @@ def cmd_reconcile(a):
                 seg["errors"] = new
                 if not new:
                     seg["corrected"] = None
+                    seg.pop("correction_status", None)
+                    seg.pop("corr_candidates", None)
         if changed:
             op.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
     arch = outdir.parent / "reconcile_dropped.json"

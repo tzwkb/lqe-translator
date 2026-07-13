@@ -294,7 +294,8 @@ Write `$JOB/errors.json`，**所有段落都必须写入，无错误写空数组
     "errors": [
       {"category": "Mistranslation", "severity": "Major", "comment": "The target mistranslates '原文片段' as 'target phrase', changing the meaning."}
     ],
-    "corrected": "修正后的完整译文"
+    "corrected": "修正后的完整译文",
+    "correction_status": "suggested"
   },
   {
     "id": 1,
@@ -308,6 +309,8 @@ Write `$JOB/errors.json`，**所有段落都必须写入，无错误写空数组
 - 有错误且非 locked → 必须提供修正后完整译文
 - 无错误 → `null`
 - TM/memory 100% locked → 必须为 `null`，不得修改
+
+**`correction_status` 是机器裁决字段**：普通 AI 建议写 `suggested`；人工已批准写 `approved`；T/N 或任何 lens 提出尚未裁决的关键专名、TB 缺词/替换候选时，必须在段顶层写 `"correction_status": "pending_adjudication"`。`errors[].comment` 只解释原因，写“待裁决/pending”不会触发机器拦截。
 
 ### Step 4：计算分数
 
@@ -372,7 +375,7 @@ A 是召回命门（旧单轮的盲区）；门控由 `kind`（split 自动标 n
    - **通知报错（timeout/ECONNRESET）永远 SendMessage 续跑同一 agent，不新起**：文件未落盘 ≠ 要重派——`SendMessage(to: <该 agent 的 agentId>, ...)` 原地续跑（保留已读上下文，省重读成本）。失败几次都续跑同一个，**不设"重试N次就换新agent"的门槛**——失败原因（网络/超时）与 agent 实例无关，换新只会多付一遍读取成本、不会更容易成功。除非该 agentId 本身失效（SendMessage 报错找不到该 agent），才新起。见 [[feedback_resume_agent_before_redispatch]]。
    - **单个 chunk×lens 反复失败（同一单元连续 3+ 次超时/64K）就地二分，不再无限续跑同尺寸**：`lqe_chunk.py split-half --outdir chunks --chunk <NN> --lens <L>` 把该 chunk 原地拆成 `chunk_NN_p1.json`/`chunk_NN_p2.json`（各半量段，继承原 chunk 已算好的 precheck/term_hits，不重新预处理）；**带 `--lens` 时若该 chunk 该 lens 已有断点续写攒下的 `chunk_NN.<L>.ckpt.jsonl`，按 id 归属拆给 `chunk_NN_p1.<L>.ckpt.jsonl`/`chunk_NN_p2.<L>.ckpt.jsonl`，已判过的段不因二分作废**——新派的两个小 agent 一开局查断点就跳过这些，只接着判各自剩下的。当两个新 chunk 各派 1 个该 lens 的新 agent（读一半段落，生成量减半，直接压低撞 5 分钟超时/64K 输出上限的概率，段数仍 >30 就继续用断点续写）；两份都出结果后 `lqe_chunk.py join-parts --parts chunk_NN_p1.<L>.json chunk_NN_p2.<L>.json --out chunk_NN.<L>.json` 拼回原本该有的单一文件，后续 merge-lenses 无感。
    - **inline 兜底（agent 全不可用时）+ 降级不出裁决（铁律）**：限流/会话上限致 agent 不可用时，用 `mastertb_prep.py view` 生成精简视图（id\|类别\|性别\|中文\|EN\|定义\|译文，密度高 10×，免读 ~38K/块原始 chunk 爆窗），主上下文按同一 `_RUBRIC.md` 逐块判、写回 `chunk_NN.out.json`（守断点）。**但单判=低召回，只作下限、不可当 lens 双遍的替代**：实证本轮单遍 inline 仅复现 0624 双遍 210 问题中的 29 个（召回 ~14%），漏 135 个真问题，单遍得 98.71 PASS 实为**假阳**（补全双遍真分≈95 FAIL）。**故凡未跑完整 4-lens/双遍的运行，分数只报"临时下限"、不报 PASS/FAIL 裁决**，报告须显著标注"单遍/低召回、待额度恢复补遍"+置信 medium。
-4. `lqe_chunk.py merge-lenses --outdir chunks`：以 T 为基准 union A/G/R 命中 → `chunk_NN.out.json`（**自动归并扁平 schema** lens 文件；多 lens 同段取优先级最高的非空 corrected 作底 `A>T>G>R`，**保证 Suggest translation 不空**，全部候选存 `corr_candidates` 待可选整合）
+4. `lqe_chunk.py merge-lenses --outdir chunks`：以 T 为基准 union N/A/G/R 命中 → `chunk_NN.out.json`（**自动归并扁平 schema** lens 文件并保留 `correction_status`；任一 lens 为 pending 即整体 pending；多个不同 corrected 候选取优先级最高者作底 `N>A>T>G>R`，全部候选存 `corr_candidates` 并默认 `pending_adjudication`，待明确整合后再替换候选并改为非 pending 状态）
 5. `lqe_chunk.py validate-lenses --outdir chunks`（合并前结构守门：缺 id/坏类别/T 脊柱不全→非零退出，防静默丢数据）→ `reconcile --outdir chunks`（A_OWNED 类 Mistranslation/Omission/Addition/Untranslated 仅留 A 确认项、剔 T 透传并存档 `reconcile_dropped.json`）
 6. `lqe_chunk.py merge`：按 dedup_map 把代表判定**套到同组所有段**；**从 pre-check 基底补回确定性 `Untranslated`（空译文/中文残留——A lens 沉默≠甄别为 FP，防落 T↔A 职责缝隙被丢，实证虚高 0.9 分）**；校验全 id 覆盖（缺 id 退回 pre-check）
 7. `finalize_job.sh <job> <nchunks> [single|iterate]` 一键 merge-lenses→validate-lenses→reconcile→merge→calc→report→export（幂等，T 脊柱齐了才跑）；**单轮传 `single`**——FAIL 也只 write、不 apply-fixes（建议修正由 write 回退 errors.json + export `--errors` 显示）
