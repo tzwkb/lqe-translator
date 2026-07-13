@@ -362,6 +362,50 @@ def build_segment_result(segment: dict, issues: list[dict]) -> dict:
     }
 
 
+def verify_results(segments: list[dict], results: object, label: str) -> list[dict]:
+    if not isinstance(results, list):
+        raise CheckFormatError(f"{label}: results must be an array")
+
+    required = {"id", "errors", "corrected"}
+    result_ids = []
+    for index, entry in enumerate(results):
+        entry_label = f"{label}[{index}]"
+        if not isinstance(entry, dict):
+            raise CheckFormatError(f"{entry_label}: result must be an object")
+        missing_fields = sorted(required - entry.keys())
+        if missing_fields:
+            raise CheckFormatError(
+                f"{entry_label}: missing fields: {missing_fields}"
+            )
+        if type(entry["id"]) is not int:
+            raise CheckFormatError(f"{entry_label}: id must be an integer")
+        result_ids.append(entry["id"])
+
+    segment_ids = [segment.get("id") for segment in segments]
+    missing = sorted(set(segment_ids) - set(result_ids))
+    extra = sorted(set(result_ids) - set(segment_ids))
+    duplicate_ids = sorted(
+        {result_id for result_id in result_ids if result_ids.count(result_id) > 1}
+    )
+    if missing or extra or duplicate_ids:
+        details = [f"missing={missing}", f"extra={extra}"]
+        if duplicate_ids:
+            details.append(f"duplicates={duplicate_ids}")
+        raise CheckFormatError(f"{label} id coverage: {' '.join(details)}")
+
+    by_id = {entry["id"]: entry for entry in results}
+    verified = []
+    for segment in segments:
+        entry = by_id[segment["id"]]
+        rebuilt = build_segment_result(segment, entry["errors"])
+        if entry["corrected"] != rebuilt["corrected"]:
+            raise CheckFormatError(
+                f"{label} segment {segment['id']}: corrected mismatch"
+            )
+        verified.append(copy.deepcopy(entry))
+    return verified
+
+
 def build_results(segments: list[dict], check_entries: list[dict]) -> list[dict]:
     normalized = normalize_check_entries(check_entries, label="checks")
     issues_by_id = {entry["id"]: entry["issues"] for entry in normalized}

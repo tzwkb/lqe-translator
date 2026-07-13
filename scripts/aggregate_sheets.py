@@ -23,7 +23,7 @@ from openpyxl.styles import Font
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lqe_engine import read_json, _SKILL_ROOT  # noqa: E402
-from lqe_corrections import build_segment_result  # noqa: E402
+from lqe_corrections import CheckFormatError, verify_results  # noqa: E402
 
 THRESH_DEFAULT = 98
 
@@ -63,44 +63,16 @@ def _discover(job_dir: Path):
 
 
 def _validated_results(sj: Path, state: dict) -> tuple[list[dict], dict[int, dict]]:
-    entries = read_json(sj / "errors.json")
-    if not isinstance(entries, list):
-        sys.exit(f"[aggregate] {sj.name}/errors.json must be an array")
-
-    required = {"id", "errors", "corrected"}
-    for index, entry in enumerate(entries):
-        if not isinstance(entry, dict):
-            sys.exit(f"[aggregate] {sj.name}/errors.json[{index}] must be an object")
-        missing_fields = sorted(required - entry.keys())
-        if missing_fields:
-            sys.exit(
-                f"[aggregate] {sj.name}/errors.json[{index}] missing fields: "
-                f"{missing_fields}"
-            )
-
     segments = state.get("segments", [])
-    segment_ids = [segment.get("id") for segment in segments]
-    result_ids = [entry["id"] for entry in entries]
-    missing = sorted(set(segment_ids) - set(result_ids))
-    extra = sorted(set(result_ids) - set(segment_ids))
-    duplicate_ids = sorted({value for value in result_ids if result_ids.count(value) > 1})
-    if missing or extra or duplicate_ids:
-        details = [f"missing={missing}", f"extra={extra}"]
-        if duplicate_ids:
-            details.append(f"duplicates={duplicate_ids}")
-        sys.exit(f"[aggregate] {sj.name}/errors.json id coverage: {' '.join(details)}")
-
-    by_id = {entry["id"]: entry for entry in entries}
-    rebuilt = []
-    for segment in segments:
-        entry = by_id[segment["id"]]
-        result = build_segment_result(segment, entry["errors"])
-        if entry["corrected"] != result["corrected"]:
-            sys.exit(
-                f"[aggregate] {sj.name} segment {segment['id']}: corrected mismatch"
-            )
-        rebuilt.append(result)
-    return rebuilt, {segment["id"]: segment for segment in segments}
+    try:
+        results = verify_results(
+            segments,
+            read_json(sj / "errors.json"),
+            f"{sj.name}/errors.json",
+        )
+    except CheckFormatError as exc:
+        sys.exit(f"[aggregate] {exc}")
+    return results, {segment["id"]: segment for segment in segments}
 
 
 def main():

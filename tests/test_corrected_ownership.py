@@ -1141,6 +1141,153 @@ class CorrectedOwnershipOutputTests(unittest.TestCase):
     def tearDown(self):
         self.tempdir.cleanup()
 
+    def run_io(self, *args):
+        return subprocess.run(
+            [sys.executable, str(IO_SCRIPT), *map(str, args)],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+
+    def make_export_fixture(self, name, segments, errors):
+        job = self.root / name
+        job.mkdir()
+        source = job / "source.xlsx"
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.append(["Source", "Target"])
+        for segment in segments:
+            sheet.append([segment["source"], segment["target"]])
+        workbook.save(source)
+        workbook.close()
+        state = job / "state.json"
+        results = job / "errors.json"
+        write_json(
+            state,
+            {
+                "input_path": str(source),
+                "source_col": "Source",
+                "target_col": 1,
+                "headers": ["Source", "Target"],
+                "segments": segments,
+            },
+        )
+        write_json(results, errors)
+        return state, results, job / f"{name}_corrected.xlsx"
+
+    def test_export_rejects_forged_corrected_before_touching_output(self):
+        segments = [
+            {"id": 0, "row_index": 0, "source": "Source", "target": "原译"}
+        ]
+        state, errors, output = self.make_export_fixture(
+            "forged-export",
+            segments,
+            [{"id": 0, "errors": [], "corrected": "伪造修正"}],
+        )
+        output.write_bytes(b"existing output")
+
+        result = self.run_io("export", "--state", state, "--errors", errors)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("corrected", result.stderr)
+        self.assertEqual(output.read_bytes(), b"existing output")
+
+    def test_export_requires_exact_result_id_coverage_before_touching_output(self):
+        segments = [
+            {"id": 0, "row_index": 0, "source": "one", "target": "one"},
+            {"id": 1, "row_index": 1, "source": "two", "target": "two"},
+        ]
+        cases = {
+            "missing": (
+                [{"id": 0, "errors": [], "corrected": None}],
+                "missing=[1]",
+            ),
+            "extra": (
+                [
+                    {"id": 0, "errors": [], "corrected": None},
+                    {"id": 1, "errors": [], "corrected": None},
+                    {"id": 2, "errors": [], "corrected": None},
+                ],
+                "extra=[2]",
+            ),
+        }
+        for name, (entries, message) in cases.items():
+            with self.subTest(name=name):
+                state, errors, output = self.make_export_fixture(
+                    f"{name}-export", segments, entries
+                )
+                output.write_bytes(b"existing output")
+
+                result = self.run_io("export", "--state", state, "--errors", errors)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stderr)
+                self.assertEqual(output.read_bytes(), b"existing output")
+
+    def test_apply_fixes_does_not_apply_or_advance_for_protected_row(self):
+        protected = check_issue(edit=replacement("原译", "篡改"))
+        protected["protected"] = True
+        segments = [
+            {
+                "id": 0,
+                "row_index": 0,
+                "source": "Source",
+                "target": "原译",
+                "kind": "desc",
+                "term_hits": [],
+                "protected_texts": [],
+            }
+        ]
+        state, errors, _ = self.make_export_fixture(
+            "protected-apply",
+            segments,
+            [{"id": 0, "errors": [protected], "corrected": "篡改"}],
+        )
+        state_data = read_json(state)
+        state_data["rows_raw"] = [["Source", "原译"]]
+        state_data["wordcount"] = 1
+        state_data["iteration"] = 0
+        write_json(state, state_data)
+
+        result = self.run_io("apply-fixes", "--state", state, "--errors", errors)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        updated = read_json(state)
+        self.assertIsNone(updated["segments"][0].get("corrected"))
+        self.assertEqual(updated["iteration"], 0)
+
+    def test_export_protects_rows_but_applies_mixed_safe_correction(self):
+        protected = check_issue(edit=replacement("原译一", "篡改"))
+        protected["protected"] = True
+        confirmation = check_issue(needs_confirmation=True)
+        safe = check_issue(edit=replacement("原译二", "安全修改"))
+        segments = [
+            {"id": 0, "row_index": 0, "source": "one", "target": "原译一"},
+            {"id": 1, "row_index": 1, "source": "two", "target": "原译二"},
+        ]
+        state, errors, output = self.make_export_fixture(
+            "protected-export",
+            segments,
+            [
+                {"id": 0, "errors": [protected], "corrected": "篡改"},
+                {
+                    "id": 1,
+                    "errors": [confirmation, safe],
+                    "corrected": "安全修改",
+                },
+            ],
+        )
+
+        result = self.run_io("export", "--state", state, "--errors", errors)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        workbook = openpyxl.load_workbook(output)
+        try:
+            self.assertEqual(workbook.active["B2"].value, "原译一")
+            self.assertEqual(workbook.active["B3"].value, "安全修改")
+        finally:
+            workbook.close()
+
     @staticmethod
     def workbook_signature(path):
         workbook = openpyxl.load_workbook(path, data_only=False)
@@ -1295,7 +1442,13 @@ class CorrectedOwnershipOutputTests(unittest.TestCase):
         write_json(
             errors_path,
             [
-                {"id": 0, "errors": [check_issue()], "corrected": "建议译文"},
+                {
+                    "id": 0,
+                    "errors": [
+                        check_issue(edit=replacement("原译", "建议译文"))
+                    ],
+                    "corrected": "建议译文",
+                },
                 {"id": 1, "errors": [check_issue()], "corrected": None},
             ],
         )
@@ -1352,10 +1505,19 @@ class CorrectedOwnershipOutputTests(unittest.TestCase):
         write_json(
             errors_path,
             [
-                {"id": 0, "errors": [check_issue()], "corrected": "建议译文"},
+                {
+                    "id": 0,
+                    "errors": [
+                        check_issue(edit=replacement("原译0", "建议译文"))
+                    ],
+                    "corrected": "建议译文",
+                },
                 {
                     "id": 1,
-                    "errors": [check_issue(needs_confirmation=True)],
+                    "errors": [
+                        check_issue(needs_confirmation=True),
+                        check_issue(edit=replacement("原译1", "安全修改")),
+                    ],
                     "corrected": "安全修改",
                 },
                 {"id": 2, "errors": [], "corrected": None},

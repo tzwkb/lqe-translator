@@ -31,7 +31,12 @@ from lqe_engine import (
     load_scorecard_profile, normalize_category_for_profile, scorecard_category_order,
     scorecard_category_parent, scorecard_category_weight,
 )
-from lqe_corrections import build_results, normalize_check_entries
+from lqe_corrections import (
+    CheckFormatError,
+    build_results,
+    normalize_check_entries,
+    verify_results,
+)
 
 
 def _processing_label(entry: dict) -> str:
@@ -666,6 +671,7 @@ def cmd_apply_fixes(args):
         e["id"]: e
         for e in errors_data
         if e.get("corrected")
+        and not any(error.get("protected") for error in (e.get("errors") or []))
     }
     attempted = {sid: entry["corrected"] for sid, entry in attempted_entries.items()}
     corrections = {sid: text for sid, text in attempted.items() if sid not in locked_ids}
@@ -1178,7 +1184,14 @@ def cmd_export(args):
     }
 
     if getattr(args, "errors", None):
-        overlay_entries = read_json(args.errors)
+        try:
+            overlay_entries = verify_results(
+                segments,
+                read_json(args.errors),
+                str(args.errors),
+            )
+        except CheckFormatError as exc:
+            sys.exit(f"[export] {exc}")
         for e in overlay_entries:
             seg = seg_map.get(e["id"])
             if seg is None:
