@@ -1690,6 +1690,184 @@ class CorrectedOwnershipOutputTests(unittest.TestCase):
             self.assertNotIn(legacy, summary)
 
 
+class CorrectedOwnershipRegressionTests(unittest.TestCase):
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.root = Path(self.tempdir.name)
+
+    def tearDown(self):
+        self.tempdir.cleanup()
+
+    def run_script(self, script, *args):
+        return subprocess.run(
+            [sys.executable, str(script), *map(str, args)],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+
+    def score_result(self, name, errors):
+        state_path = self.root / f"{name}-state.json"
+        errors_path = self.root / f"{name}-errors.json"
+        write_json(
+            state_path,
+            {
+                "wordcount": 100,
+                "segments": [
+                    {"id": 0, "source": "甲。", "target": "A."},
+                    {"id": 1, "source": "乙。", "target": "B."},
+                ],
+            },
+        )
+        write_json(errors_path, errors)
+        result = self.run_script(
+            CALC_SCRIPT,
+            "--state",
+            state_path,
+            "--errors",
+            errors_path,
+            "--threshold",
+            "98",
+            "--json",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_scoring_is_identical_when_only_correction_metadata_changes(self):
+        base = [
+            {
+                "id": 0,
+                "errors": [
+                    {
+                        "category": "Mistranslation",
+                        "severity": "Major",
+                        "comment": "wrong",
+                    }
+                ],
+                "corrected": None,
+            },
+            {
+                "id": 1,
+                "errors": [
+                    {
+                        "category": "Punctuation",
+                        "severity": "Minor",
+                        "comment": "punctuation",
+                    }
+                ],
+                "corrected": None,
+            },
+        ]
+        with_metadata = json.loads(json.dumps(base))
+        for entry in with_metadata:
+            for issue in entry["errors"]:
+                issue["needs_confirmation"] = False
+                issue["edit"] = {
+                    "from": "old",
+                    "to": "new",
+                    "evidence": None,
+                }
+        expected = {
+            "score": 91.5,
+            "status": "FAIL",
+            "errors": 2,
+            "wordcount": 100,
+            "critical": 0,
+            "repeated": 0,
+            "npt": 85.0,
+            "critical_gate": False,
+        }
+
+        self.assertEqual(self.score_result("base", base), expected)
+        self.assertEqual(
+            self.score_result("with-metadata", with_metadata), expected
+        )
+
+    def test_standard_job_has_only_two_xlsx_outputs(self):
+        source = self.root / "source.xlsx"
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.append(["Source", "Target"])
+        sheet.append(["Open the door.", "Open teh door."])
+        workbook.save(source)
+        workbook.close()
+        job = self.root / "fixture"
+        state = job / "state.json"
+        checks = job / "checks.json"
+        errors = job / "errors.json"
+
+        read = self.run_script(
+            IO_SCRIPT,
+            "read",
+            "--input",
+            source,
+            "--source-col",
+            "Source",
+            "--target-col",
+            "Target",
+            "--source-lang",
+            "en",
+            "--target-lang",
+            "en",
+            "--out",
+            state,
+        )
+        self.assertEqual(read.returncode, 0, read.stderr)
+        write_json(
+            checks,
+            [
+                {
+                    "id": 0,
+                    "issues": [
+                        check_issue(
+                            category="Spelling",
+                            comment="Fix the local typo.",
+                            edit=replacement("teh", "the"),
+                        )
+                    ],
+                }
+            ],
+        )
+        built = self.run_script(
+            IO_SCRIPT,
+            "build-results",
+            "--state",
+            state,
+            "--checks",
+            checks,
+            "--out",
+            errors,
+        )
+        self.assertEqual(built.returncode, 0, built.stderr)
+        report = self.run_script(
+            IO_SCRIPT,
+            "write",
+            "--state",
+            state,
+            "--errors",
+            errors,
+            "--score",
+            "99",
+            "--threshold",
+            "98",
+        )
+        self.assertEqual(report.returncode, 0, report.stderr)
+        exported = self.run_script(
+            IO_SCRIPT,
+            "export",
+            "--state",
+            state,
+            "--errors",
+            errors,
+        )
+        self.assertEqual(exported.returncode, 0, exported.stderr)
+
+        self.assertEqual(
+            sorted(path.name for path in job.glob("*.xlsx")),
+            ["fixture_corrected.xlsx", "fixture_lqe.xlsx"],
+        )
+
+
 class CorrectedOwnershipProjectTests(unittest.TestCase):
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
