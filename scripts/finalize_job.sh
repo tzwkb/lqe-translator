@@ -5,7 +5,13 @@
 #   iterate = 默认：FAIL 走 apply-fixes（自动迭代）
 # 幂等：仅当 N 个 T 脊柱(chunk_NN.T.json)齐了才跑。
 SK="$(cd "$(dirname "$0")/.." && pwd)"   # skill 根（脚本位置锚定，与 HOME/CWD 无关）
-JOB="$SK/jobs/$1"; N="$2"; MODE="${3:-iterate}"; CH="$JOB/chunks"
+JOB_ARG="$1"
+if [ -d "$JOB_ARG" ] && [ -f "$JOB_ARG/state.json" ]; then
+  JOB="$(cd "$JOB_ARG" && pwd)"
+else
+  JOB="$SK/jobs/$JOB_ARG"
+fi
+N="$2"; MODE="${3:-iterate}"; CH="$JOB/chunks"
 THRESH=$(python3 - "$JOB/state.json" <<'PY'
 import json
 import sys

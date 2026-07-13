@@ -929,6 +929,7 @@ class PendingAdjudicationTests(unittest.TestCase):
 
     def test_finalize_accepts_absolute_job_directory(self):
         (self.job / "chunks").mkdir(exist_ok=True)
+        (self.job / "chunks" / "chunk_00.T.json").write_text("{}", encoding="utf-8")
         (self.job / ".finalized").write_text("", encoding="utf-8")
 
         result = subprocess.run(
