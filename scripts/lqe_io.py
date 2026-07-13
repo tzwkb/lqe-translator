@@ -34,6 +34,7 @@ from lqe_engine import (
 
 
 _CORRECTION_STATUSES = {"suggested", "pending_adjudication", "approved"}
+_PRESERVE_SOURCE_TARGET = object()
 
 
 def _correction_status(entry):
@@ -1165,7 +1166,13 @@ def _export_choice(seg):
     if seg.get("locked"):
         return orig, "TM保护", "lock"
     if _is_pending_correction(seg):
-        return seg.get("_pending_baseline", orig), "待人工裁决", "pending"
+        if seg.get("_pending_preserve_source"):
+            return _PRESERVE_SOURCE_TARGET, "待人工裁决", "pending"
+        if "_pending_baseline" in seg:
+            return seg["_pending_baseline"], "待人工裁决", "pending"
+        if corr is None:
+            return _PRESERVE_SOURCE_TARGET, "待人工裁决", "pending"
+        return corr, "待人工裁决", "pending"
     if correction_status == "approved" and corr is not None:
         return corr, "人工批准", "approved"
     if corr and corr != orig:
@@ -1196,7 +1203,10 @@ def cmd_export(args):
                 continue
             correction_status = _correction_status(e)
             if _is_pending_correction(e):
-                seg["_pending_baseline"] = seg.get("corrected") or seg.get("target", "")
+                if seg.get("corrected") is None:
+                    seg["_pending_preserve_source"] = True
+                else:
+                    seg["_pending_baseline"] = seg["corrected"]
             if e.get("corrected"):
                 seg["corrected"] = e["corrected"]
                 n_overlay += 1
@@ -1237,7 +1247,7 @@ def cmd_export(args):
             final_text, status, kind = _export_choice(seg)
             row = raw_rows[row_idx]
             _pad(row, status_col + 1)
-            if ti < len(row):
+            if final_text is not _PRESERVE_SOURCE_TARGET and ti < len(row):
                 row[ti] = final_text
             row[status_col] = status
             if kind == "fixed": n_fixed += 1
@@ -1271,7 +1281,8 @@ def cmd_export(args):
         if row_num < start_row or row_num > ws.max_row:
             continue
         final_text, status, kind = _export_choice(seg)
-        ws.cell(row=row_num, column=ti + 1, value=final_text)
+        if final_text is not _PRESERVE_SOURCE_TARGET:
+            ws.cell(row=row_num, column=ti + 1, value=final_text)
         c = ws.cell(row=row_num, column=ncol + 1, value=status)
         if kind == "fixed":
             c.fill = fill_fixed; n_fixed += 1

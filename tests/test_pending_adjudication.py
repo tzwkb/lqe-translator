@@ -362,6 +362,39 @@ class PendingAdjudicationTests(unittest.TestCase):
                 self.assertEqual(sheet.cell(*cell).value, value)
         workbook.close()
 
+    def test_export_preserves_exact_source_cell_for_pending_segment(self):
+        workbook = openpyxl.load_workbook(self.input_path)
+        workbook.active.cell(2, 2).value = " 原译A "
+        workbook.save(self.input_path)
+        workbook.close()
+        read_result = self._run_cli(
+            "lqe_io.py",
+            "read",
+            "--input",
+            self.input_path,
+            "--source-col",
+            "原文",
+            "--target-col",
+            "译文",
+            "--source-lang",
+            "zh",
+            "--target-lang",
+            "en",
+            "--out",
+            self.state_path,
+        )
+        self._assert_success(read_result)
+        self._write_json(self.errors_path, self._errors())
+
+        result = self._run_cli(
+            "lqe_io.py", "export", "--state", self.state_path, "--errors", self.errors_path
+        )
+        self._assert_success(result)
+
+        workbook = openpyxl.load_workbook(self.job / "job_corrected.xlsx")
+        self.assertEqual(workbook.active.cell(2, 2).value, " 原译A ")
+        workbook.close()
+
     def test_export_keeps_existing_corrected_baseline_for_pending_segment(self):
         state = json.loads(self.state_path.read_text(encoding="utf-8"))
         state["iteration"] = 1
@@ -453,6 +486,46 @@ class PendingAdjudicationTests(unittest.TestCase):
         for (row, column), value in expected.items():
             with self.subTest(row=row, column=column):
                 self.assertEqual(rows[row][column], value)
+
+    def test_csv_export_preserves_exact_source_field_for_pending_segment(self):
+        csv_path = self.tmp / "source_whitespace.csv"
+        with csv_path.open("w", encoding="utf-8-sig", newline="") as stream:
+            csv.writer(stream).writerows(
+                [["原文", "译文"], ["原文A", " 原译A "], ["原文B", "原译B"]]
+            )
+        csv_job = self.tmp / "csv_whitespace_job"
+        csv_job.mkdir()
+        csv_state = csv_job / "state.json"
+        csv_errors = csv_job / "errors.json"
+        read_result = self._run_cli(
+            "lqe_io.py",
+            "read",
+            "--input",
+            csv_path,
+            "--source-col",
+            "原文",
+            "--target-col",
+            "译文",
+            "--source-lang",
+            "zh",
+            "--target-lang",
+            "en",
+            "--out",
+            csv_state,
+        )
+        self._assert_success(read_result)
+        self._write_json(csv_errors, self._errors())
+
+        export_result = self._run_cli(
+            "lqe_io.py", "export", "--state", csv_state, "--errors", csv_errors
+        )
+        self._assert_success(export_result)
+
+        with (csv_job / "csv_whitespace_job_corrected.csv").open(
+            encoding="utf-8-sig", newline=""
+        ) as stream:
+            rows = list(csv.reader(stream))
+        self.assertEqual(rows[1][1], " 原译A ")
 
     def test_apply_fixes_skips_entire_pending_segment(self):
         self._write_json(self.errors_path, self._errors())
