@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Split a job for check-module fan-out, then merge checked edits.
+"""把任务拆分给各检查模块，再合并问题与安全局部修改。
 
 split: state.json + errors.json(pre-check) + terms.json -> chunks/chunk_NN.json
        each segment carries {id, source, target, precheck[], term_hits[], term_near[]}
@@ -75,11 +75,11 @@ def _term_hits(src_txt, titems, cap=15):
 
 
 def _seg_kind(src):
-    """Tag content surface so lenses can be gated.
-      name = short single-token entry (terminology/spelling surface only)
-      desc = has semantic surface (sentence / markup / placeholder / compound)
-    Bias toward 'desc': a misrouted desc only costs tokens, a misrouted name
-    loses recall (e.g. 典藏赛季徽章礼盒 hides an Omission). Threshold is tunable."""
+    """标记内容类型，供检查模块确定适用范围。
+
+    name 是短的单一名称；desc 是句子、复合词或含标记和占位符的内容。
+    不确定时归为 desc，以免漏掉复合名称中的含义问题。
+    """
     if len(src) > 6:
         return "desc"
     if any(p in src for p in "，。！？、；：,.!?;:「」“”\"'"):
@@ -104,8 +104,7 @@ def cmd_split(a):
     tn_pairs = [(src, senses[0]["target"]) for src, senses in grouped.items() if senses]
     tn_idx = _tn_build([p[0] for p in tn_pairs], [p[1] for p in tn_pairs]) if tn_pairs else None
 
-    # dedup identical (source,target): evaluate each unique pair once;
-    # merge broadcasts the verdict back to every id in the group.
+    # 相同源文和译文只检查一次；合并时把结果复制到组内每个 id
     groups = {}
     for seg in segs:
         groups.setdefault((seg.get("source", ""), seg.get("target", ""), bool(seg.get("protected"))), []).append(seg)
@@ -123,10 +122,9 @@ def cmd_split(a):
 
     size = a.size
     budget = getattr(a, "char_budget", 0) or 0
-    # partition reps into chunks. --char-budget>0: cut by source+target char volume
-    # (评估负载代理)，密集段→更小的块；--size 同时作硬上限。否则固定 --size 段数。
-    # 块越小 → 单 agent 负载有上限 + 失败/中断的 blast-radius 越小 + 续跑更细
-    # （断点优先按 chunk_NN.<L>.json 跳过已完成块）。
+    # 将代表段分块。--char-budget>0 时按源文和译文总字符数切分，--size 仍是段数上限；
+    # 否则按固定段数切分。较小的块可限制单次检查量、缩小失败影响并细化续跑。
+    # 断点按 chunk_NN.<module>.json 跳过已完成块。
     if budget > 0:
         parts, cur, curv = [], [], 0
         for rep in reps:
@@ -250,8 +248,8 @@ def cmd_merge(a):
     cov = sum(1 for i in ids if i in merged)
     print(f"[merge] {len(files)} chunk outputs -> {a.out}")
     if reinstated:
-        print(f"[merge] reinstated {reinstated} deterministic pre-check issues")
-    print(f"[merge] covered {cov}/{len(ids)} ids (after broadcast); MISSING {len(missing)}: {missing[:20]}")
+        print(f"[merge] restored {reinstated} required machine pre-check issues")
+    print(f"[merge] covered {cov}/{len(ids)} ids after copying duplicate results; MISSING {len(missing)}: {missing[:20]}")
     if missing:
         sys.exit(2)
 
@@ -416,11 +414,12 @@ def cmd_reconcile(a):
 
 
 def cmd_split_half(a):
-    """单个 chunk×module 单元反复失败时，把 chunk 二分成更小的
-    dispatch 目标——不重新走 pre-check/term_hits(已在原 chunk 里算好，直接继承)。
+    """单个 chunk×module 反复失败时，把 chunk 二分成更小的检查任务。
+
+    不重新运行 pre-check 或 term_hits，直接继承原 chunk 的结果。
     产出 chunk_NN_p1.json / chunk_NN_p2.json，并按模块继承断点。
     按 id 归属把已判条目分别转给 p1/p2 的 ckpt.jsonl——已判过的不会因为二分而白费，
-    新派的两个小 agent 一开局查断点就会跳过这些、只接着判各自剩下的。"""
+    两个新任务读取断点后会跳过已完成条目，只检查各自剩余内容。"""
     outdir = Path(a.job) / "chunks"
     ci = int(a.chunk)
     data = load(outdir / f"chunk_{ci:02d}.json")
@@ -508,8 +507,7 @@ def main():
     s.add_argument("--outdir", required=True)
     s.add_argument("--size", type=int, default=100)
     s.add_argument("--char-budget", type=int, default=0,
-                   help="cut chunks by source+target char volume (评估负载代理); "
-                        "0=off → 固定 --size（向后兼容）. --size 仍作段数硬上限.")
+                   help="按源文和译文总字符数分块；0 表示固定按 --size 分块，--size 始终是段数上限")
     s.set_defaults(fn=cmd_split)
     m = sub.add_parser("merge")
     m.add_argument("--state", required=True)

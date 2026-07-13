@@ -5,25 +5,25 @@ LQE 批次编排 + 断点续跑。
   plan     state.json → batches/batch_NN.txt（按输出体量自适应分批 + manifest.json）
   merge    evals/*.json → errors.json（断点：缺批占位，报告完成度）
 
-设计原则（吸取 64K 超限教训）：
-  - 按"输出 token 体量"分批，不是按段数均分。剧情/对话段每段产出完整修正泰文，体量大。
-  - 每批落独立 eval_NN.json（实时写入由评审 agent 完成）。批级失败只重跑该批，不连累整体。
-  - merge 幂等：随时可跑，缺批用空错占位并列出，齐批后再跑得最终分。
+设计原则：
+  - 按预计输出长度分批，不按段数均分。剧情和对话通常需要更长的问题说明与局部修改。
+  - 每批写独立 eval_NN.json。某批失败时只重跑该批。
+  - merge 可重复运行；缺少的批次会明确列出，全部完成后再计算最终分。
 """
 import argparse
 import json
 import re
 from pathlib import Path
 
-from lqe_corrections import build_results, normalize_check_entries
-from lqe_engine import RE_CJK as _RE_CJK
+from lqe_corrections import CheckFormatError, build_results, normalize_check_entries
+from lqe_engine import RE_CJK as _RE_CJK, term_senses
 
 
 def _est_output_chars(seg, term_hits):
-    """估算该段评审输出体量：有修正时≈源长×3(泰文)，叠加术语命中注记。"""
+    """估算该段检查结果长度：问题说明与局部修改约为源文长度三倍，再加术语命中说明。"""
     src_len = len(seg["source"])
     base = 60                      # JSON 骨架 + 空错
-    correction = src_len * 3       # 可能的完整泰文修正
+    correction = src_len * 3       # 可能的问题说明与局部修改
     terms = term_hits * 25         # 每条命中注记
     return base + correction + terms
 
@@ -33,11 +33,34 @@ def cmd_plan(args):
     state = json.loads((job / "state.json").read_text(encoding="utf-8"))
     segs = state["segments"]
     terms = json.loads((job / "terms.json").read_text(encoding="utf-8")) if (job / "terms.json").exists() else []
-    tlist = [(t["source"], t["target"], t.get("status", "")) for t in terms if len(t["source"]) >= 2]
+    tlist = []
+    for term in terms:
+        source = term.get("source")
+        if not isinstance(source, str) or len(source) < 2:
+            continue
+        for sense in term_senses(term):
+            target = sense.get("target")
+            if not isinstance(target, str) or not target:
+                continue
+            tlist.append(
+                {
+                    "source": source,
+                    "target": target,
+                    "status": sense.get("status", ""),
+                    "confirmed": sense.get("confirmed") is True,
+                    "protected": sense.get("protected") is True,
+                }
+            )
     pre = {}
     pc = job / "errors_precheck.json"
     if pc.exists():
-        pre = {r["id"]: r["errors"] for r in json.loads(pc.read_text(encoding="utf-8"))}
+        try:
+            pre_entries = normalize_check_entries(
+                json.loads(pc.read_text(encoding="utf-8")), label=str(pc)
+            )
+        except (json.JSONDecodeError, CheckFormatError) as exc:
+            raise SystemExit(f"[plan] invalid pre-check results: {exc}") from exc
+        pre = {entry["id"]: entry["issues"] for entry in pre_entries}
 
     bdir = job / "batches"
     bdir.mkdir(exist_ok=True)
@@ -45,7 +68,7 @@ def cmd_plan(args):
 
     batches, cur, cur_cost = [], [], 0
     for s in segs:
-        hits = [(ts, tt, st) for ts, tt, st in tlist if ts in s["source"]]
+        hits = [term for term in tlist if term["source"] in s["source"]]
         cost = _est_output_chars(s, len(hits))
         if cur and cur_cost + cost > budget:
             batches.append(cur)
@@ -56,9 +79,11 @@ def cmd_plan(args):
         batches.append(cur)
 
     _SCHEMA_HEADER = (
-        "# 输出 schema（强制）：每个 error 必须含 category / severity / comment 三字段，"
-        "comment 不得为空。术语类 comment 必须写明：源词 + TB期望译法 + 偏离描述。"
-        "批量同型错误（如系列活动名）也要逐条填 comment，禁止只在汇报里说一次。\n"
+        "# 输出格式（强制）：JSON 数组，每项为 {id, issues:[...]}。"
+        "每个 issue 必须含 category / severity / comment / needs_confirmation / edit；"
+        "comment 不得为空。术语类 comment 必须写明源词、术语表期望译法和偏离情况。"
+        "批量同类问题也要逐条填写。需要人工确认时 edit 必须为 null；"
+        "安全局部修改写入 edit。检查任务不得输出 corrected。\n"
         "# ────────────────────────────────────────\n"
     )
     manifest = []
@@ -66,7 +91,14 @@ def cmd_plan(args):
         lines = []
         for s, hits in batch:
             sid, src, tgt = s["id"], s["source"], s["target"]
-            hh = [f"{ts}={tt}[{st}]" for ts, tt, st in hits]
+            hh = []
+            for term in hits:
+                flags = (
+                    f"confirmed={str(term['confirmed']).lower()}, "
+                    f"protected={str(term['protected']).lower()}"
+                )
+                status = f"[status={term['status']}]" if term["status"] else ""
+                hh.append(f"{term['source']}={term['target']}[{flags}]{status}")
             flags = '; '.join(f"{e['category']}:{e['comment'][:60]}" for e in pre.get(sid, []))
             block = f"#{sid}\nSRC: {src}\nTGT: {tgt}"
             if hh:
@@ -99,26 +131,28 @@ def cmd_merge(args):
             )
             for r in entries:
                 merged[r["id"]] = r          # 后到覆盖：子批(04a)覆盖原批(04)残留
-        except json.JSONDecodeError as e:
-            print(f"[warn] skip malformed {f.name}: {e}")
+        except (json.JSONDecodeError, CheckFormatError) as exc:
+            raise SystemExit(f"[merge] invalid {f.name}: {exc}") from exc
 
     seg_ids = [s["id"] for s in state["segments"]]
-    missing = [i for i in seg_ids if i not in merged]
+    seg_id_set = set(seg_ids)
+    missing = sorted(i for i in seg_ids if i not in merged)
+    extra = sorted(i for i in merged if i not in seg_id_set)
+    if missing or extra:
+        details = []
+        if missing:
+            details.append(f"missing={missing}")
+        if extra:
+            details.append(f"extra={extra}")
+        raise SystemExit(f"[merge] incomplete check coverage: {', '.join(details)}")
     out = build_results(state["segments"], list(merged.values()))
     (job / "errors.json").write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
 
-    done = len(seg_ids) - len(missing)
-    print(f"[merge] {len(evals)} eval files → {done}/{len(seg_ids)} segs covered → errors.json")
-    if missing:
-        # 压缩成区间显示
-        runs, a = [], missing[0]
-        for x, y in zip(missing, missing[1:] + [None]):
-            if y != (x + 1):
-                runs.append(f"{a}-{x}" if a != x else f"{a}")
-                a = y
-        print(f"[merge] MISSING {len(missing)} segs (空错占位，分数偏高): {', '.join(runs)}")
-    else:
-        print("[merge] complete — 全段覆盖，可出最终分")
+    print(
+        f"[merge] {len(evals)} eval files → "
+        f"{len(seg_ids)}/{len(seg_ids)} segs covered → errors.json"
+    )
+    print("[merge] complete — 全段检查完成，可以计算最终分")
 
 
 def main():

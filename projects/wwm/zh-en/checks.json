@@ -15,7 +15,7 @@
       "where": "target",
       "category": "Company style",
       "severity": "Minor",
-      "comment": "WWM SG: 物品数量 Item ×N（×前空格、×后无空格）；查 '名 × N'(×后多空格) 或 '名×N'(×前缺空格)。数字×数字(维度 3×3)不报；字母×字母偶有 FP 交 lens 甄别"
+      "comment": "WWM SG: 物品数量 Item ×N（×前空格、×后无空格）；查 '名 × N'(×后多空格) 或 '名×N'(×前缺空格)。数字×数字(维度 3×3)不报；字母×字母偶有 FP，由 terminology 检查模块结合语境确认"
     },
     {
       "id": "wwm-roman-numeral",
@@ -23,7 +23,7 @@
       "where": "target",
       "category": "Company style",
       "severity": "Minor",
-      "comment": "0512裁决: 序号/卷号用 Unicode 罗马数字（Ⅰ Ⅱ Ⅲ）非 ASCII；仅查带 Vol/Chapter 等前缀的（裸序号如 Tempest I 与代词 I 无法正则区分，交 T-lens Company style 语义判）"
+      "comment": "0512 确认规则: 序号/卷号用 Unicode 罗马数字（Ⅰ Ⅱ Ⅲ）非 ASCII；仅查带 Vol/Chapter 等前缀的内容（裸序号如 Tempest I 与代词 I 无法通过正则区分，由 terminology 检查模块结合语境确认）"
     }
   ]
 }

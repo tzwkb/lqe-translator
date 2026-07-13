@@ -1,45 +1,70 @@
-# projects/ 文件地图
+# `projects/` 文件地图
 
-布局 `<game>/<source>-<target>/`（语言对轨）+ `<game>/common/`（游戏级共享素材），`read --project <game>/<source>-<target>` 即用（skill 根解析，CWD 无关）。目标语言学事实另见 `../target_languages/<code>/`。开发仓（Langglobal，GitHub 私有）跟踪客户数据；skills 测试副本侧 gitignored。
+项目按 `<game>/<source>-<target>/` 保存，游戏级共享资料放在 `<game>/common/`。使用 `read --project <game>/<source>-<target>` 加载；路径从 skill 根目录解析，不依赖当前工作目录。目标语言通用事实放在 `../target_languages/<code>/`。
 
-## 通用结构（每个项目）
-| 文件 | 角色 | 谁读 |
+## 语言轨结构
+
+| 文件 | 用途 | 读取方 |
 |---|---|---|
-| `profile.json` | 项目配置：SG/术语/阈值（相对路径相对本目录） | `lqe_io.py read --project` |
-| `checks.json` | 确定性检查：内置开关 + 自定义 regex（仅项目风格取向） | `lqe_io.py pre-check` |
-| `adjudications.md` | 客户裁决/经验记录，防误报 | Agent（评估前必读） |
-| `terms_*.json` | 术语表（派生配置，json 可带 status） | read 时拷入 job |
-| `sg_*.md` / `sg.txt` | 风格指南（文本版） | read 时转文本拷入 job |
-| `sources/` | 客户原始交付件（SG/TB xlsx 原件及其工作副本） | profile 引用 / 溯源 |
-| `inputs/` | 待评估的原始交付文件 | 人工指定给 read --input |
+| `profile.json` | 语言、背景、阈值及各资源路径 | `lqe_io.py read --project` |
+| `checks.json` | 机器预检开关和项目自定义规则 | `lqe_io.py pre-check` |
+| `confirmed_rules.md` | 客户或用户已经确认的项目规则 | Agent，检查前必读 |
+| `terms_*.json` | 术语数据，可显式带 `confirmed` 和 `protected` | 初始化时复制到任务目录 |
+| `sg*.md` / `sg*.txt` | 风格指南文本 | 初始化时复制到任务目录 |
+| `sources/` | 原始风格指南、术语表及其工作副本 | 项目维护与溯源 |
+| `inputs/` | 待检查的原始交付文件 | 人工传给 `read --input` |
 
-目标语言事实型默认（词数基准、检查适用性）不在项目层——见 `../target_languages/<code>/attributes.json`，按 profile `target_lang` 自动挂载；合并顺序 内置默认 < 属性推导 < 项目 checks.json < CLI。
+建议的 `profile.json`：
 
-## nrc/zh-th/ —— 洛克王国《世界》中→泰【本次 QA 项目】
-- `sources/Style Guide Translation TH_20260430.xlsx` = 客户泰语 SG **原件**（企微 6/9 收，本次 QA 用这份）
-- `sources/ROCO_Working TB - TH(1).xlsx` = 客户术语表**原件**（本次 QA 权威术语源，3,131 条）
-- `sources/Working_TB_THTH.xlsx` = WorkingTB 状态子集工作副本（457 条，terms_th.json 上游工件）
-- `terms_th.json` = tb_working(WorkingTB,硬判) + NRC主库TH列独有补充(New,软判) 合并 3,133 条
-- `locked_terms_batch4.json` = 0611 审校"锁定"术语对照清单（adjudications 引用，TB 未改动）
-- `inputs/普老师SourceTarget.xlsx`（1,614 段，86 空译文）、`inputs/夏老师SourceTargetFinal.xlsx`（~4,384 段，178 空译文）= 待评估译员文件
-- `inputs/LOC_FILE-…QAFeedback.xlsx` = 客户反馈回填模板（5 列格式）
+```json
+{
+  "name": "game/zh-en",
+  "language_pair": "zh-en",
+  "source_lang": "zh",
+  "target_lang": "en",
+  "background": "项目背景",
+  "style_guide": "sg.md",
+  "terminology": "terms.json",
+  "checks": "checks.json",
+  "confirmed_rules": "confirmed_rules.md",
+  "threshold": 98,
+  "protected_term_statuses": []
+}
+```
 
-## nrc/zh-en/ —— 同游戏中→英轨
-- `sg_en.md` = NRC 主表 EN-SG tab 全量转录
-- `terms_en.json` = 主库 EN 列 2,945 条（586 Approved）
+`language_pair`、`source_lang`、`target_lang` 必填。相对路径以当前语言轨目录为基准。设置合并顺序为：内置默认 < 目标语言属性 < 项目 `checks.json` < 命令行参数。
 
-## nrc/common/ —— NRC 全语言轨共享参考（出自 NRC-Mastersheet_LB 在线表，6/10 提取）
-- `NRC_extract_rules_all.md` = 14 tab 规则合集（Checklist/字符限制/更新要求/富文本/Lore 术语对照）
-- `NRC_extract_Glossary_multilang.tsv` = 多语主术语库（ZHCN→11 语种+状态），terms_*.json 的上游
-- `NRC_extract_Query.txt` = 60+ 客户裁决摘要（adjudications 的上游）
-- `NRC_extract_Lore.md` = 世界观圣经全文（设定一致性依据，**非术语**；译名以 Glossary 为准）
-- `NRC_extract_goodcase.md` = 叙事好例全量（创作尺度基准，含审注）
-- `NRC_extract_GlossaryCategory.md` = 术语分类法全量（QA 术语错误归类标准）
-- `NRC_extract_CharacterVoice.tsv` / `NRC_extract_JiniFactions.tsv` = 角色圣经 / 精灵谱系
-- `LQA_template_extract.txt` = 客户 LQA 模板拆解（Error Log 7 列 + 计数制评分卡）——**归属哪条线待确认**
+## 术语字段
 
-## wwm/zh-en/ —— 燕云十六声中→英（历史项目，随时可复跑）
-- `sg.txt` = 权威整合版 SG（上游 `sources/WWM_Style_Guide_0612.docx` + `sources/WWM_Style_Guide_0701.docx` 补充）；`sources/terminology_0701.json` = 官方术语库（上游 `sources/terminology_0701.xlsx`）
+```json
+{"source":"源词","target":"译法","confirmed":false,"protected":false}
+```
+
+- `confirmed: true`：译法已经确认；匹配证据唯一时允许安全的局部修改。
+- `protected: true`：不可修改。
+- 缺失字段按 `false` 处理，不能根据其他状态值推断 `confirmed`。
+- `protected_term_statuses` 只能填写客户资料或用户明确确认的状态值。
+
+## 检查结果接口
+
+检查模块只提交 `{id, issues:[{category,severity,comment,needs_confirmation,edit}]}`。`edit` 只用于安全、唯一、局部的替换；需要新译名、存在多个合理方案或必须重写时，使用 `needs_confirmation: true` 和 `edit: null`。完整建议译文由脚本在校验后生成。
+
+## 规则优先级
+
+检查时按以下顺序执行：实时要求 > `confirmed_rules.md` > 风格指南 > 通用检查方法。新确认的规则应写入当前语言轨的 `confirmed_rules.md`，不要写进通用语言事实。
 
 ## 运行产物
-`../jobs/<输入文件名>/` —— read 初始化生成，state.json/sg.txt/terms.json/报告/修正稿都在里面，与 projects 互不污染。
+
+任务产物写入 `../jobs/<任务名>/`，不写回项目资料：
+
+```text
+state.json
+confirmed_rules.md
+errors_precheck.json
+errors.json
+chunks/
+<任务名>_lqe.xlsx
+<任务名>_corrected.xlsx
+```
+
+原始输入保持不变。`<任务名>_lqe.xlsx` 用于检查和评分记录；`<任务名>_corrected.xlsx` 保留原工作簿结构，只写入通过校验的建议修改。

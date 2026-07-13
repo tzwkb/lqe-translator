@@ -7,7 +7,7 @@
       "where": "target",
       "category": "Punctuation",
       "severity": "Minor",
-      "comment": "TH SG: 禁连续同种感叹/问号 (??? → ?)；混合 ?!/!? 不算 (审校裁决 2026-06-11)"
+      "comment": "TH SG: 禁连续同种感叹/问号 (??? → ?)；混合 ?!/!? 不算 (审校确认 2026-06-11)"
     },
     {
       "id": "th-cjk-ellipsis",

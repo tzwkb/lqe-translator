@@ -43,11 +43,11 @@ def make_xlsx(path, rows, headers=("原文", "译文")):
 
 
 def load_errs(path):
-    return {r["id"]: [e["comment"] for e in r["errors"]] for r in json.loads(Path(path).read_text(encoding="utf-8"))}
+    return {r["id"]: [e["comment"] for e in r["issues"]] for r in json.loads(Path(path).read_text(encoding="utf-8"))}
 
 
 def load_full_errs(path):
-    return {r["id"]: r["errors"] for r in json.loads(Path(path).read_text(encoding="utf-8"))}
+    return {r["id"]: r["issues"] for r in json.loads(Path(path).read_text(encoding="utf-8"))}
 
 
 def has(res, i, kw):
@@ -203,7 +203,7 @@ def t4():
         s = json.loads((TMP / f"j4-{slug}/state.json").read_text(encoding="utf-8"))
         check(f"T4 {proj} lang/basis", s["target_lang"] == lang and s["wordcount_basis"] == basis)
         check(f"T4 {proj} source lang", s.get("source_lang") == "zh")
-        check(f"T4 {proj} checks+adjud", bool(s["checks_path"]) and bool(s["adjudications_path"]))
+        check(f"T4 {proj} checks+rules", bool(s["checks_path"]) and bool(s["confirmed_rules_path"]))
     # wwm N3 roman numeral custom
     sp = TMP / "j4-wwm-zh-en/state.json"
     if sp.exists():
@@ -260,11 +260,26 @@ def t7():
     check("T7 manifest", (job / "manifest.json").exists() and len(list((job / "batches").glob("batch_*.txt"))) >= 2)
     evals = job / "evals"
     evals.mkdir(exist_ok=True)
-    (evals / "eval_00.json").write_text(json.dumps(
-        [{"id": 0, "errors": [{"category": "Mistranslation", "severity": "Major", "comment": "test"}],
-          "corrected": "Hello."}]), encoding="utf-8")
+    state = json.loads((job / "state.json").read_text(encoding="utf-8"))
+    entries = [{"id": segment["id"], "issues": []} for segment in state["segments"]]
+    entries[0]["issues"] = [
+        {
+            "category": "Punctuation",
+            "severity": "Minor",
+            "comment": "Add required terminal punctuation.",
+            "needs_confirmation": False,
+            "edit": {
+                "from": "Hello",
+                "to": "Hello.",
+                "start": 0,
+                "end": 5,
+                "evidence": None,
+            },
+        }
+    ]
+    (evals / "eval_00.json").write_text(json.dumps(entries), encoding="utf-8")
     r = run("lqe_batch.py", "merge", "--job", str(job))
-    check("T7 merge rc+gap report", r.returncode == 0 and "MISSING" in r.stdout, r.stdout[-200:])
+    check("T7 merge complete", r.returncode == 0 and "complete" in r.stdout, (r.stdout + r.stderr)[-300:])
     merged = json.loads((job / "errors.json").read_text(encoding="utf-8"))
     check("T7 merge content", merged[0]["corrected"] == "Hello." and merged[1]["errors"] == [])
 
@@ -276,13 +291,17 @@ def t8():
 
     singleton = {"source": "马尔文", "target": "มาร์วิน", "status": "New"}
     check("T8 singleton term_senses",
-          term_senses(singleton) == [{"target": "มาร์วิน", "status": "New"}])
+          term_senses(singleton) == [{"target": "มาร์วิน", "status": "New",
+                                      "confirmed": False, "protected": False}])
 
     multi = {"source": "里奥", "senses": [
         {"target": "ลีโอ", "category": "Creature Individual"},
         {"target": "ไลเอล", "category": "Creature Species"},
     ]}
-    check("T8 multi term_senses passthrough", term_senses(multi) == multi["senses"])
+    check("T8 multi term_senses flags", term_senses(multi) == [
+        {"target": "ลีโอ", "category": "Creature Individual", "confirmed": False, "protected": False},
+        {"target": "ไลเอล", "category": "Creature Species", "confirmed": False, "protected": False},
+    ])
 
     grouped = group_terms([singleton, multi])
     check("T8 group_terms keys", set(grouped.keys()) == {"马尔文", "里奥"})
@@ -352,15 +371,18 @@ def t10():
     chunk = json.loads((outdir / "chunk_00.json").read_text(encoding="utf-8"))
     seg0 = next(s for s in chunk["segments"] if s["id"] == 0)
     seg1 = next(s for s in chunk["segments"] if s["id"] == 1)
-    hit0 = next(h for h in seg0["term_hits"] if h["src"] == "里奥")
-    check("T10 multi-sense th is list of 2", isinstance(hit0["th"], list) and len(hit0["th"]) == 2)
+    hits0 = [h for h in seg0["term_hits"] if h["source"] == "里奥"]
+    check("T10 multi-sense flattened to 2 hits", len(hits0) == 2)
     check("T10 multi-sense categories present",
-          {s.get("category") for s in hit0["th"]} == {"Creature Individual", "Creature Species"})
+          {hit.get("category") for hit in hits0} == {"Creature Individual", "Creature Species"})
+    check("T10 multi-sense explicit flags",
+          all(hit["confirmed"] is False and hit["protected"] is False for hit in hits0))
     check("T10 content context preserved", seg0.get("content_type") == "剧情" and
           seg0.get("text_type_context") == "故事类文本")
-    hit1 = next(h for h in seg1["term_hits"] if h["src"] == "马尔文")
-    check("T10 singleton th is list of 1",
-          isinstance(hit1["th"], list) and len(hit1["th"]) == 1 and hit1["th"][0]["target"] == "มาร์วิน")
+    hits1 = [h for h in seg1["term_hits"] if h["source"] == "马尔文"]
+    check("T10 singleton flattened to 1 hit",
+          len(hits1) == 1 and hits1[0]["target"] == "มาร์วิน" and
+          hits1[0]["confirmed"] is False and hits1[0]["protected"] is False)
 
 
 # ── T11: lookup-terms 多义展示 ────────────────────────────────────────────────
@@ -410,12 +432,16 @@ def t12():
 
     terms = {t["source"]: t for t in json.loads((job / "terms.json").read_text(encoding="utf-8"))}
     check("T12 sources (王五 blank+无回填 -> 丢弃)", set(terms.keys()) == {"张三", "里奥", "李四"})
-    check("T12 singleton shape 不带 category", terms["张三"] == {"source": "张三", "target": "ซาน"})
-    check("T12 回填出的单义 shape", terms["李四"] == {"source": "李四", "target": "หลี่ซื่อ"})
+    check("T12 singleton shape 不带 category", terms["张三"] == {
+        "source": "张三", "target": "ซาน", "confirmed": False, "protected": False})
+    check("T12 回填出的单义 shape", terms["李四"] == {
+        "source": "李四", "target": "หลี่ซื่อ", "confirmed": False, "protected": False})
     senses = terms["里奥"]["senses"]
     check("T12 多义候选数", len(senses) == 2)
     check("T12 多义候选 target", {s["target"] for s in senses} == {"ไลเอล", "ลีโอ"})
     check("T12 多义候选 category 带出", {s["category"] for s in senses} == {"Species", "Individual"})
+    check("T12 多义候选显式 flags",
+          all(s["confirmed"] is False and s["protected"] is False for s in senses))
 
     multisense = json.loads((job / "terms.multisense.json").read_text(encoding="utf-8"))
     check("T12 multisense.json 只列里奥", len(multisense) == 1 and multisense[0]["source"] == "里奥")
@@ -690,7 +716,7 @@ def t22():
     for prof_path in sorted(root.glob("projects/*/*/profile.json")):
         prof = json.loads(prof_path.read_text(encoding="utf-8"))
         base = prof_path.parent
-        for key in ("style_guide", "terminology", "checks", "adjudications"):
+        for key in ("style_guide", "terminology", "checks", "confirmed_rules"):
             val = prof.get(key)
             if val and not (base / val).exists():
                 missing.append(f"{prof_path.relative_to(root)}:{key}:{val}")
@@ -736,15 +762,24 @@ def t24():
 
 
 def t25():
-    test_file = SCRIPTS.parent / "tests/test_pending_adjudication.py"
     result = subprocess.run(
-        [sys.executable, "-m", "unittest", "-v", str(test_file)],
+        [
+            sys.executable,
+            "-m",
+            "unittest",
+            "-v",
+            "tests.test_correction_builder",
+            "tests.test_corrected_ownership",
+            "tests.test_plain_language",
+            "tests.test_documented_contract",
+            "tests.test_mastertb_module_contract",
+        ],
         cwd=SCRIPTS.parent,
         capture_output=True,
         text=True,
     )
     output = (result.stdout + result.stderr).strip()
-    check("T25 pending adjudication suite", result.returncode == 0, output[-2000:])
+    check("T25 corrected ownership suite", result.returncode == 0, output[-2000:])
 
 
 if __name__ == "__main__":

@@ -4,14 +4,14 @@
 A glossary/TB audited as the work product (its own target translations are the
 thing under review, there is no external TB to diff against). Reproduces the
 proven 2024-06 ROCO flow: header-offset clean, EN/category/gender/definition
-context injection, a single atomic-term rubric run in TWO independent passes
-(p1 U p2 high recall, per the "single judge under-reports ~3x" lesson), plus a
-cross-term consistency index that the rubric is told NOT to judge locally.
+context injection, four required check modules with an optional proper-name
+check, plus a cross-term consistency index handled separately from per-term
+checks.
 
 Subcommands
   prep    raw TB xlsx -> clean_input.xlsx + context.json + consistency.json + missing_th.xlsx
-  chunks  state.json + context.json + errors_precheck.json -> chunks/chunk_NN.json + _RUBRIC.md
-  merge   chunks/chunk_NN.out.json (+ .p2.json) + consistency.json -> errors.json (standard schema)
+  chunks  state.json + context.json + errors_precheck.json -> chunks/chunk_NN.json + _CHECK_CONTEXT.md
+  merge   chunks/chunk_NN.out.json + consistency.json -> errors.json (standard format)
   report  state.json + errors.json + context.json -> <label>_审校建议.xlsx
 
 Column mapping is by header name (auto-locates the real header row containing
@@ -27,7 +27,7 @@ from pathlib import Path
 
 import openpyxl
 
-from lqe_corrections import build_results, normalize_check_entries
+from lqe_corrections import CheckFormatError, build_results, normalize_check_entries
 
 ZW = {0x200b: None, 0x200c: None, 0x200d: None, 0xfeff: None, 0x2060: None}
 SRC_HDR = "术语 ZHCN"
@@ -162,64 +162,41 @@ def cmd_prep(a):
 
 
 # ---------------------------------------------------------------- chunks
-RUBRIC = """\
-# 泰语术语表审校规则（中→泰 Master TB 自审）
+CHECK_CONTEXT = """\
+# MasterTB 术语表自检上下文
 
-你是泰语本地化 QA。审一个**术语表**（原子词条，非句子）的 TH 译文。先读 `../background.md`（题材/受众/语气）、`../lang_notes.md`（泰语关注点：RTGS 音译、声调符号、性别语尾、敬语层、佛历等）、`../adjudications.md`（客户裁决，优先于通用规则），并速览 `../sg.txt` 的音译/标点规范——题材与语域口吻一律以这些注入文件为准。
+每个检查任务先读 `docs/check_modules/common.md`、自己的模块文件和
+`docs/check_modules/term_audit.md`，再读任务目录中的项目背景、语言说明、
+确认规则和风格指南。
 
-## 输入
-chunk JSON 的 `terms[]`，每条字段：
-- `zhcn` 中文术语 = **含义判定的唯一真源**
-- `en` 英文译名 = **强参考**，专名音译的罗马化锚点（TH 应与 EN 读音对应）；EN 为空时仅以 ZHCN 判
-- `definition` 定义 / `category` 类别 / `gender` 性别 = 释义与消歧上下文
-- `former` 曾用名（一般忽略）/ `th_comment` 译注
-- `th` = **待审的泰语译文**
-- `auto_flags` = 确定性 pre-check 已标类别（确认或细化，别盲目重复；词内数字/标点类易假阳，判不成立就丢）
+输入是 chunk JSON 的 `segments[]`。`source` 是中文术语，`target` 是待检查的
+泰语译文；`en`、`definition`、`category`、`gender`、`former`、
+`target_comment` 和 `scope` 提供消歧上下文。`precheck` 是机器预检结果。
 
-## 逐条判定（每个 term 都要过一遍）
-1. **Mistranslation [Major]**：TH 含义 ≠ ZHCN。描述性词条核对语义。
-2. **Omission / Addition [Major]**：多部件中文术语，TH 漏掉或多加有意义成分。
-3. **Untranslated [Major]**：TH 照抄中文/残留中文；或该出泰文却留英文（例外：既定品牌名如 "Roco Kingdom" 可保留拉丁字母）。
-4. **专名音译**（Named NPC / Creature / 地名等）：TH 应与目标读音一致，**以 EN 为罗马化锚点**。报错若 TH 读音明显不符 / 泰文元音辅音错 / 声调符号位置错 / 混用文字系统。遵 RTGS 或 TB 既定译名，避免邻近竞品官方译名污染。整名认不出=Major（归 Mistranslation；文化负载名→Culture specific reference）；单声调/元音小误=Minor。
-5. **Grammar / Spelling [Minor，改义则 Major]**：泰文拼写错、声调符号缺/错、元音位置、sara/辅音错。
-6. **Unidiomatic / Audience appropriateness**：语域是否合题材（见 background）——粗俗/成人词=Major；生硬/过度正式=Minor。
-7. **Culture specific reference**：文化负载概念译错。
-8. **Punctuation [Minor]**：按 sg.txt/lang_notes——禁连续同种 !!/??；省略号用三个英文点 `...` 不用 `…`。
+四个必需模块分别写 `terminology`、`accuracy`、`grammar` 和 `naturalness`
+结果；`proper_names` 仅用于术语表自检中的 name 段，可选。
 
-## 不要报
-- 可接受的风格变体、纯偏好；有意保留的拉丁品牌名；**跨词条一致性**（全局另算，本块别报同源异译）；EN/定义列本身（只审 TH）。
-- ZHCN 与 EN 含义冲突时，**以 ZHCN 为准**判 TH。
+每个模块只输出覆盖其分配 id 的 JSON 数组：
 
-## 严重度
-Major=含义/品牌/功能/专名认不出/粗俗；Minor=表面（单声调符号、轻微拼写、标点、略生硬）。**Untranslated 永远 Major**。Major/Minor 拿不准 → 取 Major。
-
-## 输出
-只写**有问题**的词条（issues 非空），UTF-8 JSON 写到指定 out 文件：
 ```json
-{"chunk": NN, "reviewed_first": F, "reviewed_last": L, "reviewed_count": N,
- "findings": [
-   {"id": 123,
-    "issues": [{"category": "Mistranslation", "severity": "Major",
-                "comment": "中文'X' / EN'Y' / 泰译'Z'：说明问题",
-                "needs_confirmation": false,
-                "edit": {"from": "原 TH", "to": "修正 TH", "evidence": null}}]}
- ]}
+[{"id": 123, "issues": [{"category": "Mistranslation", "severity": "Major",
+  "comment": "说明问题", "needs_confirmation": true, "edit": null}]}]
 ```
-- `comment` 用中文，引用 ZHCN/EN/TH 片段。确定修正时 `edit.from` 必须是当前完整 TH，`edit.to` 是修正后的完整 TH。
-- 无把握时写 `needs_confirmation: true, edit: null`，不得输出整句 `corrected`。
-- **覆盖**：`reviewed_first/last` = chunk 的 `id_first/id_last`，`reviewed_count` = chunk 的 `count`，逐条过完不可截断。
-- 干净术语表应只有少量 findings——**重质不重量**，但真实的音译/正字/含义错必须抓出。
+
+不得输出 `corrected`。安全局部修改和需要人工确认的规则以模块文档为准。
 """
 
 
 _NAME_CATS = {"Named NPC", "Creature Species", "Settlement", "Wilderness",
               "Macro Region", "Administrative Region", "Urban Area", "Functional Area"}
 _DESC_MARK = ("的", "们")  # descriptive-phrase markers
+_REQUIRED_MODULES = ("terminology", "accuracy", "grammar", "naturalness")
+_OPTIONAL_MODULES = ("proper_names",)
 
 
 def _kind(category, zhcn):
-    """name=专名(走 N 音译); desc=描述/词义(走 A/R)。Creature Individual 多为描述
-    短语，按内容细分(含 的/们 或长度>6→desc)；存疑偏 desc(多一道 A/R 覆盖)。"""
+    """name=专名；desc=描述或词义内容。Creature Individual 多为描述短语，
+    按内容细分（含“的/们”或长度 > 6 时归 desc）；存疑时归 desc。"""
     if category in _NAME_CATS:
         return "name"
     if category == "Creature Individual":
@@ -240,39 +217,45 @@ def cmd_chunks(a):
         if c["zhcn"] != s["source"] or c["th"] != s["target"]:
             sys.exit(f"[err] id {s['id']} misaligned: state({s['source']!r}/{s['target']!r}) "
                      f"vs ctx({c['zhcn']!r}/{c['th']!r})")
-    # auto_flags from pre-check
-    flags = defaultdict(list)
+    precheck = {}
     pc = job / "errors_precheck.json"
     if pc.exists():
         for e in json.loads(pc.read_text("utf-8")):
-            cats = sorted({x["category"] for x in e.get("errors", [])})
-            if cats:
-                flags[e["id"]] = cats
+            precheck[e["id"]] = e.get("issues", [])
     out = job / "chunks"
     out.mkdir(exist_ok=True)
     size = a.size
     n = (len(segs) + size - 1) // size
     for ci in range(n):
         block = segs[ci * size:(ci + 1) * size]
-        terms = []
+        segments = []
         for s in block:
             c = ctx[str(s["id"])]
-            terms.append({
-                "id": s["id"], "zhcn": c["zhcn"], "en": c["en"],
+            segments.append({
+                "id": s["id"], "source": c["zhcn"], "target": c["th"],
+                "kind": _kind(c["category"], c["zhcn"]),
+                "precheck": precheck.get(s["id"], []),
+                "term_hits": [], "term_near": [],
+                "protected": bool(s.get("protected")),
+                "protected_texts": s.get("protected_texts", []),
+                "en": c["en"],
                 "definition": c["definition"], "category": c["category"],
                 "gender": c["gender"], "former": c["former"],
-                "th": c["th"], "th_comment": c["th_comment"],
-                "kind": _kind(c["category"], c["zhcn"]),
-                "auto_flags": flags.get(s["id"], []),
+                "target_comment": c["th_comment"],
+                "target_status": c["th_status"], "scope": c["scope"],
             })
-        doc = {"chunk": ci, "count": len(terms),
-               "id_first": block[0]["id"], "id_last": block[-1]["id"],
-               "terms": terms}
+        doc = {"chunk_id": ci, "segments": segments}
         (out / f"chunk_{ci:02d}.json").write_text(
             json.dumps(doc, ensure_ascii=False, indent=1), encoding="utf-8")
-    print(f"[ok] {n} chunks (size {size}, 含 kind 路由) -> {out}")
-    print(f"     派 lens 按 kind 门控(N:name / A,R:desc / T,G:全部) -> chunk_NN.<L>.json")
-    print(f"     再 lqe_chunk.py merge-lenses -> chunk_NN.out.json -> mastertb_prep merge")
+    (out / "_CHECK_CONTEXT.md").write_text(CHECK_CONTEXT, encoding="utf-8")
+    print(f"[ok] {n} chunks (size {size}, 含 kind 标记) -> {out}")
+    print("     必需检查模块：")
+    for module in _REQUIRED_MODULES:
+        print(f"       chunk_NN.{module}.json")
+    print(f"     可选专名检查：chunk_NN.{_OPTIONAL_MODULES[0]}.json")
+    print(f"     python scripts/lqe_chunk.py validate-checks --job {job}")
+    print(f"     python scripts/lqe_chunk.py merge-checks --job {job}")
+    print(f"     python scripts/mastertb_prep.py merge --job-dir {job}")
 
 
 # ---------------------------------------------------------------- merge
@@ -280,12 +263,8 @@ def _load_findings(path):
     if not path.exists():
         return {}
     doc = json.loads(path.read_text("utf-8"))
-    entries = normalize_check_entries(doc.get("findings", []), label=str(path))
+    entries = normalize_check_entries(doc, label=str(path))
     return {entry["id"]: entry for entry in entries}
-
-
-def _ekey(e):
-    return (e.get("category", ""), e.get("severity", ""))
 
 
 def cmd_merge(a):
@@ -293,26 +272,89 @@ def cmd_merge(a):
     state = json.loads((job / "state.json").read_text("utf-8"))
     ids = [s["id"] for s in state["segments"]]
     out = job / "chunks"
-    nchunks = sum(1 for p in out.glob("chunk_*.json")
-                  if re.fullmatch(r"chunk_\d+\.json", p.name))  # base chunks only, exclude .out/.p2
+    chunk_numbers = sorted(
+        int(match.group(1))
+        for path in out.glob("chunk_*.json")
+        if (match := re.fullmatch(r"chunk_(\d+)\.json", path.name))
+    )
+    nchunks = len(chunk_numbers)
+    incomplete = []
+    merged = {}
+    expected_all = set()
+    for ci in chunk_numbers:
+        chunk_path = out / f"chunk_{ci:02d}.json"
+        chunk = json.loads(chunk_path.read_text("utf-8"))
+        expected = {
+            segment["id"]
+            for segment in chunk.get("segments", [])
+            if isinstance(segment, dict) and type(segment.get("id")) is int
+        }
+        expected_all.update(expected)
+        missing_modules = [
+            module
+            for module in _REQUIRED_MODULES
+            if not (out / f"chunk_{ci:02d}.{module}.json").exists()
+        ]
+        merged_path = out / f"chunk_{ci:02d}.out.json"
+        problem = {"chunk": ci}
+        if missing_modules:
+            problem["missing_modules"] = missing_modules
+        if not merged_path.exists():
+            problem["missing_merged_output"] = True
+        else:
+            try:
+                entries = _load_findings(merged_path)
+            except (json.JSONDecodeError, CheckFormatError) as exc:
+                raise SystemExit(f"[err] invalid {merged_path.name}: {exc}") from exc
+            actual = set(entries)
+            missing_ids = sorted(expected - actual)
+            extra_ids = sorted(actual - expected)
+            if missing_ids:
+                problem["missing_ids"] = missing_ids
+            if extra_ids:
+                problem["extra_ids"] = extra_ids
+            if not missing_ids and not extra_ids:
+                merged.update(entries)
+        if len(problem) > 1:
+            incomplete.append(problem)
 
-    merged = {i: {"id": i, "issues": []} for i in ids}
-    for ci in range(nchunks):
-        p1 = _load_findings(out / f"chunk_{ci:02d}.out.json")
-        p2 = _load_findings(out / f"chunk_{ci:02d}.p2.json")
-        for sid in set(p1) | set(p2):
-            f1, f2 = p1.get(sid), p2.get(sid)
-            errs = OrderedDict()
-            for f in (f1, f2):
-                if not f:
-                    continue
-                for e in f.get("issues", []):
-                    k = _ekey(e)
-                    cand = dict(e)
-                    if k not in errs or len(cand.get("comment", "")) > len(errs[k].get("comment", "")):
-                        errs[k] = cand
-            if sid in merged and errs:
-                merged[sid]["issues"] = list(errs.values())
+    state_ids = set(ids)
+    state_missing = sorted(state_ids - expected_all)
+    state_extra = sorted(expected_all - state_ids)
+    if state_missing or state_extra:
+        problem = {"chunk": "all"}
+        if state_missing:
+            problem["missing_ids"] = state_missing
+        if state_extra:
+            problem["extra_ids"] = state_extra
+        incomplete.append(problem)
+
+    if incomplete:
+        status = {
+            "n_chunks": nchunks,
+            "checks_complete": False,
+            "verdict_allowed": False,
+            "incomplete_chunks": incomplete,
+            "note": "检查结果不完整；运行 validate-checks 和 merge-checks 后重试",
+        }
+        (job / "recall_status.json").write_text(
+            json.dumps(status, ensure_ascii=False, indent=1), encoding="utf-8"
+        )
+        errors_path = job / "errors.json"
+        if errors_path.exists():
+            errors_path.unlink()
+        details = []
+        for problem in incomplete:
+            label = f"chunk_{problem['chunk']:02d}" if isinstance(problem["chunk"], int) else "all chunks"
+            if problem.get("missing_modules"):
+                details.append(f"{label} missing modules={problem['missing_modules']}")
+            if problem.get("missing_merged_output"):
+                details.append(f"{label} missing merged output; run merge-checks")
+            if problem.get("missing_ids"):
+                details.append(f"{label} missing={problem['missing_ids']}")
+            if problem.get("extra_ids"):
+                details.append(f"{label} extra={problem['extra_ids']}")
+        raise SystemExit(f"[err] incomplete MasterTB checks: {'; '.join(details)}")
 
     # fold cross-term consistency (global; not judged locally by the rubric)
     cons_p = job / "consistency.json"
@@ -339,45 +381,17 @@ def cmd_merge(a):
         json.dumps(errors, ensure_ascii=False, indent=1), encoding="utf-8")
     flagged = sum(1 for e in errors if e["errors"])
     nerr = sum(len(e["errors"]) for e in errors)
-    print(f"[ok] merged lenses over {nchunks} chunks -> errors.json")
+    print(f"[ok] merged check results for {nchunks} chunks -> errors.json")
     print(f"     flagged segments={flagged}/{len(ids)}  total errors={nerr}  consistency folded={folded}")
-    # --- recall gate (enforced): all APPLICABLE lens files present per chunk ---
-    def _applicable(ci):
-        cf = out / f"chunk_{ci:02d}.json"
-        kinds = set()
-        if cf.exists():
-            kinds = {t.get("kind", "desc")
-                     for t in json.loads(cf.read_text("utf-8")).get("terms", [])}
-        req = {"T", "G"}
-        if "name" in kinds:
-            req.add("N")
-        if "desc" in kinds:
-            req |= {"A", "R"}
-        return req
-    incomplete = []
-    for ci in range(nchunks):
-        req = _applicable(ci)
-        have = {L for L in req if (out / f"chunk_{ci:02d}.{L}.json").exists()}
-        if have != req:
-            incomplete.append({"chunk": ci, "missing": sorted(req - have)})
-    degraded = bool(incomplete)
     status = {
         "n_chunks": nchunks,
-        "lenses_complete": not degraded,
-        "verdict_allowed": not degraded,
-        "incomplete_chunks": incomplete,
-        "note": ("缺适用 lens：低召回降级，calc 的 PASS/FAIL 不可信，补齐缺失 lens 重 merge"
-                 if degraded else "各 chunk 适用 lens(N/A/G/R/T) 齐，可出裁决"),
+        "checks_complete": True,
+        "verdict_allowed": True,
+        "incomplete_chunks": [],
+        "note": "各 chunk 的适用检查模块齐全，可以确认结果",
     }
     (job / "recall_status.json").write_text(
         json.dumps(status, ensure_ascii=False, indent=1), encoding="utf-8")
-    if degraded:
-        bar = "!" * 64
-        print("  " + bar)
-        print(f"  ⚠ 降级运行：{len(incomplete)}/{nchunks} 块缺适用 lens(见 recall_status.json)。")
-        print("  ⚠ 分数只是【临时下限】，禁作 PASS/FAIL 裁决。")
-        print("  ⚠ 补齐缺失 lens 重 merge-lenses + merge；见 SKILL.md step 3「降级不出裁决」。")
-        print("  " + bar)
 
 
 # ---------------------------------------------------------------- report
@@ -413,14 +427,14 @@ def cmd_report(a):
                    c.get("en", ""), c.get("gender", ""), c.get("definition", ""),
                    c.get("th", ""), e.get("corrected") or "", cats, sevs, cons, cmts,
                    c.get("th_status", "")])
-    # summary sheet — stamp recall gate first so the deliverable carries the verdict status
+    # 汇总页先写检查完整性，避免把临时分数当作最终结果
     sm = wb.create_sheet("汇总")
     rs_p = job / "recall_status.json"
     rs = json.loads(rs_p.read_text("utf-8")) if rs_p.exists() else {}
     if rs.get("verdict_allowed") is False:
         nbad = len(rs.get("incomplete_chunks", []))
-        sm.append(["⚠ 召回状态", f"降级·{nbad}/{rs.get('n_chunks')} 块缺适用 lens"])
-        sm.append(["⚠ 裁决", "临时下限·禁作 PASS/FAIL·补齐 lens 重跑（见 SKILL.md step3）"])
+        sm.append(["⚠ 检查完整性", f"{nbad}/{rs.get('n_chunks')} 块缺少适用检查模块"])
+        sm.append(["⚠ 结果", "当前分数仅供参考；补齐检查模块后重新运行（见 SKILL.md 第 3 步）"])
         sm.append([])
     cat_ct = Counter()
     sev_ct = Counter()
@@ -450,10 +464,11 @@ def cmd_report(a):
 
 # ---------------------------------------------------------------- view
 def cmd_view(a):
-    """Compact per-chunk text views for inline judging when subagents are
-    unavailable (rate/session limit). ~10x denser than raw chunk JSON so the
-    main context can read all chunks without blowing the window. Single-judge
-    inline is a LOW-RECALL floor, not a substitute for the lens 2-pass."""
+    """Create compact per-chunk text views for a temporary single-pass check.
+
+    The views are about ten times denser than the raw chunk JSON. A single pass
+    is preliminary; all check modules must still run before PASS/FAIL is final.
+    """
     job = Path(a.job_dir)
     ctx = json.loads((job / "context.json").read_text("utf-8"))
     out = job / "chunks" / "views"
@@ -475,8 +490,8 @@ def cmd_view(a):
                 one(c["zhcn"]), one(c["en"]), one(c["definition"], 60), one(c["th"])]))
         (out / f"chunk_{ci:02d}.view.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"[ok] {n} compact views (size {size}) -> {out}")
-    print("     inline 兜底: 逐块 Read view + _RUBRIC.md 判, 写回 chunk_NN.out.json")
-    print("     ⚠ 单判=低召回下限, 非 lens 双遍替代; 额度恢复后须补遍, 降级运行不报 PASS/FAIL")
+    print("     view 只用于辅助阅读；正式结果仍写入四个必需模块文件")
+    print("     完成后运行 validate-checks 和 merge-checks，再报告 PASS/FAIL")
 
 
 def main():

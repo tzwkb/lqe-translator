@@ -8,7 +8,7 @@
     {"id": "en-little-roco", "pattern": "\\bLittle Roco\\b", "where": "target", "category": "Company style", "severity": "Major", "comment": "更新要求5/28: 小洛克禁Little Roco→Young Roco/kid"},
     {"id": "en-banned-title", "pattern": "Roco Kingdom: World", "where": "target", "category": "Terminology", "severity": "Critical", "comment": "违禁词: 游戏名=Roco Kingdom，'世界'不译"},
     {"id": "en-dual-stats", "pattern": "Physical and Magic (Attack|Defense)", "where": "target", "category": "Terminology", "severity": "Major", "comment": "更新要求6/8: 双攻/双防=Dual Attack/Dual Defense"},
-    {"id": "en-break-after", "pattern": "///(?=\\S)|///\\s{2,}", "where": "target", "category": "Punctuation", "severity": "Minor", "comment": "更新要求5/28: ///后须恰好1空格（前侧规则文本与官方示例矛盾，不检，见adjudications）"},
+    {"id": "en-break-after", "pattern": "///(?=\\S)|///\\s{2,}", "where": "target", "category": "Punctuation", "severity": "Minor", "comment": "更新要求5/28: ///后须恰好1空格（前侧规则文本与官方示例矛盾，不检，见 confirmed_rules.md）"},
     {"id": "en-archaic", "pattern": "(?i)\\b(thee|thy|hath)\\b", "where": "target", "category": "Company style", "severity": "Minor", "comment": "EN-SG: 轻奇幻禁古英语"},
     {"id": "en-slang", "pattern": "(?i)\\bno cap\\b|\\bsus\\b", "where": "target", "category": "Company style", "severity": "Minor", "comment": "EN-SG: 禁网络俚语(bro/sus/no cap)"},
     {"id": "en-jini-plural", "pattern": "\\bJinis\\b", "where": "target", "category": "Terminology", "severity": "Minor", "comment": "changelog: Jini复数=Jinies"}

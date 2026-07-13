@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""多 sheet 任务顶层汇总：把已 finalize 的各子 job 合成跨 sheet 交付物。
+"""多工作表任务汇总：把已完成的各子任务合成跨工作表交付物。
 
 产出（父 job 目录）：
   <label>_corrected.xlsx  保留原始 workbook 的 sheet/公式/样式/合并单元格，
                           仅将程序生成的非空 corrected 写回原译文列。
-  <label>_LQE报告.xlsx     汇总 sheet（各子表分数 + 按词数加权总分）+ 各子表 LQE Results 明细。
+  <label>_lqe.xlsx         汇总 sheet（各子表分数 + 按词数加权总分）+ 各子表 LQE Results 明细。
 
 子 job 发现：父 job 目录下含 state.json 的直接子目录即一个 sheet 子 job。
 段→行映射：优先使用 segment.row_index；旧 state 缺该字段时才回退 segment.id。
@@ -29,7 +29,7 @@ THRESH_DEFAULT = 98
 
 
 def _label(p: Path) -> str:
-    """父/子 job 标签：jobs/ 下子路径用 _ 连接（与 lqe_io._job_label 同口径）。"""
+    """父任务和子任务标签：jobs/ 下的子路径用下划线连接。"""
     parts = p.resolve().parts
     if "jobs" in parts:
         sub = parts[parts.index("jobs") + 1:]
@@ -78,9 +78,9 @@ def _validated_results(sj: Path, state: dict) -> tuple[list[dict], dict[int, dic
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--job", required=True,
-                    help="父 job：jobs/ 下子路径（如 LQE测试用）或绝对路径")
+                    help="父任务目录：jobs/ 下的子路径（如 LQE测试用）或绝对路径")
     ap.add_argument("--sheets", default=None,
-                    help="逗号分隔的子 job 目录名，指定顺序/子集；缺省=按名发现全部")
+                    help="逗号分隔的子任务目录名，用于指定顺序或子集；默认按名称读取全部")
     ap.add_argument("--threshold", type=int, default=THRESH_DEFAULT)
     a = ap.parse_args()
 
@@ -102,7 +102,7 @@ def main():
 
     label = _label(job_dir)
 
-    # ── 1) 校验 corrected 权威归属，再从原工作簿原位写入建议译文──────────
+    # ── 1) 校验程序生成的建议译文，再写回原工作簿对应单元格────────────
     summary = []
     tot_L = tot_wc = tot_err = tot_crit = tot_seg = tot_fix = 0
     validated = []
@@ -165,7 +165,7 @@ def main():
     ws.append([f"LQE 质检汇总报告 · {label}"])
     ws.append([f"阈值 {a.threshold}  语言对 {s0.get('language_pair', '')}  项目 {s0.get('project', '')}"])
     ws.append([])
-    ws.append(["子表", "段数", "词数", "错误数", "Critical", "SCORE", "STATUS", "建议修改数"])
+    ws.append(["子表", "段数", "词数", "错误数", "Critical", "分数", "结果", "建议修改数"])
     for c in ws[ws.max_row]:
         c.font = Font(bold=True)
     for r in summary:
@@ -175,7 +175,7 @@ def main():
     for c in ws[ws.max_row]:
         c.font = Font(bold=True)
     ws.append([])
-    ws.append(["注：总分=按词数加权 (1-ΣL/Σwordcount)×100；各子表词数首轮锁定。"])
+    ws.append(["注：总分=按词数加权 (1-ΣL/Σwordcount)×100；各子表词数在首次读取后固定。"])
 
     for sj in subs:
         lqe = sj / f"{_label(sj)}_lqe.xlsx"
@@ -189,13 +189,13 @@ def main():
                 ws2.append(list(row))
         wb.close()
 
-    rep_out = job_dir / f"{label}_LQE报告.xlsx"
+    rep_out = job_dir / f"{label}_lqe.xlsx"
     rep.save(rep_out)
 
     print(f"[aggregate] {len(subs)} sheets: {', '.join(s.name for s in subs)}")
-    print(f"[aggregate] corrected -> {corr_out}")
-    print(f"[aggregate] report    -> {rep_out}")
-    print(f"[aggregate] overall {overall:.2f} ({'PASS' if overall >= a.threshold else 'FAIL'}) "
+    print(f"[aggregate] 建议译文 -> {corr_out}")
+    print(f"[aggregate] 汇总报告 -> {rep_out}")
+    print(f"[aggregate] 总分 {overall:.2f} ({'PASS' if overall >= a.threshold else 'FAIL'}) "
           f"segs={tot_seg} wc={tot_wc} errors={tot_err} critical={tot_crit} fixes={tot_fix}")
     for r in summary:
         print(f"  {r[0]}: {r[5]} {r[6]} (segs {r[1]}, wc {r[2]}, err {r[3]}, crit {r[4]}, fix {r[7]})")

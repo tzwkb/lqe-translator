@@ -1,459 +1,330 @@
 ---
 name: lqe-translator
-description: LQE scoring + self-iteration agent for AI/human game-localization translations — language-pair project tracks with required source_lang/target_lang (EN/TH/ZH language layers; project profiles nrc/wwm). Deterministic pre-check (23 builtin rules + project custom) finds mechanical errors; Claude judges semantic errors AND provides corrected translations in one pass; Python calculates score. /loop drives iteration until score ≥ 98. Triggers: LQE/LQA, 译文质检/评估/打分, translation QA.
+description: LQE scoring and review workflow for game-localization translations. Project profiles provide language settings, style guides, terminology, confirmed rules, deterministic checks, scorecards, and Excel reports. AI check modules report issues and safe local edits; Python validates edits, builds corrected text, and calculates scores. Triggers: LQE/LQA, 译文质检/评估/打分, translation QA.
 ---
 
 # LQE Translator
 
-路径变量（每次会话开始时定义）：
+每次会话先定义：
+
 ```bash
 SCRIPTS=~/.codex/skills/lqe-translator/scripts
 ```
 
----
+## 1. 收集输入
 
-## 首次启动
+需要：
 
-### 1. 收集参数
+- Excel、CSV 或 TSV 路径。
+- 原文列和译文列。
+- 项目语言轨，如 `nrc/zh-th`、`nrc/zh-en`、`wwm/zh-en`。
+- 是否启用自动迭代；默认只跑首轮。
 
-直接使用项目档案初始化。AIPE 导出的 CSV 也按普通输入表走项目档案，不再单独走 AIPE API 拉 SG/TB；AIPE 与 LQE 参考资料由用户在项目档案侧手动对齐，减少双入口维护成本。不要再把 AIPE 联动或“独立 Excel”作为单独入口推荐。
+优先使用 `read --project <game>/<source>-<target>`。用户只给游戏名时，列出该游戏已有语言轨；没有目标语言轨时，先建立 profile，不回退到另一套临时入口。
 
-收集以下参数：
-- 输入表路径（Excel/CSV/TSV；可以是 AIPE 导出的结果表）
-- 原文列名/索引、译文列名/索引
-- `read --project <game>/<track>`（如 `nrc/zh-th`、`wwm/zh-en`、`wwm/en-zh`）：从 `projects/<game>/<track>/profile.json` 带出 SG/术语/背景/词数基准/阈值/checks/adjudications，显式 CLI 参数优先。`<track>` 统一使用完整语言对 `<source>-<target>`；profile 必须写 `language_pair`、`source_lang`、`target_lang`，缺任一字段即停止，不从旧 `<target>` 目录或 pair-only profile 兼容回退。**用户只给游戏名时**，列出 `projects/<game>/` 下含 profile.json 的语言轨子目录供选择；该游戏尚无目标语言轨则走新轨建档（复制同游戏他轨 profile 改 language_pair/source_lang/target_lang/SG/术语，common 素材天然共享）
-- `projects/<game>/<track>/` 结构（游戏级共享素材放 `projects/<game>/common/`）：
-  - `profile.json`：`{name, language_pair, source_lang, target_lang, game, background, style_guide, terminology, checks, adjudications, wordcount_basis, threshold, lock_statuses}`（相对路径相对 profile 所在目录解析；`lock_statuses`=哪些术语 status 算锁定，空数组=确认无锁定；`background`=项目游戏类型/受众/语气/语域基调一句话，read 落 `job/background.md` 注入各 lens+单-agent，**lens 规范保持项目中立、题材靠它注入**）
-  - `checks.json`：项目专属确定性检查。`builtin` 开关内置项（键：`untranslated_cjk/em_dash/color_tags/variables/newline_count/length/locale_numbers/terminology/pos_placeholder/numbers_consistency/whitespace/fullwidth_punct/empty_target/terminal_punct/cn_numbers/word_repeat/intra_word_case/paired_punct/term_case/ellipsis_mix/tag_count/pinyin_residue/intra_consistency`，默认全开，部分由语言属性自动推导关闭）；`custom` 数组：`{id, pattern(regex), where(target|source|both), category, severity, comment}`，每段命中一次报一条；加 `type: "count_match"` 则改为源↔译 findall 数量对账（项目专属标签精配用，`where` 失效）
-  - `adjudications.md`：客户裁决/changelog 摘要——**Step 2 评估前必须 Read 注入上下文**，效力顺序通常为 实时更新要求 > Query 裁决 > SG，防止把已裁决项判成错误
-- 目标语言层 `target_languages/<code>/`（skill 根，与 projects/ 平级；已建 `en`/`th`/`zh`，固定文件名 `attributes.json` + `eval_notes.md`）：按有效 `target_lang` 自动挂载，或用 `read --target-lang` 覆盖。`source_lang` 已写入 state，预留给未来非 zh 源语的 source-gated 检查和源语语言层；当前检查适用性仍只由 target 语言属性推导。**属性声明制**——只放语言学事实（`script`/`word_delim`/`sentence_terminator`/`numerals`/`wordcount_basis`），不放检查开关；pre-check 由属性推导检查适用性（`script: cjk` 关 `fullwidth_punct` 和 `untranslated_cjk`；`sentence_terminator: none` 关 N5；`word_delim≠space` 关 N7；`script≠latin` 关 N8/#7），read 由属性防呆（`word_delim: none` 配 target-words 词数基准时警告）。`eval_notes.md` 为语言级 AI 评估关注点（泰语性别语尾/敬语/佛历等），存在即由 read 拷入 `job/lang_notes.md`。合并顺序：内置默认 < 属性推导 < 项目 checks.json < CLI 显式参数。风格取向（em_dash、省略号样式、引号样式）一律留项目 checks.json——同语言不同项目实证取向相反（wwm/zh-en 禁破折号、nrc/zh-en 允许）
-- 已建项目：`nrc/zh-th`（洛克王国中→泰）、`nrc/zh-en`（中→英）、`wwm/zh-en`（燕云十六声中→英，官方术语库 terms_en_0706.json）
-- 注意：SKILL.md 下文的"内置规则"（Title/Sentence Mode、禁破折号、文化术语映射等）实为 WWM 规则，仅在**无 SG 且无项目档案**时兜底；有项目档案时以其 SG/checks/adjudications 为准
+项目目录：
 
-### 2. 初始化
+```text
+projects/<game>/<source>-<target>/
+├── profile.json
+├── checks.json
+├── confirmed_rules.md
+├── terms_*.json
+└── sg*.md / sg*.txt
+```
+
+`profile.json` 常用字段：
+
+```json
+{
+  "name": "nrc/zh-th",
+  "language_pair": "zh-th",
+  "source_lang": "zh",
+  "target_lang": "th",
+  "background": "项目背景",
+  "style_guide": "sg.md",
+  "terminology": "terms.json",
+  "checks": "checks.json",
+  "confirmed_rules": "confirmed_rules.md",
+  "wordcount_basis": "source-chars",
+  "threshold": 98,
+  "protected_term_statuses": []
+}
+```
+
+`language_pair`、`source_lang`、`target_lang` 必填。相对路径以 profile 所在目录为基准。`protected_term_statuses` 只能来自客户资料或用户明确确认；空数组表示没有受保护的术语状态。
+
+目标语言事实放在 `target_languages/<code>/attributes.json`，语言级检查说明放在 `eval_notes.md`。合并顺序为：内置默认 < 语言属性 < 项目 `checks.json` < CLI 参数。
+
+项目规则顺序：实时要求 > `confirmed_rules.md` > 风格指南 > 通用检查方法。运行检查前必须读取项目背景、确认规则、风格指南和语言说明。
+
+## 2. 初始化
 
 ```bash
 pip install openpyxl requests python-docx -q
-```
 
-```bash
 python "$SCRIPTS/lqe_io.py" read \
-  --project "<game>/<track>" \
-  --input "<Excel/CSV/TSV路径>" \
+  --project "<game>/<source>-<target>" \
+  --input "<输入文件>" \
   --source-col "<原文列>" \
   --target-col "<译文列>" \
   --out "jobs/<文件名>/state.json"
 ```
 
-AIPE CSV 常用列名：`source` / `translation` / `content_type` / `rag_references`；初始化时 `source-col=source`、`target-col=translation` 即可。`content_type` 会进入 segment 供评估参考；若 CSV 中混入 `对话类文本` / `游戏内侧页文本` / `故事类文本` 等文本类型 marker 行，`read` 会跳过该行并把后续句段标记为 `text_type_context`，直到下一个 marker；`rag_references` 保留在 `rows_raw`，不自动替代项目档案上下文。
+初始化后报告段数、词数、语言、风格指南、术语表、确认规则和受保护内容的加载情况。
 
-`<文件名>` 取输入文件的 stem（去扩展名）。`read --project` 会自动创建 `jobs/<文件名>/` 目录，并从项目档案带出 SG、术语、语言层、裁决和阈值；显式 CLI 参数仅用于必要覆盖。若没有项目档案，先建项目语言轨，不回退到独立散表入口。
+## 3. 术语标记
 
-**附加 — TM 索引（项目 profile 含 `tm` 时，仅一次）：**
-输入文件无 match 列、需用项目 TM 做 100% 保护时，先把 `.sdltm` 从缓存（企微等易失目录）拷到 `projects/<game>/common/tm/sources/` 固化，再建索引（TM 不变即复用，无需重建）：
+术语条目或多义候选必须显式带：
+
+```json
+{"source":"源词","target":"译法","confirmed":false,"protected":false}
+```
+
+- `confirmed: true`：客户已经确认该译法；匹配证据完整时允许安全局部修改。
+- `protected: true`：不可修改。
+- 缺失的两个字段按 `false` 处理；不要根据 `status` 自行推断 `confirmed`。
+- profile 的 `protected_term_statuses` 只负责把明确列出的状态映射为 `protected: true`。
+
+## 4. TM 100% 匹配保护
+
+输入自带 match 信息时，Agent 先检查列名、样例值和证据，再生成明确的 id 列表。脚本不猜列名或值。
+
+```json
+{"protected_ids":[0,12],"source":"agent_decision","evidence":"exact TM match"}
+```
+
+```bash
+python "$SCRIPTS/lqe_io.py" protect-segments \
+  --state "$JOB/state.json" \
+  --protected-file "$JOB/tm_protected.agent_decision.json" \
+  --reason TM_100_MATCH
+```
+
+项目配置了本地 TM 时：
+
 ```bash
 python "$SCRIPTS/tm_index.py" build \
   --libraries <profile.tm.libraries...> \
   --out <profile.tm.index>
-```
-全本地、精确匹配，不调外部 API。解析层按扩展名分发，本期仅 `.sdltm`。
 
-### 3. 术语锁定确认（首轮评估前必做）
-
-锁定 = 判错后**跳过二次 review**：报错不可移除、不可改判，corrected 必须采用锁定译法。锁定级只能来自客户数据列或用户确认，**不得自创**：
-- profile 已有 `lock_statuses`（含空数组）→ 直接生效：`read` 已给命中词条打 `locked` 标，pre-check 报错带 `[LOCKED]`
-- 未定义且术语带 status/状态类列 → 列出全部取值问用户哪些算锁定；答案写回 profile.json（确认「无」写 `[]`）持久化，下批不再问；无 profile 时先建项目语言轨，不在单 job 内临时自创锁定策略
-- 术语表无任何状态信息 → 全部术语 review 时可甄别、可修改，不存在硬判级
-
-初始化完成后告知：段落数、词数、是否加载 SG 和术语表、锁定术语数（或「全部可 review」）。
-
-### 4. 迭代模式确认（运行评估前必问，不得擅自迭代）
-
-初始化告知后、首轮评估前，**必须明确询问用户是否启用自动迭代**，禁止默认进入多轮：
-- **不启用（默认）**：只跑第一轮——pre-check + 评估 + 计分 + `write` 出报告与建议修正，**不执行 apply-fixes 迭代循环**，首轮后即停。首轮分数即为对该译文的质量裁决。
-- **启用**：`STATUS=FAIL` 时自动 `apply-fixes` 回写修正并继续迭代至 `SCORE≥阈值`（由 `/loop` 或自驱动多轮）。
-
-用户未明确选择前按「不启用」处理；大文件分块流程同受此开关约束。确认后提示运行 `/loop`。
-
----
-
-## 每轮迭代（/loop 调用时执行）
-
-```bash
-JOB=jobs/<文件名>
-```
-
-### Step 1：读取状态
-
-Read `$JOB/state.json`，提取：
-- `segments`：当前段落（取 `corrected` 若存在，否则取 `target`）
-- `sg_path`：指向 `$JOB/sg.txt`，读取内容作为风格指南
-- `terms_path`：指向 `$JOB/terms.json`，读取内容作为术语表
-- `wordcount`：固定词数（迭代不变）
-- `iteration`：当前轮次
-- `adjudications_path`（项目档案带入，可空）：**非空必须 Read**，裁决内容优先于 SG，已裁决项不得判错
-- `lang_notes_path`（语言层带入，可空）：非空必须 Read，作为语言级评估关注点注入（效力低于项目 SG/裁决）
-- `background_path`（指向 `$JOB/background.md`，项目 `profile.background` 带入，可空）：非空必须 Read，作为项目背景（游戏类型/受众/语气/语域基调）注入，校准「自然/口吻/语域」判断——lens 规范本身项目中立，题材靠此注入
-- `threshold`：评分阈值（项目档案可改，默认 98），传给 lqe_calc/write/apply-fixes 的 `--threshold`
-
-### Step 1.2：TM / 100% match 保护
-
-评估前必须检查输入列名和样例值，识别 TM/memory 100% match 句段。**Agent 自行判断是否存在锁定指示列；脚本不得根据列名/值自动猜测。**
-
-判断线索（只供 agent 判读，不是脚本规则）：
-- 列名含 `rag` / `tm` / `memory` / `match` / `score` / `exact` / `locked` / `100%`
-- 值含 `100%` / `1.0` / `exact` / `perfect` / `locked` / `true` / `yes`
-
-若 agent 判定输入自带明确锁定信号，先产出显式 locked ids 文件，再交给脚本落 state：
-```json
-{"locked_ids":[0, 12], "source":"agent_decision", "evidence":"tm_exact_match_used=true + score=1.0"}
-```
-```bash
-python "$SCRIPTS/lqe_io.py" lock-segments \
-  --state "$JOB/state.json" \
-  --locked-file "$JOB/tm_locked.agent_decision.json" \
-  --reason TM_100_MATCH
-```
-`lock-segments` 只消费 agent 给出的 ids/file，负责把 `state.segments[].locked=true` 写入 state，并输出 `$JOB/tm_locked.json` 作为审计记录；它不读取原表、不推断列名、不自行识别 TM。
-
-若某 segment 明确为 100% / exact / locked match：
-- 不修改 target
-- 不写 corrected
-- 不把该段写成 actionable error
-- 即使发现轻微问题，也只作为保护说明，不参与扣分和修正
-- final/export 必须保留原译文
-
-**项目 TM（输入无 match 列时）**：profile 含 `tm` 配置时，本地查 TM 产出 locked 段——
-```bash
 python "$SCRIPTS/tm_index.py" tm-match \
-  --state "$JOB/state.json" --index <profile.tm.index> \
-  --out-locked "$JOB/tm_locked.json"
+  --state "$JOB/state.json" \
+  --index <profile.tm.index> \
+  --out-protected "$JOB/tm_protected.json"
 ```
-命中规则：源**精确匹配** TM **且** 译文 = 库译（含一源多译的变体集）→ 锁定；其余（含「源命中但译被改」「源未命中」）照常评估。产物 `tm_locked.json`（`{"locked_ids":[…]}`）须继续用 `lqe_io.py lock-segments --locked-file "$JOB/tm_locked.json"` 落入 state；之后与「输入自带 match 列」两种来源等价、可并用。全本地、不调外部 API。
 
-### Step 1.5：pre-check（仅第一轮）
+只有源文精确匹配且当前译文属于该源文的已收录译法时才保护。受保护段不修改、不扣分，报告和导出保留原译。
+
+## 5. 机器预检
+
+首轮运行：
 
 ```bash
 python "$SCRIPTS/lqe_io.py" pre-check \
   --state "$JOB/state.json" \
-  --out "$JOB/errors.json"
+  --out "$JOB/errors_precheck.json"
 ```
 
-确定性自动检测（纯文本可判定项前移，消除 LLM 跨轮方差）：
+预检覆盖：未翻译内容、空译文、变量、标签、换行、数字、长度、空格、全角标点、句尾标点、中文数字与量词、重复词、词内大小写、成对标点、拼音残留、文件内一致性、术语命中和项目自定义规则。
 
-| 检查 | 类别 | 严重度 |
-|------|------|--------|
-| target 含中文 | Untranslated | Major |
-| 破折号 `—` | Punctuation | Minor |
-| 颜色标签 `#G/#C/#Y…#E` 整对数量不匹配（源↔译） | Markup | Major |
-| 变量 `{}` / `%s` 缺失或多余 | Markup | Major |
-| **无索引位置占位符 `%s/%d` 顺序错位**（命名/带索引允许重排）**[R1]** | Markup | Major |
-| `\n` 数量不匹配 | Markup | Major |
-| **数值漏译/改值**（源阿拉伯数字未在译文出现，如伤害 100→1000）**[R6]** | Mistranslation | Major |
-| `max-length` 列存在且译文超长 **[R3]** | Length | Major |
-| 译文 > 1.5× 源（无 max-length 列时回退，仅非 CJK 源） | Length | Major |
-| 千位分隔符缺失 | Locale convention | Minor |
-| **首尾空白 / 双空格 / 译文含全角 CJK 标点（含「」『』；CJK 目标语言在语言层关）[R5]** | Punctuation | Minor |
-| 术语表 source 命中但 target 缺译 | Terminology | Major |
-| 术语表 source 命中且 target 已出现，需排除子串/语境误匹配 | Other | Neutral |
-| **句尾终止标点不对齐**（源有译无 / 源无译加 `.`）**[N5]** | Punctuation | Minor |
-| **中文数字+量词漏译**（三次→译无 3/three；泰文数字/数词均认）**[N6]** | Mistranslation | Major |
-| **单词连续重复**（the the；白名单豁免 had had 等）**[N7]** | Grammar | Minor |
-| **词内大小写混乱**（AppLe；TB 词形/iPhone/PvP/Mc 豁免）**[N8]** | Spelling | Minor |
-| **半角成对标点不完整** `()[]"` （源平衡译不平衡才报；`'` 撇号豁免）**[N9]** | Punctuation | Minor |
-| **通用标签数量对账** `<…>`/`[…]`（项目特殊格式用 custom count_match）**[#3]** | Markup | Major |
-| **术语全大写缩写大小写错**（TB 含 HP 而译 hp）**[#7]** | Company style | Major |
-| **省略号样式混用**（文件内 `…` 与 `...` 并存，少数派段报）**[#10]** | Inconsistency | Minor |
-| **拼音残留**（专名大写头+≥2音节+强特征 zh/x/q 或撇号分隔；弱信号交 AI）**[N1]** | Mistranslation | Critical |
-| **同源异译 / 异源同译**（后者涉及源文须全部 ≥20 字；首段为基准不报）**[N2]** | Inconsistency | Minor |
+`checks.json` 的 `builtin` 可关闭不适用项，`custom` 可增加 regex 或 `count_match` 检查。语言属性会自动关闭不适用于目标语言的检查。预检结果仍需按上下文复核。
 
-`max-length` 列自动识别表头：`maxlen/max_length/char_limit/限长/字符上限` 等。输出作为本轮 `errors.json` 的基底。项目档案的 `checks.json` 在此生效：`builtin` 开关可关闭与项目规范冲突的内置项（如 Em-dash 允许的项目关 `em_dash`），`custom` regex 追加项目专属检查；术语报错带 `[TB:status]` 注记；带 `[LOCKED]`（profile `lock_statuses` 命中，见「术语锁定确认」）的跳过二次 review——不可移除、不可改判，corrected 必须采用锁定译法；**其余术语报错无论 status（含 Approved）评估时均可按语境甄别**。pre-check 术语匹配最长词条优先：长词条命中且译法正确时不报被包含子词；若译文已出现候选 target，pre-check 仍追加 `TERM REVIEW` 的 `Other/Neutral` 线索交给 AI 排除子串/重叠/语境误匹配，不作为扣分。若 pre-check 命中 locked segment，Agent 评估时必须移除该段 actionable error，保持 `errors=[]`, `corrected=null`。R6 数值检查仅在源含阿拉伯数字时触发；N6 中文数字仅在「中文数字+量词」强模式触发（一起/三思类虚用不报）。语言属性自动推导：泰语等无句号/无空格分词/非拉丁语言自动关闭 N5/N7/N8/#7。全部确定性报错 Agent 评估时均可按上下文甄别移除（locked 除外）。
+## 6. 检查模块
 
-### Step 2：评估所有段落
+大文件按模块并行检查；小文件也使用同一协议。模块说明位于：
 
-读取 `$JOB/errors.json`（pre-check 输出），对非 locked 段补充 AI 判断类错误，**同时给出修正译文**。locked 段不提供 corrected。
-
-#### 术语注入
-
-从 `terms_path` 加载术语表，格式化注入评估上下文；多义词条（同一 source 有多个候选译法）列出全部候选 + 消歧信息，结合段落语境判断该用哪个，译文都不匹配才报 Terminology：
-```
-=== MANDATORY TERMINOLOGY (deviation = Terminology [Major]) ===
-长鸣玉    → Echo Jade
-师傅/公子 → Master
-里奥      → ลีโอ（Creature Individual） | ไลเอล（Creature Species）
-...
+```text
+docs/check_modules/common.md
+docs/check_modules/terminology.md
+docs/check_modules/accuracy.md
+docs/check_modules/grammar.md
+docs/check_modules/naturalness.md
+docs/check_modules/proper_names.md
+docs/check_modules/term_audit.md
 ```
 
-#### 风格指南
+每个子任务读取 `common.md`、自己的模块文件、项目上下文和 chunk。模型只提交检查结果，不生成整段最终译文。
 
-优先使用 `sg_path` 文件内容。若不存在，使用以下内置规则：
-
-**大小写**
-- Title Mode（UI/技能/道具/地名/角色/成就）：名词/代词/动词/形容词/副词/≥5字母介词首字母大写；冠词/并列连词/＜5字母介词小写（首尾词除外）
-- Sentence Mode（对话/描述/提示文本）：首词 + 专有名词
-
-**标点**
-- 严格对齐原文标点（原文无句号则译文不加）
-- 全部使用半角标点
-- 禁用破折号 `—`，改用 ` - `（两侧空格）
-- 中文 `·` → ` - `（如：猫猫·珍珠 → Cat - Pearl）
-
-**数字**
-- 千位分隔符：2,000 非 2000
-- 物品数量：`Item ×N`（× 前空格，× 后无空格）
-
-**Markup**
-- 颜色标签 `#G...#E` `#C...#E` `#Y...#E` 保持相对位置
-- 变量 `{}` `%s` `{slot_name}` 原样保留，前后加空格
-- `\n` 换行符保留
-
-**文化术语（强制）**
-- 枪→Spear，火药→Explosive Powder，师傅/公子→Master
-- 龙/凤/蛟→Dragon/Phoenix/Serpent，笔→Brush，火铳→Fire Lance
-- 侠→Hero，大侠→Great Hero，少侠→Young Hero
-
-#### LQE 错误分类
-
-| 子类别 | 权重 | 说明 |
-|--------|------|------|
-| Mistranslation | 1.5 | 含义偏离原文 |
-| Omission | 1.5 | 漏译 |
-| Addition | 1.5 | 多译 |
-| Untranslated | 1.5 | 未翻译，**始终 Major** |
-| Grammar | 1.5 | 语法错误 |
-| Inconsistency | 1.5 | 不一致 |
-| Company style | 1.5 | 违反项目风格 |
-| Unidiomatic | 1.5 | 表达不自然 |
-| Terminology | 1.5 | 术语不符，**始终 Major** |
-| Markup | 1.5 | 标签/变量错误，**始终 Major** |
-| Culture specific reference | 1.5 | 文化本地化错误 |
-| Audience appropriateness | 1.5 | 译文准确但不符目标受众/语域/世界观期待 |
-| Punctuation | 1.0 | 标点错误 |
-| Spelling | 1.0 | 拼写错误 |
-| Locale convention | 1.0 | 数字/日期格式 |
-| Length | 1.0 | 超出原文1.5倍字符数，**始终 Major** |
-| Other | 1.0 | 其他 |
-
-严重级别：Neutral（0分）/ Minor（1分）/ Major（5分）/ Critical（10分）
-
-> **父维度对齐**：17 个子类别归入 MQM-Core / ISO 5060:2024 七个一级维度 —— Terminology / Accuracy / Linguistic Conventions / Style / Locale Conventions / Audience Appropriateness / Design and Markup（+ Other）。`Culture specific reference` 与 `Audience appropriateness` 归入 Audience Appropriateness（不再错置于 Accuracy）。
-
-> **注意**：Terminology / Untranslated / Markup / Length 的 severity 由脚本强制纠正，无论 AI 填写什么值。
-
-> **Critical 门（可选）**：`lqe_calc.py --critical-gate` 开启后，任一 Critical 错误直接 FAIL（MQM/ISO 5060/LISA 行业硬规则）；默认关，向后兼容。`--severity-scale mqm` 切换 0/1/5/25 指数严重度档。
-
-#### 评估关注点全集（事项5）
-
-首轮评估前 Read `docs/质量检查项清单.md`（**项目中立方法论**：23 项确定性检查类别表、17 子类→MQM 映射、三点法则、Word Choice 判定边界、严重度三级基准、计分/成组规则）。**项目实判案例、强制译名、拼音保留名单、历史报告分析**见该项目 `adjudications.md` + `lqa_notes.md`（如 `projects/wwm/zh-en/`）。效力顺序：客户裁决 > SG > 清单方法论。
-
-#### 成组文本评估（事项6）
-
-segment 带 `group` 字段（`read --group-col` 注入）时，同组段落**合并评估**：对联看对仗押韵、题目与答案看对应关系，逐句独立直译破坏成组结构是 0512 报告 26 条 Critical 的主因。无 group 字段时，相邻成对短句（祝词/对联特征）自行按组判断。
-
-#### 归类决策规则
-
-**单一归属**：每条错误只记一个类别（避免重复计分）。同一处可落多类时，按下表取最具体 / 最严的一个（对齐 MQM 决策树单维度归属）。
-
-| 现象 | 归类 |
-|------|------|
-| 含义偏离原文 | Mistranslation |
-| 漏内容 / 多内容 | Omission / Addition |
-| 整段未译、中文残留 | Untranslated（始终 Major）|
-| 错词命中术语表 **或强制文化映射**（枪→Spear、师傅→Master 等） | **Terminology**（始终 Major）|
-| 不在术语表的普通错词 | Mistranslation |
-| 文化专有概念译错（龙的内涵、典故、节气） | Culture specific reference |
-| 译文准确但口吻 / 语域 / 世界观不符（仙侠敬语→现代俚语） | Audience appropriateness |
-| 违反明文风格指南 | Company style |
-| 无明文、仅表达不自然 | Unidiomatic |
-| 与同文件他处译法冲突 —— **涉及术语表词条** | **Terminology** |
-| 与同文件他处译法冲突 —— 其余 | Inconsistency |
-| 句子不合语法（破句） | Grammar |
-| 标点符号本身 | Punctuation |
-| 数字 / 日期 / 货币格式 | Locale convention |
-| 标签 / 变量 / 换行 | Markup（始终 Major）|
-| 超长 / 截断 | Length（始终 Major）|
-
-**严重度判定（非强制类）**
-- **Critical**：卡上线 / 崩溃 / 冒犯性 / 法律风险。
-- **Major**：改变含义、破坏功能、砸品牌（误译、术语、漏译）。
-- **Minor**：表面瑕疵、偏好问题（轻微不自然、标点）。
-- **存疑取重**（J2450 元规则）：不确定 Major / Minor → 取 Major。
-- **数值错误**（技能 / 战斗数值，如 100→1000）默认 **Major**（归 Mistranslation）。
-- Terminology / Untranslated / Markup / Length 由脚本强制 Major，无需手判。
-
-### Step 3：写入评估结果
-
-Write `$JOB/errors.json`，**所有段落都必须写入，无错误写空数组**：
-
-**`errors[].comment` 必须统一使用英文**。可以短引原文/译文片段，但解释、错误描述和修正理由都用英文；不要写中文 comment。
+唯一输出协议：
 
 ```json
 [
   {
     "id": 0,
-    "errors": [
-      {"category": "Mistranslation", "severity": "Major", "comment": "The target mistranslates '原文片段' as 'target phrase', changing the meaning."}
-    ],
-    "corrected": "修正后的完整译文",
-    "correction_status": "suggested"
-  },
-  {
-    "id": 1,
-    "errors": [],
-    "corrected": null
+    "issues": [
+      {
+        "category": "Grammar",
+        "severity": "Minor",
+        "comment": "The verb form does not agree with the subject.",
+        "needs_confirmation": false,
+        "edit": {
+          "from": "are",
+          "to": "is",
+          "start": 4,
+          "end": 7,
+          "evidence": null
+        }
+      }
+    ]
   }
 ]
 ```
 
-**`corrected` 字段规则：**
-- 有错误且非 locked → 必须提供修正后完整译文
-- 无错误 → `null`
-- TM/memory 100% locked → 必须为 `null`，不得修改
+固定接口为 `{id, issues:[{category,severity,comment,needs_confirmation,edit}]}`。检查模块不得输出 corrected；`lqe_corrections.py` 验证局部修改后生成该内部字段。
 
-**`correction_status` 是机器裁决字段**：普通 AI 建议写 `suggested`；人工已批准写 `approved`；T/N 或任何 lens 提出尚未裁决的关键专名、TB 缺词/替换候选时，必须在段顶层写 `"correction_status": "pending_adjudication"`。`errors[].comment` 只解释原因，写“待裁决/pending”不会触发机器拦截。
+- 所有必需模块覆盖全部 id；无问题写 `issues: []`。
+- `comment` 统一用英文。
+- 安全、唯一、局部的改法写 `needs_confirmation: false` 和 `edit`。
+- 新译名、术语表错误或缺词、多个合理方案、整句重写写 `needs_confirmation: true` 和 `edit: null`。
+- 术语或专名修改必须引用唯一的 `confirmed: true` 候选，证据格式为 `{"type":"confirmed_term","source":"...","target":"..."}`。
+- 变量、标签、换行、受保护文本和受保护段不得被修改。
 
-### Step 4：计算分数
+模块分工：
+
+| 模块 | 类别 |
+|---|---|
+| `terminology` | Terminology、Inconsistency、Company style、预检复核 |
+| `accuracy` | Mistranslation、Omission、Addition、Untranslated |
+| `grammar` | Grammar、Spelling、Punctuation |
+| `naturalness` | Audience appropriateness、Culture specific reference、Unidiomatic |
+| `proper_names` | 术语表自检中的专名音译 |
+
+## 7. 分块流程
+
+```bash
+python "$SCRIPTS/lqe_chunk.py" split \
+  --state "$JOB/state.json" \
+  --errors "$JOB/errors_precheck.json" \
+  --terms "$JOB/terms.json" \
+  --outdir "$JOB/chunks" \
+  --size 100
+```
+
+`split` 会按相同源文和译文去重、过滤被更长术语覆盖的命中、保留术语候选标记，并为每段写 `kind`。密集内容可加 `--char-budget N`。
+
+每个 chunk 的必需输出：
+
+```text
+chunk_NN.terminology.json
+chunk_NN.accuracy.json
+chunk_NN.grammar.json
+chunk_NN.naturalness.json
+```
+
+术语表自检可再写 `chunk_NN.proper_names.json`。段数超过 30 时按 `common.md` 使用 `ckpt-append` 和 `ckpt-finalize`。
+
+结构检查与合并：
+
+```bash
+python "$SCRIPTS/lqe_chunk.py" validate-checks --job "$JOB"
+python "$SCRIPTS/lqe_chunk.py" merge-checks --job "$JOB"
+python "$SCRIPTS/lqe_chunk.py" reconcile --job "$JOB"
+python "$SCRIPTS/lqe_chunk.py" merge \
+  --state "$JOB/state.json" \
+  --errors "$JOB/errors_precheck.json" \
+  --outdir "$JOB/chunks" \
+  --out "$JOB/errors.json"
+```
+
+`validate-checks` 要求四个必需模块结构正确且 id 完整。`merge-checks` 合并并去重问题；`reconcile` 确保准确性类别只由 `accuracy` 模块确认；`merge` 广播重复段、恢复必须保留的确定性问题，并由脚本生成最终内部结果。
+
+一键收尾：
+
+```bash
+bash "$SCRIPTS/finalize_job.sh" "$JOB" <nchunks> [single|iterate]
+```
+
+`single` 只生成首轮报告和建议译文；`iterate` 在未达阈值时应用已验证修改。用户未明确选择时使用 `single`。
+
+## 8. 评分
 
 ```bash
 python "$SCRIPTS/lqe_calc.py" \
-  --state "$JOB/state.json" --errors "$JOB/errors.json" --threshold 98
+  --state "$JOB/state.json" \
+  --errors "$JOB/errors.json" \
+  --threshold 98
 ```
 
-输出：`SCORE=XX.XX STATUS=PASS/FAIL ERRORS=N WORDCOUNT=N CRITICAL=N REPEATED=N NPT/1000=X`，以及错误分布。
+```text
+K_per_category = Σ severity_points
+L_per_category = weight × K
+score = max((1 - ΣL / 固定词数) × 100, 0)
+```
 
-已通过 `lock-segments` 写入 `state.segments[].locked=true` 的段会自动跳过计分；若只持有 locked ids 文件且尚未落 state，可额外传 `--locked-file "$JOB/tm_locked.json"`。
+默认严重度点数：Neutral 0、Minor 1、Major 5、Critical 10。默认阈值 98。词数在初始化时固定。相同源译文段的同类同级问题默认只首次计分；`--no-repeat-dedup` 可关闭该规则。`--critical-gate` 可让任一 Critical 直接 FAIL；`--scorecard-profile lqe_2026` 使用 2026 评分卡。
 
-**N4 重复错误计分**（默认开，`--no-repeat-dedup` 关）：相同源译文段的同类同级错误仅首段计分，其余自动标 `repeated`（写回 errors.json，报表 repeated 列呈现、罚分不计）——客户评分卡口径。
+脚本强制 Terminology、Untranslated、Markup、Length 为 Major。受保护段自动跳过计分。
 
-### Step 5：判断与处理
+## 9. 报告、迭代和导出
 
-**STATUS=PASS：**
+PASS 或单轮模式：
+
 ```bash
 python "$SCRIPTS/lqe_io.py" write \
-  --state "$JOB/state.json" --errors "$JOB/errors.json" \
-  --score <分数> --threshold 98
+  --state "$JOB/state.json" \
+  --errors "$JOB/errors.json" \
+  --score <分数> \
+  --threshold 98
 ```
-报告输出文件路径，**停止 /loop**。
 
-**STATUS=FAIL：**（仅当用户在「迭代模式确认」选了**启用自动迭代**时，才执行下列 apply-fixes 循环；若**不启用**，改为：用 `write` 出首轮报告 + 导出建议修正后**停止**，不回写迭代）
+用户明确启用自动迭代且结果为 FAIL 时：
+
 ```bash
 python "$SCRIPTS/lqe_io.py" apply-fixes \
-  --state "$JOB/state.json" --errors "$JOB/errors.json" \
-  --score <分数> --threshold 98 \
-  --locked-ids "<逗号分隔的TM 100% match segment ids>"
+  --state "$JOB/state.json" \
+  --errors "$JOB/errors.json" \
+  --score <分数> \
+  --threshold 98
 ```
-Agent 识别到 TM/memory 100% match 后，必须通过 `--locked-ids` 或 `--locked-file` 传给脚本。脚本会强制跳过 locked 段修正，并在 LQE 表中显示 `TM Protected / TM Evidence`。自动存档本轮 errors → `errors_iter{N}.json`，生成 `*_lqe_iter{N}.xlsx`，将非 locked 修正写回 state。报告结果，等待下一次 `/loop`。
 
-优先在 Step 1.2 用 `lock-segments` 持久化 locked 状态；Step 5 的 `--locked-ids/--locked-file` 只作为未提前落 state 时的兼容入口。
+导出建议译文：
 
----
-
-## 大文件分块评估 + 聚合 + 边界处理（标准流程）
-
-段数多（≳300）时 Step 2 改用 subagent 分块并行，避免单上下文爆窗。脚本：`lqe_chunk.py`（split 去重+覆盖过滤+`kind` 标记 / merge-lenses 合 lens / merge 广播）、`finalize_job.sh`、`mastertb_to_terms.py`（Master TB→terms）、`aggregate_sheets.py`（多 sheet 各子 job finalize 后一键合并跨 sheet 交付物，见「文件结构 › 多 sheet」）。
-
-**分批方式二选一**：`lqe_chunk.py split` 按**段数**（默认 100/块）切，适合多数；`lqe_batch.py plan/merge` 按**输出 token 体量**自适应分批 + 断点续跑（写 `manifest.json`），适合每段产出大（如泰文剧情/对话整段完整修正、易超 64K）的场景——批级失败只重跑该批、merge 幂等缺批占位。
-
-**Step 2 改用多 lens（召回靠结构，非嘱咐）**：一个 agent「找所有类型错」会锚定显眼类（术语/名字），系统性漏挖语义/机制/语法（实证：何老师批，单轮漏 21 条含 5 Major 机制误译）。拆成 4 个**窄 lens** 各只管自己几类、互不可见，规范在 `docs/lenses/`（`_common.md` + `T/A/G/R.md`）：
-
-| lens | 类别 owner | 跑哪些段 | 输出 |
-|---|---|---|---|
-| **T 术语一致** | Terminology, Inconsistency, Company style + pre-check 甄别 | 全部段 | **全部段**（含无错段，merge 基准轴） |
-| **A 准确机制** | Mistranslation, Omission, Addition, Untranslated | 全部段 | 只命中段 |
-| **G 语法拼写** | Grammar, Spelling, Punctuation(语义) | `kind=desc` 段 | 只命中段 |
-| **R 语域自然** | Audience appropriateness, Culture specific reference, Unidiomatic | `kind=desc` 段 | 只命中段 |
-
-A 是召回命门（旧单轮的盲区）；门控由 `kind`（split 自动标 name/desc）决定，存疑偏 desc。
-
-**流程**：
-1. pre-check：`lqe_io.py pre-check --state $JOB/state.json`（**省略 --out，默认写 `errors_precheck.json`** 作 merge 基底；勿沿用 Step 1.5 的 `--out errors.json`——`errors.json` 留给 merge 输出，否则 finalize 找不到基底、空译文 Untranslated 漏注入）
-2. `lqe_chunk.py split`：① 按 (源,译) **去重**——完全相同句段只评一次（写 `dedup_map.json`），省冗余 + 杜绝同句异判；② term_hits **最长匹配覆盖过滤**——被同位置更长术语覆盖的子词不喂（如 `绒光优优` 不带 `优优`）；③ 每段标 `kind`（name/desc）供 lens 门控。每块 ~100 段 → `chunks/chunk_NN.json`（默认值，`--size` 可调）。**大/密集 job 防单 agent 过载/崩溃**：加 `--char-budget N`（按源+译字符量切块，密集段自动少装、各块负载均匀；`--size` 仍作段数硬上限）——实证固定 200 段时块负载 14K–20K 字严重不均、最密块（如术语机制密集段）撑爆 A agent；`--char-budget` 把每块压到 ~N 字、配「断点优先」即细粒度断点（崩/中断只丢一小块）。单个 chunk×lens 若仍反复失败，见下方「就地二分」。
-3. **每块 × 每个适用 lens 派 1 subagent**，读 `docs/lenses/_common.md` + 自己的 lens 文件（`T/A/G/R.md`）+ 各自 background/sg/lang_notes/adjudications + chunk，写 `chunk_NN.<L>.json`（如 `chunk_03.A.json`）。lens 分工见上表（T/A 跑全部段，G/R 跑 desc 段）。**每个 lens 先 pilot 1 块验证格式再 fan-out**；T 是基准轴必须先齐。**派发 prompt 必含输出纪律（防 64K 崩）：评估结果只用 Write 写进 `chunk_NN.<L>.json`、最终聊天回复 ≤3 行纯文本统计、绝不把 JSON/修正译文/逐条明细写进回复**——实证某 A agent 把整块结果怼进聊天响应触发 64K output 上限而崩、整块进度丢失。
-   - **断点优先（省 token，铁律）**：派发/判译每块前先查其输出文件（`chunk_NN.<L>.json` 或 `chunk_NN.out.json`）是否已存在且 json 合法（可解析、有 `findings`）——**已存在即跳过该块，只处理缺失块**。落盘的 chunk 文件就是断点：agent 超时/限流/中断后只补缺的，**禁止重跑已完成块**；改用 inline 兜底时同样先查断点再判。
-   - **并发数不设上限**：直接一次性 fire 全部 chunk×lens，无需分波。批量同时失败先查本地网络是否切换/断线，孤立单个超时按下条续跑处理；全新 lens/prompt 设计首次仍先 pilot 1-2 个验证格式。详见 [[lqe_concurrency_no_hard_cap_20260701]]。
-   - **存活只认落盘，绝不杀活 agent**：agent 停没停只认该 ID 的完成/失败通知，没通知=还在跑，运行时长/空磁盘都不算死亡证据。慢就等或 Monitor 轮询；想更快就另派替补并行，绝不 TaskStop 原 agent；TaskStop 仅用于通知确认失败或用户明确放弃时。见 [[feedback_no_kill_live_agent]]。
-   - **通知报错（timeout/ECONNRESET）永远 SendMessage 续跑同一 agent，不新起**：文件未落盘 ≠ 要重派——`SendMessage(to: <该 agent 的 agentId>, ...)` 原地续跑（保留已读上下文，省重读成本）。失败几次都续跑同一个，**不设"重试N次就换新agent"的门槛**——失败原因（网络/超时）与 agent 实例无关，换新只会多付一遍读取成本、不会更容易成功。除非该 agentId 本身失效（SendMessage 报错找不到该 agent），才新起。见 [[feedback_resume_agent_before_redispatch]]。
-   - **单个 chunk×lens 反复失败（同一单元连续 3+ 次超时/64K）就地二分，不再无限续跑同尺寸**：`lqe_chunk.py split-half --outdir chunks --chunk <NN> --lens <L>` 把该 chunk 原地拆成 `chunk_NN_p1.json`/`chunk_NN_p2.json`（各半量段，继承原 chunk 已算好的 precheck/term_hits，不重新预处理）；**带 `--lens` 时若该 chunk 该 lens 已有断点续写攒下的 `chunk_NN.<L>.ckpt.jsonl`，按 id 归属拆给 `chunk_NN_p1.<L>.ckpt.jsonl`/`chunk_NN_p2.<L>.ckpt.jsonl`，已判过的段不因二分作废**——新派的两个小 agent 一开局查断点就跳过这些，只接着判各自剩下的。当两个新 chunk 各派 1 个该 lens 的新 agent（读一半段落，生成量减半，直接压低撞 5 分钟超时/64K 输出上限的概率，段数仍 >30 就继续用断点续写）；两份都出结果后 `lqe_chunk.py join-parts --parts chunk_NN_p1.<L>.json chunk_NN_p2.<L>.json --out chunk_NN.<L>.json` 拼回原本该有的单一文件，后续 merge-lenses 无感。
-   - **inline 兜底（agent 全不可用时）+ 降级不出裁决（铁律）**：限流/会话上限致 agent 不可用时，用 `mastertb_prep.py view` 生成精简视图（id\|类别\|性别\|中文\|EN\|定义\|译文，密度高 10×，免读 ~38K/块原始 chunk 爆窗），主上下文按同一 `_RUBRIC.md` 逐块判、写回 `chunk_NN.out.json`（守断点）。**但单判=低召回，只作下限、不可当 lens 双遍的替代**：实证本轮单遍 inline 仅复现 0624 双遍 210 问题中的 29 个（召回 ~14%），漏 135 个真问题，单遍得 98.71 PASS 实为**假阳**（补全双遍真分≈95 FAIL）。**故凡未跑完整 4-lens/双遍的运行，分数只报"临时下限"、不报 PASS/FAIL 裁决**，报告须显著标注"单遍/低召回、待额度恢复补遍"+置信 medium。
-4. `lqe_chunk.py merge-lenses --outdir chunks`：以 T 为基准 union N/A/G/R 命中 → `chunk_NN.out.json`（**自动归并扁平 schema** lens 文件并保留 `correction_status`；任一 lens 为 pending 即整体 pending；多个不同 corrected 候选取优先级最高者作底 `N>A>T>G>R`，全部候选存 `corr_candidates` 并默认 `pending_adjudication`，待明确整合后再替换候选并改为非 pending 状态）
-5. `lqe_chunk.py validate-lenses --outdir chunks`（合并前结构守门：缺 id/坏类别/T 脊柱不全→非零退出，防静默丢数据）→ `reconcile --outdir chunks`（A_OWNED 类 Mistranslation/Omission/Addition/Untranslated 仅留 A 确认项、剔 T 透传并存档 `reconcile_dropped.json`）
-6. `lqe_chunk.py merge`：按 dedup_map 把代表判定**套到同组所有段**；**从 pre-check 基底补回确定性 `Untranslated`（空译文/中文残留——A lens 沉默≠甄别为 FP，防落 T↔A 职责缝隙被丢，实证虚高 0.9 分）**；校验全 id 覆盖（缺 id 退回 pre-check）
-7. `finalize_job.sh <job> <nchunks> [single|iterate]` 一键 merge-lenses→validate-lenses→reconcile→merge→calc→report→export（幂等，T 脊柱齐了才跑）；**单轮传 `single`**——FAIL 也只 write、不 apply-fixes（建议修正由 write 回退 errors.json + export `--errors` 显示）
-
-> **术语表/glossary 当待处理文件审校（如 Master TB 自身译文）**：① 跳过术语检查——`read --project` 后置空 `state.terms_path`（无外部 TB 可比，T 轴转纯内部一致性）；② **chunk 必带 EN/类别/性别/定义上下文**——标准 `split` 只带 source/target，专名音译缺 EN 锚判不准，须预处理建 `context.json` 注入；③ **仍按 lens 跑、A 轴（准确）不可省，禁用单 judge 代替**——原子短词同样锚定漏挖（单 judge + “保守少报”导向实测漏 ~3 倍，须高召回 + 双判/单判置信分级兜底）；④ 表头偏移（顶部有说明/图例行、真表头不在第 1 行）须先删顶部行再 `read`。
-> **小文件（不分块）**：单 agent 一轮即可，但 prompt 须把 background/lang_notes/adjudications 注入（与大文件 lens 同口径，Step 1 已 Read）+ A 的「必查清单」（占位符角色/机制动词/数值/条件）+ G/R 关注点并入，否则同样锚定漏挖。
-> **finalize_job.sh 注**：已内置 merge-lenses→validate-lenses→reconcile→merge 全链（无需手动先跑）；第 3 参数 `single`=单轮、缺省=迭代。
-
-**边界处理（段触发，不做全库扫描；操作规则见下，完整决策表见 dev 仓 Langlobal `docs/lqe_boundary_cases.md`）**：
-- **范围口径（PM 0615 定）**：凡不一致或错误**一律列出**——含 ① 不在 TB 的术语各段译法不一致（→ Inconsistency）② TB 占位符/垃圾值（如 `音碟吼→ตัวสัตว์`）③ TB 自身错误。不静默、不只 FYI。
-- **整词在 TB**：最长匹配——与最长那条 TB 比，一致判对、不一致报 Terminology + 给 TB 译法（M1/M2/M3/M5）。被包含子词若与整词译法不一（如 `优优` in `绒光优优`）**不报**，属客户库自身问题。
-- **整词不在 TB**：缺词（M9）或被含部件在 TB 内冲突（M7）→ AI 出最佳但标"缺词"，**关键专名或出现分歧 → 拦人工裁决**；部件自洽（M6）→ 用部件译法拼整词 + 标待入库。
-- **同源同译重复** → 去重套用（D2）；**同源异译** → 报 Inconsistency（D4）；**聚合后仍分歧** → 不自动取 severity 最高者、一律人工核（D5，防 AI 幻觉错译被当结果）。
-- **severity 口径**：表面拼写（叠声调/缺字符等）= Minor（S1）。
-- **人工裁决回填**：拦下的项出 `待人工裁决_<job>.xlsx` 给 PM；PM 定后 → 写 `terms_*.json`（status=Approved）+ `adjudications.md` → 下次直接命中、不再问。
-
----
-
-## 辅助命令
-
-**导出修正译文**（PASS 后）：
 ```bash
-python "$SCRIPTS/lqe_io.py" export --state "$JOB/state.json"
+python "$SCRIPTS/lqe_io.py" export \
+  --state "$JOB/state.json" \
+  --errors "$JOB/errors.json"
 ```
-输出 `*_corrected.<源扩展名>`：原始文件结构，target 列替换为修正后译文，其余列不变；Excel 输出 `.xlsx`，CSV/TSV 保持原文本格式。
 
-**术语查询**（评估前可用）：
+报告面向用户显示“建议修改、需要人工确认、保持原译、已保护”。`*_corrected.<ext>` 是标准交付文件名；其中 corrected 仅是内部机器字段和标准文件名的一部分。
+
+## 10. 多工作表
+
+每个工作表单独建立子 job，完成检查后聚合：
+
 ```bash
-python "$SCRIPTS/lqe_io.py" lookup-terms \
-  --state "$JOB/state.json" [--ids "0,1,5"]
+python "$SCRIPTS/aggregate_sheets.py" \
+  --job <文件名> \
+  [--sheets 剧情,功能,社媒] \
+  [--threshold 98]
 ```
 
----
+聚合结果放在父 job 目录，保留原工作簿工作表、空行、列顺序和格式，只替换目标列。
 
-## 评分公式
+## 11. 文件结构
 
-```
-K_per_category  = Σ severity_points（每条错误独立）
-L_per_category  = weight × K
-最终得分        = MAX((1 - ΣL / 固定词数) × 100, 0)
-阈值            = 98
-词数在第一轮锁定，迭代过程不变
-```
-
----
-
-## 文件结构
-
-```
-target_languages/<code>/   目标语言属性层（attributes.json + eval_notes.md；en/th/zh 已建；source 语言层接口预留）
-projects/<game>/<track>/   语言对轨档案（<source>-<target>；游戏级共享素材在 <game>/common/）
-├── profile.json        SG/术语/词数基准/阈值/checks/adjudications 配置
-├── checks.json         内置检查开关 + 自定义 regex 检查
-├── adjudications.md    客户裁决记录（评估前必读）
-└── terms_*.json        项目术语（可带 status）
-
-jobs/<文件名>/                  单文件任务（多 sheet/需拆分见下「多 sheet」）
-├── state.json          初始化一次；跨轮持久化（译文、词数、迭代历史）
-├── sg.txt              风格指南全文
-├── lang_notes.md       语言级评估关注点（语言层带入，可无）
-├── background.md       项目背景（profile.background 带入，可无）
-├── terms.json          术语表（仅当源需转换 xlsx/csv、或要打锁定标时才落此副本；**项目 json 源 + 无锁定 → terms_path 直接引用项目 TB，不复制**）
-├── errors.json         当前轮评估结果（每轮覆盖）
-├── errors_precheck.json  pre-check 输出（首轮自动生成）
-├── errors_iter{N}.json   各 FAIL 轮存档（apply-fixes 自动生成）
-├── <job标签>_lqe_iter{N}.xlsx   各 FAIL 轮报告
-├── <job标签>_corrected.<ext>    最终修正译文；locked 段保持原 target
-└── <job标签>_lqe.xlsx           最终 PASS 报告
+```text
+jobs/<文件名>/
+├── state.json
+├── sg.txt
+├── background.md
+├── lang_notes.md
+├── confirmed_rules.md
+├── terms.json
+├── errors_precheck.json
+├── errors.json
+├── chunks/
+├── <任务名>_lqe.xlsx
+└── <任务名>_corrected.<ext>
 ```
 
-**输出文件名必须标注任务来源**：`<job标签>` = 该 job 在 `jobs/` 下的子路径用 `_` 连接，由 `lqe_io._job_label()` 统一生成（单文件 `jobs/A/` → `A`；多 sheet `jobs/A/剧情/` → `A_剧情`）。apply-fixes/write/export 均据此命名，**禁止**再出现 `src_lqe_iter0.xlsx` 这种看不出来源的名字。
+不要修改用户原始 Excel，也不要改写历史 `outputs`。任务产物只写入对应 job 目录。
 
-**多 sheet / 需拆分的输入**：`read` 只读 active sheet，且各 sheet 列名/内容类别（剧情/功能/社媒…对应不同 SG 规则）常不同 → 按 sheet 拆为子 job：
-- 子 job 落 `jobs/<文件名>/<sheet>/`（各自 state/errors/报告，文件名自带 `<文件名>_<sheet>` 前缀）
-- 各子 job 独立走完评估 + finalize 后，**一键聚合**跨 sheet 交付物到父目录：
-  ```bash
-  python "$SCRIPTS/aggregate_sheets.py" --job <文件名> [--sheets 剧情,功能,社媒] [--threshold 98]
-  ```
-  自动发现父目录下含 state.json 的子 job（`--sheets` 可指定顺序/子集）→ 产出 `<文件名>_corrected.xlsx`（镜像原始多 sheet 结构，仅替换译文列）+ `<文件名>_LQE报告.xlsx`（汇总各子表分数 + 各子表 LQE Results 明细）。
-- 跨 sheet 的合并交付物（汇总报告、还原原结构的修正文件）放父目录 `jobs/<文件名>/`，**不得散落在 `jobs/` 根**
-- 还原的修正文件须镜像原始多 sheet 结构（含空行/全部列），仅替换译文列
+## 12. 验证
+
+```bash
+python3 -m unittest -v tests.test_correction_builder
+python3 -m unittest -v tests.test_corrected_ownership
+python3 -m unittest -v tests.test_plain_language
+python3 scripts/run_tests.py
+```

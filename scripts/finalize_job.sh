@@ -2,7 +2,7 @@
 # finalize_job.sh <jobname> <nchunks> [single|iterate]
 # 多模块一键收尾：validate-checks → merge-checks → reconcile → merge → calc → report → export
 #   single  = 单轮：FAIL 也只出报告（不 apply-fixes 迭代）
-#   iterate = 默认：FAIL 走 apply-fixes（自动迭代）
+#   iterate = 显式启用：FAIL 走 apply-fixes（自动迭代）
 # 幂等：仅当 N 个基础 chunk 齐了才跑。
 SK="$(cd "$(dirname "$0")/.." && pwd)"   # skill 根（脚本位置锚定，与 HOME/CWD 无关）
 JOB_ARG="$1"
@@ -11,7 +11,7 @@ if [ -d "$JOB_ARG" ] && [ -f "$JOB_ARG/state.json" ]; then
 else
   JOB="$SK/jobs/$JOB_ARG"
 fi
-N="$2"; MODE="${3:-iterate}"; CH="$JOB/chunks"
+N="$2"; MODE="${3:-single}"; CH="$JOB/chunks"
 THRESH=$(python3 - "$JOB/state.json" <<'PY'
 import json
 import sys
@@ -34,9 +34,9 @@ if ! python3 "$SK/scripts/lqe_chunk.py" validate-checks --job "$JOB"; then
 # 2) 合并模块检查结果
 if ! python3 "$SK/scripts/lqe_chunk.py" merge-checks --job "$JOB"; then
   echo "MERGE-CHECKS FAIL $1; not finalizing"; exit 3; fi
-# 3) 归属权威化
+# 3) 确认准确性问题来自准确性检查模块
 python3 "$SK/scripts/lqe_chunk.py" reconcile --job "$JOB"
-# 4) 广播去重组 → errors.json（任一 id 未覆盖则非零退出）
+# 4) 将重复段的检查结果复制到组内各段并写入 errors.json（任一 id 未覆盖则非零退出）
 if ! python3 "$SK/scripts/lqe_chunk.py" merge --state "$JOB/state.json" \
      --errors "$JOB/errors_precheck.json" --outdir "$CH" --out "$JOB/errors.json"; then
   echo "MERGE-INCOMPLETE $1 (some ids uncovered; see above); not finalizing"; exit 3
@@ -52,7 +52,7 @@ if [ "$STATUS" = "PASS" ] || [ "$MODE" = "single" ]; then
 else
   python3 "$SK/scripts/lqe_io.py" apply-fixes --state "$JOB/state.json" --errors "$JOB/errors.json" --score "$SCORE" --threshold "$THRESH"
 fi
-# 7) 导出建议修正稿（--errors 让单轮 state.corrected 为空时也能填建议）
+# 7) 导出建议译文（--errors 可补充单轮任务中程序生成的建议译文）
 python3 "$SK/scripts/lqe_io.py" export --state "$JOB/state.json" --errors "$JOB/errors.json"
 touch "$JOB/.finalized"
 echo "FINALIZED $1 SCORE=$SCORE STATUS=$STATUS MODE=$MODE"

@@ -27,7 +27,7 @@ _RE_VARS     = [re.compile(r'\{[^}]*\}'), re.compile(r'%[sd]')]   # exact match
 _RE_POS_PH   = re.compile(r'%(?![0-9]+\$)[sd]')
 # R6: 数值一致性（提取阿拉伯数字 token，归一去千位分隔符）
 _RE_NUMTOK   = re.compile(r'\d[\d,]*(?:\.\d+)?')
-# R3 回退门控/长度比对前剥离标记（标签会稀释 CJK 占比、虚增长度）
+# R3 回退条件：长度比对前剥离标记，避免标签稀释 CJK 占比或增加表面长度
 _RE_MARKUP   = re.compile(r'<[^>]*>|\{[^}]*\}|%[sd]')
 # R5: 译文中不应出现的全角/CJK 标点与全角空格（适用 EN/TH 等非 CJK 目标语言；
 # CJK 目标语言如 ja 在语言层关闭 fullwidth_punct）
@@ -69,14 +69,14 @@ _RE_MIXED_CASE = re.compile(r'\b[A-Za-z]*[a-z][A-Z][A-Za-z]*\b')
 _RE_CASE_EXEMPT = re.compile(r'^(Mc|Mac)[A-Z]|^[a-z]{1,2}[A-Z][a-z]+$')  # McDonald / iPhone / eSports
 # N9: 半角成对标点（全角/弯引号已由 R5「出现即报」拦截）
 _N9_PAIRS = [('(', ')'), ('[', ']')]
-# #3: 通用标签模式集兜底（{} 归 variables、#G..#E 归 color_tags，不重复）
+# #3: 通用标签补充检查（{} 归 variables、#G..#E 归 color_tags，不重复）
 _TAG_PATTERNS = [('angle', re.compile(r'<[^<>]+>')), ('square', re.compile(r'\[[^\[\]]+\]'))]
 # #10: 省略号样式（文件内不混用；…… 计入 unicode 风格）
 _RE_ELLIPSIS_DOTS = re.compile(r'\.{3,}')
 
 
 # N1: 拼音残留——专名大写头 + ≥2 音节完整切分 + 强特征（zh/x/q[^u] 开头或 iang/uang/iong 韵），
-# 或撇号分隔双音节（Ping'an 型）。ch/sh 不作强特征（英文词重叠面大），弱信号交 AI 评估。
+# 或撇号分隔双音节（Ping'an 型）。ch/sh 不作强特征（英文词重叠面大），弱信号交检查模块复核。
 _PY_INITIALS = ('zh', 'ch', 'sh', 'b', 'p', 'm', 'f', 'd', 't', 'n', 'l', 'g', 'k', 'h',
                 'j', 'q', 'x', 'r', 'z', 'c', 's', 'y', 'w', '')
 _PY_FINALS = ('iang', 'uang', 'iong', 'ang', 'eng', 'ong', 'ian', 'uan', 'iao', 'uai',
@@ -491,7 +491,7 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
             errs.append({"category": "Inconsistency", "severity": "Minor",
                          "comment": "Ellipsis style differs from file majority ('…' vs '...'); one style per project"})
 
-        # N1: 拼音残留（Critical；TB 词形/白名单豁免，AI 评估重点甄别）
+        # N1: 拼音残留（Critical；术语表词形和白名单豁免，检查模块重点复核）
         if on("pinyin_residue"):
             for w in re.findall(r"\b[A-Za-z]+(?:'[A-Za-z]+)?\b", plain_tgt):
                 if not w[0].isupper() or w.lower() in _PY_ENGLISH or w in term_tokens:

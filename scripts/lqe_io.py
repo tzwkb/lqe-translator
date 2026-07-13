@@ -4,10 +4,10 @@ LQE I/O utilities.
 Subcommands:
   read          Excel/CSV/TSV + project profile → state.json
   pre-check     确定性错误自动检测（标点/Markup/术语/长度等）
-  protect-segments agent 已判定的 TM/100% match ids → state.json protected 标记
-  apply-fixes   errors.json 的 corrected 写回 state.json
+  protect-segments 把已确认的 TM/100% 匹配段标记为已保护
+  apply-fixes   把程序生成的建议译文写回 state.json
   write         state.json + errors.json → *_lqe.xlsx
-  ingest-corpus 修正译文回流 AIPE 语料库（接口待确认，暂为 stub）
+  ingest-corpus 建议译文回传 AIPE 语料库（接口尚未确定，暂不执行）
 """
 import argparse
 import csv
@@ -466,7 +466,7 @@ def cmd_read(args):
     if lang_cfg:
         print(f"[lqe_io] target language attributes: target_languages/{lang}/attributes.json")
 
-    # 语言级评估关注点（固定名 eval_notes.md，存在即挂载）→ 拷入 job，Step 2 注入（效力低于项目 SG/裁决）
+    # 语言级检查说明（固定名 eval_notes.md，存在即挂载）会复制到任务目录；效力低于风格指南和确认规则
     lang_notes_path = ""
     if lang:
         np = _LANG_DIR / lang / "eval_notes.md"
@@ -476,8 +476,8 @@ def cmd_read(args):
             lang_notes_path = str(dst)
             print(f"[lqe_io] language eval notes → {dst}")
 
-    # 项目背景（游戏类型/受众/语气/语域基调）→ 注入各 lens + 单-agent，校准「自然/口吻」判断
-    # （lens 规范本身保持项目中立；背景按项目从 profile.background 注入）
+    # 项目背景（游戏类型/受众/语气/语域基调）提供给各检查模块和单任务，校准自然度与口吻判断
+    # 检查模块规范保持项目中立；具体背景来自 profile.background
     background_path = ""
     if prof and (prof.get("background") or "").strip():
         dst = job_dir / "background.md"
@@ -508,9 +508,9 @@ def cmd_read(args):
         common_ap = ap.parent.parent / "common" / "confirmed_rules_common.md"
         parts = []
         if common_ap.exists():
-            parts.append(f"<!-- ===== 共通裁决 (game级): {common_ap.name} ===== -->\n" + common_ap.read_text(encoding="utf-8"))
+            parts.append(f"<!-- ===== 共通确认规则（游戏级）: {common_ap.name} ===== -->\n" + common_ap.read_text(encoding="utf-8"))
         if ap.exists():
-            parts.append(f"<!-- ===== 语言专有裁决: {ap} ===== -->\n" + ap.read_text(encoding="utf-8"))
+            parts.append(f"<!-- ===== 语言专有确认规则: {ap} ===== -->\n" + ap.read_text(encoding="utf-8"))
         if parts:
             combined = Path(args.out).parent / "confirmed_rules.md"
             combined.parent.mkdir(parents=True, exist_ok=True)
@@ -1349,8 +1349,8 @@ def main():
 
     ps = sub.add_parser("protect-segments")
     ps.add_argument("--state", required=True)
-    ps.add_argument("--protected-ids", default=None, help="agent 判定后的逗号分隔 segment ids")
-    ps.add_argument("--protected-file", default=None, help="agent 判定后的 protected ids JSON 文件")
+    ps.add_argument("--protected-ids", default=None, help="逗号分隔的已确认段 id")
+    ps.add_argument("--protected-file", default=None, help="已确认段 id JSON 文件")
     ps.add_argument("--reason", default="TM_100_MATCH")
     ps.add_argument("--out", default=None, help="输出 protected ids JSON，默认 {job}/tm_protected.json")
 

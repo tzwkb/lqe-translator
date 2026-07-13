@@ -1,6 +1,6 @@
 """TM ingest for LQE.
 
-Parse a translation memory → exact-match index → segment ids to protect.
+Parse a translation memory → exact-match index → segment ids marked as protected.
 Pluggable loaders (one function per format, picked by file extension); only
 `.sdltm` is implemented. All local: exact normalized-string match, no
 embeddings / no external API — source text never leaves the machine.
@@ -92,19 +92,19 @@ def cmd_tm_match(args):
     out = Path(args.out_protected)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({"protected_ids": protected}, ensure_ascii=False), encoding="utf-8")
-    print(f"[tm_index] protected {len(protected)}/{len(state['segments'])} segments → {args.out_protected}")
+    print(f"[tm_index] 已保护 {len(protected)}/{len(state['segments'])} 段 → {args.out_protected}")
 
 
 def main():
     import argparse
-    ap = argparse.ArgumentParser(prog="tm_index", description="TM exact-match index + protection (all local)")
+    ap = argparse.ArgumentParser(prog="tm_index", description="本地生成 TM 精确匹配索引并标记已保护段")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     b = sub.add_parser("build", help="parse TM file(s) → exact-match index json")
     b.add_argument("--libraries", nargs="+", required=True, help="TM files (.sdltm)")
     b.add_argument("--out", required=True, help="output index json path")
 
-    m = sub.add_parser("tm-match", help="state.json × index → protected_ids json")
+    m = sub.add_parser("tm-match", help="用 state.json 和索引生成已保护段 id JSON")
     m.add_argument("--state", required=True)
     m.add_argument("--index", required=True)
     m.add_argument("--out-protected", dest="out_protected", required=True)

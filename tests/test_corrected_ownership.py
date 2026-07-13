@@ -907,20 +907,102 @@ class CorrectedOwnershipPipelineTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("corrected", result.stderr)
 
-    def test_mastertb_merge_rejects_model_corrected(self):
-        job = self.root / "mastertb"
+    def test_batch_plan_reads_precheck_issue_contract(self):
+        job = self.root / "batch-plan"
         write_json(
             job / "state.json",
-            {"segments": [{"id": 0, "source": "x", "target": "x"}]},
+            {"segments": [{"id": 0, "source": "原文", "target": "target"}]},
         )
-        write_json(job / "chunks" / "chunk_00.json", {"terms": []})
         write_json(
-            job / "chunks" / "chunk_00.out.json",
+            job / "errors_precheck.json",
+            [{"id": 0, "issues": [check_issue(comment="precheck flag")]}],
+        )
+
+        result = self.run_script(
+            BATCH_SCRIPT,
+            "plan",
+            "--job",
+            job,
+            "--output-budget",
+            "400",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        prompt = (job / "batches" / "batch_00.txt").read_text(encoding="utf-8")
+        self.assertIn("PRECHECK: Grammar:precheck flag", prompt)
+
+    def test_batch_plan_flattens_multisense_terms_with_explicit_flags(self):
+        job = self.root / "batch-terms"
+        write_json(
+            job / "state.json",
+            {"segments": [{"id": 0, "source": "里奥出现", "target": "Rio"}]},
+        )
+        write_json(
+            job / "terms.json",
+            [
+                {
+                    "source": "里奥",
+                    "senses": [
+                        {
+                            "target": "ลีโอ",
+                            "confirmed": True,
+                            "protected": False,
+                        },
+                        {
+                            "target": "ไลเอล",
+                            "confirmed": False,
+                            "protected": True,
+                        },
+                    ],
+                }
+            ],
+        )
+
+        result = self.run_script(BATCH_SCRIPT, "plan", "--job", job)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        prompt = (job / "batches" / "batch_00.txt").read_text(encoding="utf-8")
+        self.assertIn("里奥=ลีโอ[confirmed=true, protected=false]", prompt)
+        self.assertIn("里奥=ไลเอล[confirmed=false, protected=true]", prompt)
+
+    def test_batch_merge_rejects_incomplete_id_coverage(self):
+        job = self.root / "batch-missing"
+        write_json(
+            job / "state.json",
             {
-                "findings": [
-                    {"id": 0, "issues": [], "corrected": "model text"}
+                "segments": [
+                    {"id": 0, "source": "a", "target": "a"},
+                    {"id": 1, "source": "b", "target": "b"},
                 ]
             },
+        )
+        write_json(job / "evals" / "eval_00.json", [{"id": 0, "issues": []}])
+
+        result = self.run_script(BATCH_SCRIPT, "merge", "--job", job)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("missing=[1]", result.stderr)
+        self.assertFalse((job / "errors.json").exists())
+
+    def test_mastertb_merge_rejects_model_corrected(self):
+        job = self.root / "mastertb"
+        segment = {"id": 0, "source": "x", "target": "x"}
+        write_json(
+            job / "state.json",
+            {"segments": [segment]},
+        )
+        write_json(
+            job / "chunks" / "chunk_00.json",
+            {"chunk_id": 0, "segments": [segment]},
+        )
+        for module in REQUIRED_MODULES:
+            write_json(
+                job / "chunks" / f"chunk_00.{module}.json",
+                [{"id": 0, "issues": []}],
+            )
+        write_json(
+            job / "chunks" / "chunk_00.out.json",
+            [{"id": 0, "issues": [], "corrected": "model text"}],
         )
 
         result = self.run_script(
@@ -960,11 +1042,24 @@ class CorrectedOwnershipPipelineTests(unittest.TestCase):
         finally:
             output.close()
 
+    def test_aggregate_uses_only_standard_parent_workbook_names(self):
+        job, _ = self.make_aggregate_job(
+            errors=[{"id": 0, "errors": [], "corrected": None}],
+        )
+
+        result = self.run_aggregate(job)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            sorted(path.name for path in job.glob("*.xlsx")),
+            ["multi_corrected.xlsx", "multi_lqe.xlsx"],
+        )
+
     def test_aggregate_rejects_forged_corrected_before_writing_outputs(self):
         job, _ = self.make_aggregate_job(
             errors=[{"id": 0, "errors": [], "corrected": "伪造修正"}]
         )
-        outputs = [job / "multi_corrected.xlsx", job / "multi_LQE报告.xlsx"]
+        outputs = [job / "multi_corrected.xlsx", job / "multi_lqe.xlsx"]
         for output in outputs:
             output.write_bytes(b"existing output")
 
@@ -985,7 +1080,7 @@ class CorrectedOwnershipPipelineTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("errors", result.stderr)
         self.assertFalse((job / "multi_corrected.xlsx").exists())
-        self.assertFalse((job / "multi_LQE报告.xlsx").exists())
+        self.assertFalse((job / "multi_lqe.xlsx").exists())
 
     def test_aggregate_requires_exact_result_id_coverage(self):
         workbook = openpyxl.Workbook()
@@ -1026,7 +1121,7 @@ class CorrectedOwnershipPipelineTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(message, result.stderr)
                 self.assertFalse((job / f"{name}_corrected.xlsx").exists())
-                self.assertFalse((job / f"{name}_LQE报告.xlsx").exists())
+                self.assertFalse((job / f"{name}_lqe.xlsx").exists())
 
     def test_aggregate_preserves_complete_source_workbook(self):
         workbook = openpyxl.Workbook()
@@ -1139,6 +1234,50 @@ esac
                 "--out", str(job / "errors.json"),
             ],
         )
+
+    def test_finalize_defaults_to_single_when_mode_is_omitted(self):
+        job = self.root / "finalize-default"
+        (job / "chunks").mkdir(parents=True)
+        write_json(job / "state.json", {})
+        write_json(job / "chunks" / "chunk_00.json", {})
+        log = self.root / "python-calls-default.log"
+        bin_dir = self.root / "bin-default"
+        bin_dir.mkdir()
+        python_stub = bin_dir / "python3"
+        python_stub.write_text(
+            """#!/bin/sh
+printf '%s\n' "$*" >> "$CALL_LOG"
+case "$1" in
+  -) printf '98\n' ;;
+  *lqe_calc.py) printf '{"score":90,"status":"FAIL","errors":1,"wordcount":1,"critical":0,"npt":0}\n' ;;
+  -c)
+    case "$2" in
+      *score*) printf '90\n' ;;
+      *status*) printf 'FAIL\n' ;;
+    esac
+    ;;
+esac
+""",
+            encoding="utf-8",
+        )
+        python_stub.chmod(0o755)
+        env = dict(os.environ)
+        env["CALL_LOG"] = str(log)
+        env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+
+        result = subprocess.run(
+            ["bash", str(FINALIZE_SCRIPT), str(job), "1"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            env=env,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = log.read_text(encoding="utf-8").splitlines()
+        self.assertTrue(any("lqe_io.py write" in call for call in calls), calls)
+        self.assertFalse(any("lqe_io.py apply-fixes" in call for call in calls), calls)
+        self.assertIn("MODE=single", result.stdout)
 
 
 class CorrectedOwnershipOutputTests(unittest.TestCase):
@@ -1640,6 +1779,77 @@ class CorrectedOwnershipProjectTests(unittest.TestCase):
                     "protected": False,
                 }
             ],
+        )
+
+    def test_mastertb_multisense_and_backfill_keep_explicit_flags(self):
+        source = self.root / "master-flags.xlsx"
+        output = self.root / "terms-flags.json"
+        backfill = self.root / "backfill.json"
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.append(["术语 ZHCN", "TH", "Status"])
+        sheet.append(["多义", "A", "Approved"])
+        sheet.append(["多义", "B", "Draft"])
+        sheet.append(["空缺", "", "Approved"])
+        workbook.save(source)
+        workbook.close()
+        write_json(
+            backfill,
+            [
+                {
+                    "source": "空缺",
+                    "target": "Legacy",
+                    "confirmed": True,
+                    "protected": True,
+                }
+            ],
+        )
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(MASTERTB_TO_TERMS_SCRIPT),
+                "--input",
+                str(source),
+                "--out",
+                str(output),
+                "--target-col",
+                "TH",
+                "--backfill",
+                str(backfill),
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        by_source = {item["source"]: item for item in read_json(output)}
+        self.assertEqual(
+            by_source["多义"]["senses"],
+            [
+                {
+                    "target": "A",
+                    "confirmed": False,
+                    "protected": False,
+                    "status": "Approved",
+                },
+                {
+                    "target": "B",
+                    "confirmed": False,
+                    "protected": False,
+                    "status": "Draft",
+                },
+            ],
+        )
+        self.assertEqual(
+            by_source["空缺"],
+            {
+                "source": "空缺",
+                "target": "Legacy",
+                "confirmed": True,
+                "protected": True,
+            },
         )
 
     def test_read_state_uses_confirmed_rules_path(self):

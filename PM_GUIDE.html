@@ -32,9 +32,13 @@ code{background:#eef1f3;border-radius:4px;padding:1px 6px;font-family:Menlo,Cons
 .fork .pass{border-color:var(--green);background:#f3f9f1}
 .fork .fail{border-color:#d9a648;background:#fdf8ee}
 .callout{background:#f3f9f1;border:1px solid var(--green);border-radius:10px;padding:14px 18px;margin:14px 0}
+.nav{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:18px 0 0}
+.nav a{color:#365b74;text-decoration:none;background:#eef3f6;border-radius:999px;padding:4px 10px;font-size:13px}
+.prompt{white-space:pre-wrap;background:#fff;border:1px solid var(--line);border-radius:8px;padding:12px;overflow-wrap:anywhere}
 .qa b{display:block;margin-top:14px}
 footer{margin-top:56px;text-align:center;color:#99a;font-size:12px}
-@media print{body{background:#fff}.wrap{padding:0}}
+@media(max-width:640px){.wrap{padding:24px 16px 48px}.fork{display:block}.fork>div{margin-bottom:8px}table{display:block;overflow-x:auto}h1{font-size:22px}}
+@media print{body{background:#fff}.wrap{max-width:none;padding:0}.nav{display:none}.step,.fork>div,.callout,table{break-inside:avoid}}
 </style>
 </head>
 <body>
@@ -43,94 +47,96 @@ footer{margin-top:56px;text-align:center;color:#99a;font-size:12px}
 <header>
 <img src="data:image/jpeg;base64,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" alt="Langlobal">
 <h1>LQE Translator 项目经理操作手册</h1>
-<div class="sub">面向本地化 PM · 技术细节见 SKILL.md · 本手册只讲：它是什么、怎么用、你会被问什么、拿到什么</div>
+<div class="sub">面向本地化 PM · 技术细节见 SKILL.md · 从准备文件到验收交付</div>
+<nav class="nav"><a href="#prepare">准备</a><a href="#manual">手动运行</a><a href="#agent">Agent 操作</a><a href="#acceptance">验收</a><a href="#recovery">问题处理</a></nav>
 </header>
 
-<h2>一、它是什么</h2>
-<p>LQE Translator 是跑在 Claude Code 里的<b>译文质检 + 自动修正 agent</b>：</p>
+<h2 id="prepare">一、用途与准备</h2>
+<p>LQE Translator 是 Codex 中的译文质检 skill。它先运行机器预检，再由术语、准确性、语法和自然度检查模块报告问题；脚本校验局部修改、计算 LQE 分数并生成 Excel 交付文件。</p>
 <table>
-<tr><td>按 <b>MQM / ISO 5060</b> 错误体系打分（17 类错误 × 4 级严重度），同时给出每条错误的<b>修正译文</b>，自动迭代直到得分 ≥ 98</td></tr>
-<tr><td>已落地项目：洛克王国中→泰（<code>nrc/zh-th</code>）、中→英（<code>nrc/zh-en</code>）、燕云十六声中→英（<code>wwm/zh-en</code>）</td></tr>
+<tr><th width="120">必需</th><td>Excel、CSV 或 TSV；明确原文列、译文列和项目语言轨，例如 <code>nrc/zh-th</code></td></tr>
+<tr><th>项目资料</th><td><code>profile.json</code>、<code>confirmed_rules.md</code>、风格指南、术语表和目标语言说明</td></tr>
+<tr><th>运行环境</th><td>macOS 或 Linux shell、Python 3；首次安装 <code>openpyxl requests python-docx</code></td></tr>
+<tr><th>运行选择</th><td>默认首轮检查；只有明确要求时才启用自动迭代</td></tr>
 </table>
-<p>一句话：把译文文件丢给它，拿回一份 LQE 报告 + 一份达标的修正稿。</p>
+<div class="callout"><b>两种保护：</b>术语条目的 <code>protected: true</code> 表示不可修改；有明确 TM 精确匹配证据的段也可标记为受保护。受保护内容不修改、不计分。</div>
 
-<h2>二、你需要准备什么</h2>
-<table>
-<tr><th width="110">必需</th><td>译文 Excel——含原文列 + 译文列（列名告诉 agent 即可）</td></tr>
-<tr><th>可选</th><td>风格指南（docx / xlsx / txt）、术语表（xlsx / csv / json）</td></tr>
-<tr><th>项目首选</th><td><b>项目档案</b>——nrc/zh-th 等已配好 SG/术语/检查规则，一句话调用</td></tr>
-</table>
-<p>新语种/新项目第一次跑时把 SG 和术语表给齐；之后 agent 会建好项目档案，复用时只报项目名。</p>
-
-<h2>三、操作流程</h2>
+<h2 id="manual">二、手动启动与运行</h2>
+<p>在 skill 根目录运行。默认安装位置为 <code>~/.codex/skills/lqe-translator</code>：</p>
+<p class="prompt">cd ~/.codex/skills/lqe-translator
+pip install openpyxl requests python-docx -q
+SCRIPTS="$PWD/scripts"
+JOB="$PWD/jobs/&lt;任务名&gt;"</p>
+<p>用项目档案初始化，并把机器预检结果单独写入 <code>errors_precheck.json</code>：</p>
+<p class="prompt">python3 "$SCRIPTS/lqe_io.py" read --project "&lt;game/source-target&gt;" \
+  --input "&lt;输入文件绝对路径&gt;" --source-col "&lt;原文列&gt;" --target-col "&lt;译文列&gt;" \
+  --out "$JOB/state.json"
+python3 "$SCRIPTS/lqe_io.py" pre-check --state "$JOB/state.json" \
+  --out "$JOB/errors_precheck.json"
+python3 "$SCRIPTS/lqe_chunk.py" split --state "$JOB/state.json" \
+  --errors "$JOB/errors_precheck.json" --terms "$JOB/terms.json" \
+  --outdir "$JOB/chunks" --size 100</p>
 <div class="flow">
-<div class="step"><span class="n">1</span><span><b>初始化</b><small>agent 读文件，报告段数 / 词数 / 配置加载情况</small></span></div>
+<div class="step"><span class="n">1</span><span><b>初始化</b><small>读取输入和项目档案，确认段数、固定词数及资料加载情况</small></span></div>
 <div class="arrow">▼</div>
-<div class="step ask"><span class="n">2</span><span><b>术语锁定确认 ★ 可能向你提问</b><small>见第四节，答案记入项目档案，下批不再问</small></span></div>
+<div class="step ask"><span class="n">2</span><span><b>确认受保护内容</b><small>只根据客户资料、用户确认或明确的 TM 匹配证据设置</small></span></div>
 <div class="arrow">▼</div>
-<div class="step"><span class="n">3</span><span><b>机器预检</b><small>变量 / 标签 / 数字 / 标点 / 术语等硬规则，零遗漏</small></span></div>
+<div class="step"><span class="n">3</span><span><b>机器预检</b><small>检查空译文、变量、标签、数字、长度、格式、术语和项目规则</small></span></div>
 <div class="arrow">▼</div>
-<div class="step"><span class="n">4</span><span><b>AI 评估</b><small>语义 / 风格 / 语法类错误判定 + 给出修正译文</small></span></div>
+<div class="step"><span class="n">4</span><span><b>专项检查</b><small>子任务顶层只输出 <code>{id, issues}</code>；确认项写 <code>needs_confirmation: true</code> 和 <code>edit: null</code>；完整建议译文只由程序生成</small></span></div>
 <div class="arrow">▼</div>
-<div class="step"><span class="n">5</span><span><b>评分</b><small>词数首轮锁定，按错误加权扣分</small></span></div>
+<div class="step"><span class="n">5</span><span><b>结构校验、合并与评分</b><small>四个必需模块必须覆盖全部段，脚本再生成建议译文</small></span></div>
 <div class="arrow">▼</div>
-<div class="fork">
-<div class="pass"><b>≥ 98 PASS</b><br>输出报告 + 修正稿，结束</div>
-<div class="fail"><b>&lt; 98 FAIL</b><br>修正写回，让 agent 进入下一轮（回到 ④）</div>
+<div class="step"><span class="n">6</span><span><b>报告与导出</b><small>生成标准 LQE 报告和建议稿；首轮结果不足时由 PM 决定是否继续</small></span></div>
 </div>
-</div>
+<p>技术收尾命令固定为：</p>
+<p class="prompt">bash "$SCRIPTS/finalize_job.sh" "$JOB" &lt;分块数&gt; single</p>
+<p><code>single</code> 只生成首轮报告和建议稿；用户明确要求自动迭代时才改为 <code>iterate</code>。</p>
 
-<h3>实际操作只有两步</h3>
-<table>
-<tr><th width="40">1</th><td>向 agent 发起任务并说明文件与项目（Claude Code 框架输入 <code>/lqe-translator</code>；其他框架按其方式加载本 skill 后直接说明任务），例如：<br>
-<i>"用 nrc/zh-th 项目档案，评估 ~/Desktop/Batch5普老师.xlsx，原文列『原文』，译文列『泰语』"</i></td></tr>
-<tr><th>2</th><td>每轮结束 agent 会报分数；没过就让 agent 继续迭代（Claude Code 用 <code>/loop</code>，其他框架直接说“继续”），过了就拿文件</td></tr>
-</table>
+<h2 id="agent">三、自然语言 Agent 操作</h2>
+<p>复制下面的提示词，替换尖括号内容：</p>
+<p class="prompt">使用 lqe-translator 检查 &lt;输入文件绝对路径&gt;。
+项目语言轨：&lt;game/source-target&gt;；原文列：&lt;列名&gt;；译文列：&lt;列名&gt;。
+先读取项目背景、confirmed_rules.md、风格指南、术语表和目标语言说明。
+只跑首轮。受保护内容必须保留，不修改用户原文件。
+检查子任务顶层只提交 {id, issues}；无法安全局部修改的项设置 needs_confirmation: true、edit: null；完整建议译文由程序生成。
+完成后给出段数、固定词数、分数、问题数、保护数，以及 *_lqe.xlsx 和 *_corrected.xlsx 的绝对路径；任何校验失败都要原样报告。</p>
+<p>需要自动迭代时，单独增加：“本任务明确启用自动迭代，直到达到项目阈值或出现需要人工决定的问题。”</p>
 
-<h2>四、agent 会问你什么</h2>
-<div class="callout"><b>术语锁定确认</b>（每个项目第一次跑必问）：
-<ul style="margin:8px 0 0 20px">
-<li>如果术语表带"状态"列（如 Approved / New），agent 会列出取值问你：<b>哪些状态算"锁定"？</b></li>
-<li>锁定的含义：该术语判错后不再进入 AI 复核，修正必须采用锁定译法</li>
-<li>不确定就答<b>"无锁定"</b>——所有术语按语境正常判断；之后客户给了锁定清单再补</li>
-</ul></div>
-<p>另外两类<b>无需你操作</b>的保护：</p>
-<table>
-<tr><th width="170">RAG / TM 100% 句段</th><td>自动识别、不改动、不扣分</td></tr>
-<tr><th>客户裁决</th><td>审校回件里的定论沉淀进项目档案（adjudications），后续批次自动遵守</td></tr>
-</table>
-
-<h2>五、产出物</h2>
-<p>跑完后在 <code>jobs/&lt;文件名&gt;/</code> 下：</p>
+<h2>四、产出物</h2>
+<p>Excel 任务完成后，标准文件位于 <code>jobs/&lt;任务名&gt;/</code>：</p>
 <table>
 <tr><th width="220">文件</th><th>用途</th></tr>
-<tr><td><code>*_lqe.xlsx</code></td><td>LQE 报告：逐段错误、类别、严重度、修正——<b>交客户 / 审校</b></td></tr>
-<tr><td><code>*_corrected.xlsx</code></td><td>修正稿：原文件结构不变，仅替换译文列——<b>交付用</b></td></tr>
-<tr><td><code>*_lqe_iter{N}.xlsx</code></td><td>各轮中间报告（追溯用）</td></tr>
+<tr><td><code>*_lqe.xlsx</code></td><td>分数、逐段问题、建议译文、处理方式和历史记录，供 PM 与审校检查</td></tr>
+<tr><td><code>*_corrected.xlsx</code></td><td>保留原工作簿结构，只把通过校验的建议修改写入译文列</td></tr>
 </table>
+<p>报告中的处理方式只使用“建议修改、需要人工确认、保持原译、已保护”。原输入文件不会被覆盖。</p>
 
-<h2>六、评分规则速查</h2>
+<h2 id="acceptance">五、验收检查</h2>
 <table>
-<tr><th width="120">公式</th><td>得分 = (1 − Σ加权扣分 ÷ 词数) × 100，阈值 <b>98</b></td></tr>
-<tr><th>严重度分值</th><td>Minor 1 / Major 5 / Critical 10（Neutral 不扣）</td></tr>
-<tr><th>权重</th><td>准确性类 1.5，标点格式类 1.0</td></tr>
-<tr><th>词数口径</th><td>英语数译文单词；<b>泰语等无空格语言按源文字符</b>（项目档案已配好）</td></tr>
-<tr><th>强制 Major</th><td>未翻译、术语、标签变量、超长</td></tr>
+<tr><th width="170">输入与计数</th><td>任务段数与有效输入一致；固定词数已记录，后续轮次不变化</td></tr>
+<tr><th>模块覆盖</th><td>四个必需模块覆盖全部分配 id；结构校验无缺失、重复或非法字段</td></tr>
+<tr><th>保护规则</th><td>受保护段的问题数和改动数均为 0，导出文本与原译一致</td></tr>
+<tr><th>修改安全</th><td>变量、标签、换行和受保护文本没有变化；需要人工确认的项没有自动写入</td></tr>
+<tr><th>交付文件</th><td><code>*_lqe.xlsx</code> 与 <code>*_corrected.xlsx</code> 均存在且可打开；工作表、空行、列顺序和格式保持</td></tr>
+<tr><th>结果说明</th><td>首轮数据与重试数据分开报告；未达到阈值时不描述为通过</td></tr>
 </table>
 
-<h2>七、常见问题</h2>
+<h2 id="recovery">六、常见问题与恢复</h2>
 <div class="qa">
-<b>Q：审校回了 QA 反馈文件怎么办？</b>
-<p>发给 agent，说"根据回件优化规则"。误报会被消化成项目规则（裁决 / 检查项 / 术语状态），下批自动生效。</p>
-<b>Q：跑一半中断了？</b>
-<p>状态都在 <code>jobs/&lt;文件名&gt;/state.json</code>，新开会话让 agent 接着跑即可，不会丢进度。</p>
-<b>Q：能改阈值吗？</b>
-<p>能，项目档案里配置（默认 98）。</p>
-<b>Q：术语表 / SG 更新了？</b>
-<p>把新文件给 agent，说明替换哪个项目的配置即可。</p>
+<b>初始化找不到项目？</b>
+<p>确认语言轨写成 <code>&lt;game&gt;/&lt;source&gt;-&lt;target&gt;</code>，并检查该目录的 <code>profile.json</code>、必填语言字段和相对资源路径。</p>
+<b>检查模块无法合并？</b>
+<p>先运行 <code>validate-checks --job "$JOB"</code>。按报错补齐四个必需模块和全部 id，不要跳过失败继续导出。</p>
+<b>某项不能安全修改？</b>
+<p>保留原译，在报告中标记“需要人工确认”。不要把多个合理方案中的任一个直接写入建议稿。</p>
+<b>运行中断？</b>
+<p>保留 <code>jobs/&lt;任务名&gt;/</code>。分块超过 30 段时可从 <code>*.ckpt.jsonl</code> 断点继续，完成后再生成正式模块 JSON。</p>
+<b>客户确认了新规则？</b>
+<p>把明确结论写入当前语言轨的 <code>confirmed_rules.md</code>，下次检查前读取；不要把项目规则写进目标语言通用事实。</p>
 </div>
 
-<footer>Langlobal · LQE Translator · 2026-06</footer>
+<footer>Langlobal · LQE Translator · 2026-07</footer>
 </div>
 </body>
 </html>

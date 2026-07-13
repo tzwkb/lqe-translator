@@ -136,8 +136,8 @@ def run_lqe(*argv):
 
 def test_integration():
     """xlsx → lqe_io read → rag build → tm-match → lqe_io apply-fixes:
-    a locked (exact source+target) segment must survive uncorrected; an edited
-    one (source in TM, target changed) must NOT lock and gets corrected."""
+    a protected exact source+target segment must remain unchanged; an edited
+    one (source in TM, target changed) must remain editable."""
     import openpyxl
     inp = TMP / "tm_in.xlsx"
     wb = openpyxl.Workbook()

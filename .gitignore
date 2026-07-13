@@ -19,7 +19,7 @@ projects/**/*.bak.*
 !projects/*/*/
 !projects/*/*/profile.json
 !projects/*/*/checks.json
-!projects/*/*/adjudications.md
+!projects/*/*/confirmed_rules.md
 !projects/*/*/lqa_notes.md
 !projects/*/*/sg*.txt
 !projects/*/*/sg*.md

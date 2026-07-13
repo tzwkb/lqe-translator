@@ -1,7 +1,4 @@
-"""
-Score calculator. Reads state.json + errors.json, prints score and PASS/FAIL.
-Usage: python lqe_calc.py --state jobs/<name>/state.json --errors jobs/<name>/errors.json [--threshold 98]
-"""
+"""读取 state.json 和 errors.json，计算分数并输出 PASS/FAIL。"""
 import argparse
 import json
 from pathlib import Path
@@ -43,19 +40,19 @@ def main():
     p.add_argument("--errors", required=True)
     p.add_argument("--threshold", type=float, default=98)
     p.add_argument("--critical-gate", action="store_true", dest="critical_gate",
-                   help="任一 Critical 错误直接 FAIL（MQM/ISO 5060/LISA 行业硬规则）；默认关，向后兼容")
+                   help="任一 Critical 错误直接 FAIL（MQM/ISO 5060/LISA 规则）；默认关闭")
     p.add_argument("--severity-scale", choices=["lisa", "mqm"], default="lisa",
                    help="严重度乘数档：lisa=0/1/5/10（默认）；mqm=0/1/5/25（指数间距）")
     p.add_argument("--scorecard-profile", default="legacy", dest="scorecard_profile",
                    help="评分卡 profile id/目录/profile.json 路径；默认 legacy（当前原有评分标准）")
     p.add_argument("--protected-ids", default=None, dest="protected_ids",
-                   help="逗号分隔的 protected seg id，其错误不计入 Critical 门")
+                   help="逗号分隔的已保护段 id；这些段不触发 Critical 直接失败规则")
     p.add_argument("--protected-file", default=None, dest="protected_file",
-                   help="protected ids JSON 文件（如 {\"protected_ids\":[...]}），其错误不计分")
+                   help="已保护段 id JSON 文件（如 {\"protected_ids\":[...]}）；这些段不计分")
     p.add_argument("--no-repeat-dedup", action="store_true", dest="no_repeat_dedup",
-                   help="关闭 N4 重复错误去重（重复全额计分，旧行为）。默认：相同源译文段的同类同级错误仅首段计分，其余标 repeated（客户评分卡口径）")
+                   help="关闭 N4 重复错误去重。默认仅首次计入相同源译文段的同类同级错误，其余写 repeated=true")
     p.add_argument("--json", action="store_true",
-                   help="只输出结构化 JSON（score/status/…）供编排脚本解析，不打印人读行")
+                   help="只输出 JSON（score/status/…）供其他脚本读取")
     args = p.parse_args()
 
     scorecard_profile = load_scorecard_profile(args.scorecard_profile)

@@ -32,6 +32,41 @@ def edit(frm, to, start=None, end=None, evidence=None):
 
 
 class CorrectionBuilderTests(unittest.TestCase):
+    def test_term_senses_defaults_flags_and_preserves_multisense_values(self):
+        self.assertEqual(
+            term_senses(
+                {
+                    "source": "未标记",
+                    "target": "Unmarked",
+                    "status": "Approved",
+                    "locked": True,
+                }
+            ),
+            [
+                {
+                    "target": "Unmarked",
+                    "status": "Approved",
+                    "confirmed": False,
+                    "protected": False,
+                }
+            ],
+        )
+        self.assertEqual(
+            term_senses(
+                {
+                    "source": "多义",
+                    "senses": [
+                        {"target": "A", "confirmed": True},
+                        {"target": "B", "protected": True},
+                    ],
+                }
+            ),
+            [
+                {"target": "A", "confirmed": True, "protected": False},
+                {"target": "B", "confirmed": False, "protected": True},
+            ],
+        )
+
     def test_confirmed_term_sense_authorizes_exact_name_edit(self):
         entry = {
             "source": "小花仙",

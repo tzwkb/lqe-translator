@@ -1,4 +1,4 @@
-# NRC 裁决记录（EN 轨）— 评估前必读
+# NRC 确认规则（EN 轨）— 评估前必读
 
 共通（源文侧/跨语言/在线主表）确认规则见 `../common/confirmed_rules_common.md`（read 自动并入）；**本文件只放 EN 专有**。
 效力顺序：CN-EN 更新 > Query > EN-SG（实证：6/1 press 废止 Query 的 Click/Tap）。
@@ -7,9 +7,9 @@
 ## 术语状态语义（terms_en.json）
 Approved=严格执行(偏离=Major)；New=待审核(soft，按语境)；Updated=按新译统改；Pending/Denied=不可硬判；`?`=列对齐噪音忽略
 
-## EN 专有已裁决（不是错误）
+## EN 专有已确认规则（不是错误）
 - `{name}` 可去掉（若更流畅，不报错）；`{gender:a,b}`→`{gender:he,she}`
-- 「」专有名词强调：EN=首字母大写；**禁止目标语添加源语没有的代码**（ruotong 裁决）；粗斜体不得自加
+- 「」专有名词强调：EN=首字母大写；**禁止目标语添加源语没有的代码**（ruotong 确认）；粗斜体不得自加
 - 老师→Professor（魔法学院无 Teacher/Professor 之分）；精灵代词一律 it；NPC 人名避亚洲/印度/非洲名
 - 噜噜口癖 咕=hoo（非 coo）；麦克达克=公鸭；Most impressive 英美通用可用
 - 洛克复数=Rocos；Jini 复数=Jinies；咕噜球=buddy pod、xx球=xx pod
