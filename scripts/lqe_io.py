@@ -632,7 +632,17 @@ def cmd_build_results(args):
         json.loads(Path(args.checks).read_text(encoding="utf-8")),
         label=args.checks,
     )
-    results = build_results(state["segments"], entries)
+    segments = state["segments"]
+    state_ids = {segment["id"] for segment in segments}
+    check_ids = {entry["id"] for entry in entries}
+    missing = sorted(state_ids - check_ids)
+    extra = sorted(check_ids - state_ids)
+    if missing or extra:
+        sys.exit(
+            f"[build-results] check ids must match state segment ids: "
+            f"missing={missing} extra={extra}"
+        )
+    results = build_results(segments, entries)
     Path(args.out).write_text(
         json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8"
     )

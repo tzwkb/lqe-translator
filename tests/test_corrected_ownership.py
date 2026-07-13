@@ -796,6 +796,49 @@ class CorrectedOwnershipPipelineTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(read_json(errors)[0]["corrected"], 'A"B"C')
 
+    def test_build_results_rejects_missing_and_extra_check_ids(self):
+        state = self.root / "state.json"
+        write_json(
+            state,
+            {
+                "segments": [
+                    {"id": 0, "source": "a", "target": "a"},
+                    {"id": 1, "source": "b", "target": "b"},
+                ]
+            },
+        )
+        cases = {
+            "missing": ([{"id": 0, "issues": []}], "missing=[1]"),
+            "extra": (
+                [
+                    {"id": 0, "issues": []},
+                    {"id": 1, "issues": []},
+                    {"id": 2, "issues": []},
+                ],
+                "extra=[2]",
+            ),
+        }
+        for name, (entries, message) in cases.items():
+            with self.subTest(name=name):
+                checks = self.root / f"{name}.json"
+                errors = self.root / f"{name}-errors.json"
+                write_json(checks, entries)
+
+                result = self.run_script(
+                    IO_SCRIPT,
+                    "build-results",
+                    "--state",
+                    state,
+                    "--checks",
+                    checks,
+                    "--out",
+                    errors,
+                )
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stderr)
+                self.assertFalse(errors.exists())
+
     def test_batch_merge_rejects_model_corrected(self):
         job = self.root / "batch"
         write_json(
