@@ -1,6 +1,6 @@
 # NRC 裁决记录（EN 轨）— 评估前必读
 
-共通（源文侧/跨语言/在线主表）裁决见 `../common/adjudications_common.md`（read 自动并入）；**本文件只放 EN 专有**。
+共通（源文侧/跨语言/在线主表）确认规则见 `../common/confirmed_rules_common.md`（read 自动并入）；**本文件只放 EN 专有**。
 效力顺序：CN-EN 更新 > Query > EN-SG（实证：6/1 press 废止 Query 的 Click/Tap）。
 > 只放规则/口径；逐条术语译法进 `terms_en.json`（status 标记），不重复。
 

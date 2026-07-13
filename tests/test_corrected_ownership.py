@@ -18,8 +18,10 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 CHUNK_SCRIPT = SCRIPTS / "lqe_chunk.py"
 IO_SCRIPT = SCRIPTS / "lqe_io.py"
+CALC_SCRIPT = SCRIPTS / "lqe_calc.py"
 BATCH_SCRIPT = SCRIPTS / "lqe_batch.py"
 MASTERTB_SCRIPT = SCRIPTS / "mastertb_prep.py"
+MASTERTB_TO_TERMS_SCRIPT = SCRIPTS / "mastertb_to_terms.py"
 FINALIZE_SCRIPT = SCRIPTS / "finalize_job.sh"
 AGGREGATE_SCRIPT = SCRIPTS / "aggregate_sheets.py"
 REQUIRED_MODULES = ("terminology", "accuracy", "grammar", "naturalness")
@@ -373,12 +375,12 @@ class CorrectedOwnershipChunkTests(unittest.TestCase):
                         issue["edit"] is None or isinstance(issue["edit"], dict)
                     )
 
-    def test_locked_segment_still_uses_correction_builder(self):
+    def test_protected_segment_still_uses_correction_builder(self):
         segment = {
             "id": 0,
             "source": "protected",
             "target": "original",
-            "locked": True,
+            "protected": True,
             "kind": "desc",
             "term_hits": [],
             "protected_texts": ["original"],
@@ -410,7 +412,7 @@ class CorrectedOwnershipChunkTests(unittest.TestCase):
             [{"id": 0, "errors": [], "corrected": None}],
         )
 
-    def test_term_hits_flatten_senses_and_preserve_explicit_confirmation(self):
+    def test_term_hits_flatten_senses_and_preserve_explicit_flags(self):
         from lqe_chunk import _term_hits
 
         hits = _term_hits(
@@ -419,7 +421,7 @@ class CorrectedOwnershipChunkTests(unittest.TestCase):
                 (
                     "魔草巫灵",
                     [
-                        {"target": "Verdrel", "confirmed": True},
+                        {"target": "Verdrel", "confirmed": True, "protected": True},
                         {"target": "Reference", "confirmed": False},
                     ],
                 )
@@ -429,11 +431,17 @@ class CorrectedOwnershipChunkTests(unittest.TestCase):
         self.assertEqual(
             hits,
             [
-                {"source": "魔草巫灵", "target": "Verdrel", "confirmed": True},
+                {
+                    "source": "魔草巫灵",
+                    "target": "Verdrel",
+                    "confirmed": True,
+                    "protected": True,
+                },
                 {
                     "source": "魔草巫灵",
                     "target": "Reference",
                     "confirmed": False,
+                    "protected": False,
                 },
             ],
         )
@@ -1491,7 +1499,7 @@ class CorrectedOwnershipOutputTests(unittest.TestCase):
             }
             for index in range(4)
         ]
-        segments[3]["locked"] = True
+        segments[3]["protected"] = True
         write_json(
             state_path,
             {
@@ -1541,6 +1549,284 @@ class CorrectedOwnershipOutputTests(unittest.TestCase):
             self.assertIn(expected, summary)
         for legacy in ["AI修正", "人工批准", "待人工裁决", "未改", "TM保护"]:
             self.assertNotIn(legacy, summary)
+
+
+class CorrectedOwnershipProjectTests(unittest.TestCase):
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.root = Path(self.tempdir.name)
+
+    def tearDown(self):
+        self.tempdir.cleanup()
+
+    def test_clean_terms_preserves_explicit_flags_and_defaults_missing_false(self):
+        terms = lqe_io._clean_terms(
+            [
+                {
+                    "source": "已确认",
+                    "target": "Confirmed",
+                    "status": "Approved",
+                    "category": "Name",
+                    "definition": "A confirmed name",
+                    "confirmed": True,
+                    "protected": True,
+                },
+                {
+                    "source": "未标记",
+                    "target": "Unmarked",
+                    "status": "Locked",
+                    "locked": True,
+                },
+            ]
+        )
+
+        self.assertEqual(
+            terms,
+            [
+                {
+                    "source": "已确认",
+                    "target": "Confirmed",
+                    "status": "Approved",
+                    "category": "Name",
+                    "definition": "A confirmed name",
+                    "confirmed": True,
+                    "protected": True,
+                },
+                {
+                    "source": "未标记",
+                    "target": "Unmarked",
+                    "status": "Locked",
+                    "confirmed": False,
+                    "protected": False,
+                },
+            ],
+        )
+
+    def test_mastertb_output_writes_explicit_term_flags(self):
+        source = self.root / "master.xlsx"
+        output = self.root / "terms.json"
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.append(["术语 ZHCN", "TH", "Status"])
+        sheet.append(["小花仙", "ดอกบ้องแบ๊ว", "Approved"])
+        workbook.save(source)
+        workbook.close()
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(MASTERTB_TO_TERMS_SCRIPT),
+                "--input",
+                str(source),
+                "--out",
+                str(output),
+                "--target-col",
+                "TH",
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            read_json(output),
+            [
+                {
+                    "source": "小花仙",
+                    "target": "ดอกบ้องแบ๊ว",
+                    "status": "Approved",
+                    "confirmed": False,
+                    "protected": False,
+                }
+            ],
+        )
+
+    def test_read_state_uses_confirmed_rules_path(self):
+        project = self.root / "game" / "zh-en"
+        write_json(
+            project / "profile.json",
+            {
+                "name": "fixture/zh-en",
+                "language_pair": "zh-en",
+                "source_lang": "zh",
+                "target_lang": "en",
+                "confirmed_rules": "confirmed_rules.md",
+            },
+        )
+        (project / "confirmed_rules.md").write_text("# Confirmed\n", encoding="utf-8")
+        common = self.root / "game" / "common" / "confirmed_rules_common.md"
+        common.parent.mkdir(parents=True)
+        common.write_text("# Common\n", encoding="utf-8")
+        source = self.root / "source.csv"
+        source.write_text("Source,Target\n源文,Target\n", encoding="utf-8")
+        state_path = self.root / "job" / "state.json"
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(IO_SCRIPT),
+                "read",
+                "--input",
+                str(source),
+                "--project",
+                str(project / "profile.json"),
+                "--source-col",
+                "Source",
+                "--target-col",
+                "Target",
+                "--out",
+                str(state_path),
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state = read_json(state_path)
+        self.assertTrue(state["confirmed_rules_path"].endswith("confirmed_rules.md"))
+        self.assertNotIn("adjudications_path", state)
+        merged = Path(state["confirmed_rules_path"]).read_text(encoding="utf-8")
+        self.assertIn("# Common", merged)
+        self.assertIn("# Confirmed", merged)
+
+    def test_profile_protected_term_statuses_mark_only_configured_terms(self):
+        project = self.root / "project-statuses"
+        write_json(
+            project / "profile.json",
+            {
+                "name": "fixture/zh-en",
+                "language_pair": "zh-en",
+                "source_lang": "zh",
+                "target_lang": "en",
+                "terminology": "terms.json",
+                "protected_term_statuses": ["Approved"],
+            },
+        )
+        write_json(
+            project / "terms.json",
+            [
+                {"source": "A", "target": "Alpha", "status": "Approved"},
+                {"source": "B", "target": "Beta", "status": "Draft"},
+            ],
+        )
+        source = self.root / "statuses.csv"
+        source.write_text("Source,Target\nA,Alpha\n", encoding="utf-8")
+        state_path = self.root / "statuses-job" / "state.json"
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(IO_SCRIPT),
+                "read",
+                "--input",
+                str(source),
+                "--project",
+                str(project / "profile.json"),
+                "--source-col",
+                "Source",
+                "--target-col",
+                "Target",
+                "--out",
+                str(state_path),
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        terms = read_json(Path(read_json(state_path)["terms_path"]))
+        self.assertEqual([term["protected"] for term in terms], [True, False])
+
+    def test_protect_segments_cli_writes_protected_state_and_payload(self):
+        state_path = self.root / "protect-job" / "state.json"
+        write_json(
+            state_path,
+            {
+                "segments": [
+                    {"id": 0, "source": "A", "target": "Alpha", "corrected": "Edit"},
+                    {"id": 1, "source": "B", "target": "Beta", "corrected": None},
+                ]
+            },
+        )
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(IO_SCRIPT),
+                "protect-segments",
+                "--state",
+                str(state_path),
+                "--protected-ids",
+                "0",
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state = read_json(state_path)
+        self.assertTrue(state["segments"][0]["protected"])
+        self.assertIsNone(state["segments"][0]["corrected"])
+        self.assertNotIn("locked", state["segments"][0])
+        payload = read_json(state_path.parent / "tm_protected.json")
+        self.assertEqual(payload["protected_ids"], [0])
+        self.assertNotIn("locked_ids", payload)
+
+    def test_protected_segment_is_not_scored(self):
+        state_path = self.root / "state.json"
+        errors_path = self.root / "errors.json"
+        write_json(
+            state_path,
+            {
+                "wordcount": 10,
+                "segments": [
+                    {
+                        "id": 0,
+                        "source": "源文",
+                        "target": "Target",
+                        "protected": True,
+                    }
+                ],
+            },
+        )
+        write_json(
+            errors_path,
+            [
+                {
+                    "id": 0,
+                    "errors": [
+                        {
+                            "category": "Mistranslation",
+                            "severity": "Major",
+                            "comment": "protected",
+                        }
+                    ],
+                    "corrected": None,
+                }
+            ],
+        )
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(CALC_SCRIPT),
+                "--state",
+                str(state_path),
+                "--errors",
+                str(errors_path),
+                "--json",
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["errors"], 0)
 
 
 if __name__ == "__main__":

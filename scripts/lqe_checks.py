@@ -362,7 +362,7 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
                 matched = next((s for s in senses if s["_target_lower"] in tgt_lower), None)
                 if matched is None:
                     cands = " or ".join(_fmt_sense(s) for s in senses)
-                    note = " [LOCKED]" if all(s.get("locked") for s in senses) else ""
+                    note = " [PROTECTED]" if all(s.get("protected") for s in senses) else ""
                     errs.append({"category": "Terminology", "severity": "Major",
                                  "comment": f"'{term_src}' → expected {cands}{note}"})
                 else:

@@ -1,6 +1,6 @@
 """TM ingest for LQE.
 
-Parse a translation memory → exact-match index → segment ids to lock.
+Parse a translation memory → exact-match index → segment ids to protect.
 Pluggable loaders (one function per format, picked by file extension); only
 `.sdltm` is implemented. All local: exact normalized-string match, no
 embeddings / no external API — source text never leaves the machine.
@@ -60,15 +60,15 @@ def build_index(libraries):
     return index
 
 
-def match_locked(segments, index):
+def match_protected(segments, index):
     """Return ids of segments whose source exactly matches the index AND whose
     target equals one of that source's approved targets (= confirmed 100% match)."""
-    locked = []
+    protected = []
     for seg in segments:
         targets = index.get(norm(seg.get("source", "")))
         if targets and norm(seg.get("target", "")) in targets:
-            locked.append(seg["id"])
-    return locked
+            protected.append(seg["id"])
+    return protected
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
@@ -88,26 +88,26 @@ def cmd_build(args):
 def cmd_tm_match(args):
     state = _read_json(args.state)
     index = _read_json(args.index)
-    locked = match_locked(state["segments"], index)
-    out = Path(args.out_locked)
+    protected = match_protected(state["segments"], index)
+    out = Path(args.out_protected)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps({"locked_ids": locked}, ensure_ascii=False), encoding="utf-8")
-    print(f"[tm_index] locked {len(locked)}/{len(state['segments'])} segments → {args.out_locked}")
+    out.write_text(json.dumps({"protected_ids": protected}, ensure_ascii=False), encoding="utf-8")
+    print(f"[tm_index] protected {len(protected)}/{len(state['segments'])} segments → {args.out_protected}")
 
 
 def main():
     import argparse
-    ap = argparse.ArgumentParser(prog="tm_index", description="TM exact-match index + locking (all local)")
+    ap = argparse.ArgumentParser(prog="tm_index", description="TM exact-match index + protection (all local)")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     b = sub.add_parser("build", help="parse TM file(s) → exact-match index json")
     b.add_argument("--libraries", nargs="+", required=True, help="TM files (.sdltm)")
     b.add_argument("--out", required=True, help="output index json path")
 
-    m = sub.add_parser("tm-match", help="state.json × index → locked_ids json")
+    m = sub.add_parser("tm-match", help="state.json × index → protected_ids json")
     m.add_argument("--state", required=True)
     m.add_argument("--index", required=True)
-    m.add_argument("--out-locked", dest="out_locked", required=True)
+    m.add_argument("--out-protected", dest="out_protected", required=True)
 
     args = ap.parse_args()
     {"build": cmd_build, "tm-match": cmd_tm_match}[args.cmd](args)

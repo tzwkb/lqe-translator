@@ -165,12 +165,22 @@ def load_terms(state: dict) -> list[dict]:
 
 def term_senses(entry: dict) -> list[dict]:
     """把单义 {source,target,...} / 多义 {source,senses:[...]} 两种形状统一拍平
-    成候选列表，每项最多含 target(必有)/status/locked/category/definition。
+    成候选列表，每项含 target(必有)/confirmed/protected，
+    并保留 status/category/definition。
     是所有脚本读取术语候选译法的唯一入口——不允许绕过它直接读 entry["target"]，
     多义条目没有这个 key。"""
-    if "senses" in entry:
-        return [dict(s) for s in entry["senses"]]
-    return [{k: entry[k] for k in ("target", "status", "locked", "category", "definition") if k in entry}]
+    raw_senses = entry["senses"] if "senses" in entry else [entry]
+    senses = []
+    for raw in raw_senses:
+        sense = {
+            key: raw[key]
+            for key in ("target", "status", "category", "definition")
+            if key in raw
+        }
+        sense["confirmed"] = raw.get("confirmed") is True
+        sense["protected"] = raw.get("protected") is True
+        senses.append(sense)
+    return senses
 
 
 def group_terms(terms: list[dict]) -> dict[str, list[dict]]:

@@ -1,6 +1,6 @@
 # NRC 裁决记录（TH 轨）— 评估前必读
 
-共通（源文侧/跨语言/在线主表）裁决见 `../common/adjudications_common.md`（read 自动并入）；**本文件只放 TH 专有**。
+共通（源文侧/跨语言/在线主表）确认规则见 `../common/confirmed_rules_common.md`（read 自动并入）；**本文件只放 TH 专有**。
 效力顺序：CN-EN 更新 > Query > TH-SG。
 > 只放规则/口径与「勿判」项；逐条术语译法进 `terms_th.json`（status 标记），不在此重复——每轮评估都注入，越短越好。
 
@@ -18,7 +18,7 @@
 - 公制单位；禁自加粗体/斜体
 
 ## 锁定机制（0611 定）
-- profile `lock_statuses=[]`（TB 无明确锁定标记 → 全部术语 review 可甄别可修改）；客户 memoQ 锁定清单到货后写入 terms 并更新 lock_statuses。对照 `locked_terms_batch4.json`
+- profile `protected_term_statuses=[]`（TB 无明确保护标记 → 全部术语 review 可甄别可修改）；客户 memoQ 保护清单到货后写入 terms 并更新 protected_term_statuses。对照 `protected_terms_batch4.json`
 - 0611 夏老师 Batch4：97 段专名审校注「锁定」仅证实本批不可改、非 actionable；TB 未动，照常报 Terminology 但注「0611 称已锁定，待客户澄清」，不出硬修正。`?!`/`！？` 混合不算连续标点（checks.json）；复合术语最长匹配优先（lqe_io.py）
 
 ## PM 裁决 2026-06-15（XLY；逐条术语定稿见 `terms_th.json` status=Approved，原件 `PM_裁决_0615_XLY.xlsx`）

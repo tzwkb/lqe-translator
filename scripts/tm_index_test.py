@@ -78,8 +78,8 @@ def test_build_index():
     check("index dedups targets", len(idx.get("天", [])) == 2, idx)
 
 
-# ── match_locked: lock iff src hits AND tgt ∈ that src's target set ───────────
-def test_match_locked():
+# ── match_protected: protect iff src hits AND tgt ∈ target set ───────────
+def test_match_protected():
     idx = {"即将开始": ["Starting Soon"], "天": ["day(s)", "d"]}
     segs = [
         {"id": 0, "source": "即将开始", "target": "Starting Soon"},   # lock
@@ -88,12 +88,12 @@ def test_match_locked():
         {"id": 3, "source": "未知", "target": "x"},                            # src absent
         {"id": 4, "source": " 即将开始 ", "target": " Starting Soon "},  # norm → lock
     ]
-    locked = set(tm_index.match_locked(segs, idx))
-    check("lock exact src+tgt", 0 in locked)
-    check("no lock when tgt differs", 1 not in locked)
-    check("lock via variant set", 2 in locked)
-    check("no lock when src absent", 3 not in locked)
-    check("lock after normalization", 4 in locked)
+    protected = set(tm_index.match_protected(segs, idx))
+    check("protect exact src+tgt", 0 in protected)
+    check("no protect when tgt differs", 1 not in protected)
+    check("protect via variant set", 2 in protected)
+    check("no protect when src absent", 3 not in protected)
+    check("protect after normalization", 4 in protected)
 
 
 def run(*argv):
@@ -120,13 +120,13 @@ def test_cli_build_and_match():
         {"id": 1, "source": "即将开始", "target": "Begin Now"},
         {"id": 2, "source": "天", "target": "d"},
     ]}, ensure_ascii=False), encoding="utf-8")
-    lockp = TMP / "locked.json"
-    r = run("tm-match", "--state", str(statep), "--index", str(idxp), "--out-locked", str(lockp))
+    protected_path = TMP / "protected.json"
+    r = run("tm-match", "--state", str(statep), "--index", str(idxp), "--out-protected", str(protected_path))
     check("cli tm-match rc", r.returncode == 0, r.stderr[-200:])
-    check("cli tm-match wrote locked", lockp.exists(), "no locked file")
-    if lockp.exists():
-        locked = json.loads(lockp.read_text(encoding="utf-8"))
-        check("cli locked_ids", locked.get("locked_ids") == [0, 2], locked)
+    check("cli tm-match wrote protected", protected_path.exists(), "no protected file")
+    if protected_path.exists():
+        protected = json.loads(protected_path.read_text(encoding="utf-8"))
+        check("cli protected_ids", protected.get("protected_ids") == [0, 2], protected)
 
 
 def run_lqe(*argv):
@@ -159,10 +159,10 @@ def test_integration():
     r = run("build", "--libraries", str(tm), "--out", str(job / "tm_index.json"))
     check("intg build rc", r.returncode == 0, r.stderr[-200:])
     r = run("tm-match", "--state", str(job / "state.json"), "--index", str(job / "tm_index.json"),
-            "--out-locked", str(job / "tm_locked.json"))
+            "--out-protected", str(job / "tm_protected.json"))
     check("intg tm-match rc", r.returncode == 0, r.stderr[-200:])
-    locked = json.loads((job / "tm_locked.json").read_text(encoding="utf-8"))
-    check("intg locks only exact match", locked.get("locked_ids") == [0], locked)
+    protected = json.loads((job / "tm_protected.json").read_text(encoding="utf-8"))
+    check("intg protects only exact match", protected.get("protected_ids") == [0], protected)
     errors = [
         {"id": 0, "errors": [{"category": "Mistranslation", "severity": "Major", "comment": "x"}],
          "corrected": "SHOULD BE SKIPPED"},
@@ -172,17 +172,17 @@ def test_integration():
     ]
     (job / "errors.json").write_text(json.dumps(errors, ensure_ascii=False), encoding="utf-8")
     r = run_lqe("apply-fixes", "--state", str(job / "state.json"), "--errors", str(job / "errors.json"),
-                "--locked-file", str(job / "tm_locked.json"))
+                "--protected-file", str(job / "tm_protected.json"))
     check("intg apply-fixes rc", r.returncode == 0, r.stderr[-200:])
     st = json.loads((job / "state.json").read_text(encoding="utf-8"))
     segs = {s["id"]: s for s in st["segments"]}
-    check("intg locked seg not corrected",
-          segs[0].get("corrected") is None and segs[0].get("locked") is True, segs[0])
-    check("intg non-locked seg corrected", segs[1].get("corrected") == "Quit Game", segs[1])
+    check("intg protected seg not corrected",
+          segs[0].get("corrected") is None and segs[0].get("protected") is True, segs[0])
+    check("intg non-protected seg corrected", segs[1].get("corrected") == "Quit Game", segs[1])
 
 
 def run_all():
-    for t in (test_loader, test_norm, test_build_index, test_match_locked,
+    for t in (test_loader, test_norm, test_build_index, test_match_protected,
               test_cli_build_and_match, test_integration):
         t()
     total = len(PASS) + len(FAIL)

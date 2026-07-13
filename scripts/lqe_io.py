@@ -4,7 +4,7 @@ LQE I/O utilities.
 Subcommands:
   read          Excel/CSV/TSV + project profile → state.json
   pre-check     确定性错误自动检测（标点/Markup/术语/长度等）
-  lock-segments agent 已判定的 TM/100% match ids → state.json locked 标记
+  protect-segments agent 已判定的 TM/100% match ids → state.json protected 标记
   apply-fixes   errors.json 的 corrected 写回 state.json
   write         state.json + errors.json → *_lqe.xlsx
   ingest-corpus 修正译文回流 AIPE 语料库（接口待确认，暂为 stub）
@@ -59,6 +59,20 @@ _TGT_KEYS = {"target", "en", "tgt", "译文", "en_us", "english", "翻译", "英
 _ZW_TABLE = {ord(c): None for c in "​‌‍﻿"}
 
 
+def _clean_term_sense(raw: dict) -> dict | None:
+    target = str(raw.get("target", "")).translate(_ZW_TABLE).strip()
+    if not target:
+        return None
+    sense = {"target": target}
+    for key in ("status", "category", "definition"):
+        value = raw.get(key)
+        if value is not None and str(value).strip():
+            sense[key] = str(value).strip()
+    sense["confirmed"] = raw.get("confirmed") is True
+    sense["protected"] = raw.get("protected") is True
+    return sense
+
+
 def _clean_terms(items: list) -> list:
     out = []
     for t in items:
@@ -66,14 +80,19 @@ def _clean_terms(items: list) -> list:
         if not s:
             continue
         if "senses" in t:
-            out.append({"source": s, "senses": t["senses"]})
+            senses = [
+                clean
+                for raw in t["senses"]
+                if isinstance(raw, dict)
+                for clean in [_clean_term_sense(raw)]
+                if clean is not None
+            ]
+            if senses:
+                out.append({"source": s, "senses": senses})
             continue
-        g = str(t.get("target", "")).translate(_ZW_TABLE).strip()
-        if g:
-            item = {"source": s, "target": g}
-            if t.get("status"):
-                item["status"] = str(t["status"]).strip()
-            out.append(item)
+        sense = _clean_term_sense(t)
+        if sense is not None:
+            out.append({"source": s, **sense})
     return out
 _MAXLEN_KEYS = {"maxlen", "max_len", "max length", "maxlength", "max_length",
                 "char_limit", "charlimit", "limit", "width", "ui_max",
@@ -406,25 +425,33 @@ def cmd_read(args):
             print(f"[lqe_io] style_guide: {len(sg_text)} chars → {sg_file}")
 
     # ── Terminology ───────────────────────────────────────────────────────
-    # 优化：项目模式下源已是干净 JSON 且无锁定标记 → terms_path 直接指向项目权威 TB，
+    # 优化：项目模式下源已是干净 JSON 且无保护标记 → terms_path 直接指向项目权威 TB，
     # 不在每个 job 里复制一份（项目 terms_*.json 由 mastertb_to_terms 产出、已清理）。
-    # 需格式转换(xlsx/csv) 或要打 locked 标时，才落一份 job 副本。
+    # 需格式转换(xlsx/csv) 或要打 protected 标时，才落一份 job 副本。
     terms_path = ""
     if args.terminology:
-        lock_statuses = {str(s).lower() for s in (prof.get("lock_statuses") or [])} if prof else set()
+        protected_statuses = {
+            str(status).lower()
+            for status in (prof.get("protected_term_statuses") or [])
+        } if prof else set()
         src = Path(args.terminology)
-        if prof and src.suffix.lower() == ".json" and not lock_statuses and src.exists():
+        if prof and src.suffix.lower() == ".json" and not protected_statuses and src.exists():
             terms_path = str(src)
             print(f"[lqe_io] terminology: 引用项目 TB（不复制）→ {src}")
         else:
             terms = _load_terminology(args.terminology)
-            if terms and lock_statuses:
-                n_locked = 0
+            if terms and protected_statuses:
+                n_protected = 0
                 for t in terms:
-                    if str(t.get("status", "")).lower() in lock_statuses:
-                        t["locked"] = True
-                        n_locked += 1
-                print(f"[lqe_io] locked terms: {n_locked} (lock_statuses: {sorted(lock_statuses)})")
+                    senses = t.get("senses", [t])
+                    for sense in senses:
+                        if str(sense.get("status", "")).lower() in protected_statuses:
+                            sense["protected"] = True
+                            n_protected += 1
+                print(
+                    f"[lqe_io] protected term senses: {n_protected} "
+                    f"(protected_term_statuses: {sorted(protected_statuses)})"
+                )
             if terms:
                 terms_file = job_dir / "terms.json"
                 terms_file.write_text(json.dumps(terms, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -472,24 +499,24 @@ def cmd_read(args):
     else:
         wordcount = sum(len(s["target"].split()) for s in segments)
 
-    checks_path = adjud_path = ""
+    checks_path = confirmed_rules_path = ""
     if prof:
         cp = Path(_project_path(prof, prof.get("checks", "checks.json")))
         checks_path = str(cp) if cp.exists() else ""
-        # adjudications = game 级共通(<game>/common/adjudications_common.md) + 语言专有，拼成 job 内一份
-        ap = Path(_project_path(prof, prof.get("adjudications", "adjudications.md")))
-        common_ap = ap.parent.parent / "common" / "adjudications_common.md"
+        # confirmed rules = game 级共通 + 语言专有，拼成 job 内一份
+        ap = Path(_project_path(prof, prof.get("confirmed_rules", "confirmed_rules.md")))
+        common_ap = ap.parent.parent / "common" / "confirmed_rules_common.md"
         parts = []
         if common_ap.exists():
             parts.append(f"<!-- ===== 共通裁决 (game级): {common_ap.name} ===== -->\n" + common_ap.read_text(encoding="utf-8"))
         if ap.exists():
             parts.append(f"<!-- ===== 语言专有裁决: {ap} ===== -->\n" + ap.read_text(encoding="utf-8"))
         if parts:
-            combined = Path(args.out).parent / "adjudications.md"
+            combined = Path(args.out).parent / "confirmed_rules.md"
             combined.parent.mkdir(parents=True, exist_ok=True)
             combined.write_text("\n\n".join(parts), encoding="utf-8")
-            adjud_path = str(combined)
-            print(f"[lqe_io] adjudications: {'共通+' if common_ap.exists() else ''}语言专有 → {combined}")
+            confirmed_rules_path = str(combined)
+            print(f"[lqe_io] confirmed rules: {'共通+' if common_ap.exists() else ''}语言专有 → {combined}")
 
     state = {
         "input_path": str(Path(args.input).resolve()),
@@ -508,7 +535,7 @@ def cmd_read(args):
         "lang_notes_path": lang_notes_path,
         "background_path": background_path,
         "checks_path": checks_path,
-        "adjudications_path": adjud_path,
+        "confirmed_rules_path": confirmed_rules_path,
         "threshold": prof.get("threshold", 98) if prof else 98,
         "sg_path":    sg_path,
         "terms_path": terms_path,
@@ -562,14 +589,14 @@ def cmd_lookup_terms(args):
 
 # ── apply-fixes ───────────────────────────────────────────────────────────────
 
-def _locked_ids(args) -> set[int]:
+def _protected_ids(args) -> set[int]:
     ids: set[int] = set()
-    if getattr(args, "locked_ids", None):
-        ids.update(int(x.strip()) for x in args.locked_ids.split(",") if x.strip())
-    if getattr(args, "locked_file", None):
-        data = read_json(args.locked_file)
+    if getattr(args, "protected_ids", None):
+        ids.update(int(x.strip()) for x in args.protected_ids.split(",") if x.strip())
+    if getattr(args, "protected_file", None):
+        data = read_json(args.protected_file)
         if isinstance(data, dict):
-            data = data.get("locked_ids") or data.get("segments") or []
+            data = data.get("protected_ids") or data.get("segments") or []
         for item in data:
             if isinstance(item, int):
                 ids.add(item)
@@ -580,14 +607,14 @@ def _locked_ids(args) -> set[int]:
     return ids
 
 
-def _state_locked_ids(state) -> set[int]:
-    return {s["id"] for s in state.get("segments", []) if s.get("locked")}
+def _state_protected_ids(state) -> set[int]:
+    return {s["id"] for s in state.get("segments", []) if s.get("protected")}
 
 
-def _scrub_locked_entries(errors_data: list, locked_ids: set[int]) -> int:
+def _scrub_protected_entries(errors_data: list, protected_ids: set[int]) -> int:
     changed = 0
     for entry in errors_data:
-        if entry.get("id") in locked_ids:
+        if entry.get("id") in protected_ids:
             if entry.get("errors") or entry.get("corrected"):
                 changed += len(entry.get("errors", [])) or 1
             entry["errors"] = []
@@ -595,12 +622,12 @@ def _scrub_locked_entries(errors_data: list, locked_ids: set[int]) -> int:
     return changed
 
 
-def cmd_lock_segments(args):
+def cmd_protect_segments(args):
     state_path = Path(args.state)
     state = read_json(state_path)
-    ids = _locked_ids(args)
+    ids = _protected_ids(args)
     if not ids:
-        print("[lock-segments] no ids supplied; state unchanged.")
+        print("[protect-segments] no ids supplied; state unchanged.")
         return
 
     seg_by_id = {s["id"]: s for s in state.get("segments", [])}
@@ -608,25 +635,25 @@ def cmd_lock_segments(args):
     unknown = sorted(sid for sid in ids if sid not in seg_by_id)
     for sid in valid:
         seg = seg_by_id[sid]
-        seg["locked"] = True
-        seg["lock_reason"] = args.reason
+        seg["protected"] = True
+        seg["protected_reason"] = args.reason
         seg["corrected"] = None
 
     state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    out_path = Path(args.out) if args.out else state_path.parent / "tm_locked.json"
+    out_path = Path(args.out) if args.out else state_path.parent / "tm_protected.json"
     payload = {
-        "locked_ids": valid,
+        "protected_ids": valid,
         "reason": args.reason,
         "source": "agent_decision",
     }
     if unknown:
         payload["unknown_ids"] = unknown
     out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"[lock-segments] locked {len(valid)} segment(s) → {state_path}")
-    print(f"[lock-segments] locked file → {out_path}")
+    print(f"[protect-segments] protected {len(valid)} segment(s) → {state_path}")
+    print(f"[protect-segments] protected file → {out_path}")
     if unknown:
-        print(f"[lock-segments] ignored unknown ids: {unknown[:20]}")
+        print(f"[protect-segments] ignored unknown ids: {unknown[:20]}")
 
 
 def cmd_build_results(args):
@@ -655,11 +682,11 @@ def cmd_apply_fixes(args):
     state_path = Path(args.state)
     state = read_json(state_path)
     errors_data = read_json(args.errors)
-    locked_ids = _locked_ids(args) | _state_locked_ids(state)
-    scrubbed = _scrub_locked_entries(errors_data, locked_ids)
+    protected_ids = _protected_ids(args) | _state_protected_ids(state)
+    scrubbed = _scrub_protected_entries(errors_data, protected_ids)
     if scrubbed:
         Path(args.errors).write_text(json.dumps(errors_data, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"[apply-fixes] scrubbed {scrubbed} locked-segment issue(s) from {args.errors}")
+        print(f"[apply-fixes] scrubbed {scrubbed} protected-segment issue(s) from {args.errors}")
     scorecard_profile = load_scorecard_profile(getattr(args, "scorecard_profile", "legacy"))
 
     seg_ids = {s["id"] for s in state["segments"]}
@@ -674,13 +701,13 @@ def cmd_apply_fixes(args):
         and not any(error.get("protected") for error in (e.get("errors") or []))
     }
     attempted = {sid: entry["corrected"] for sid, entry in attempted_entries.items()}
-    corrections = {sid: text for sid, text in attempted.items() if sid not in locked_ids}
-    locked_skipped = [
+    corrections = {sid: text for sid, text in attempted.items() if sid not in protected_ids}
+    protected_skipped = [
         {"id": sid, "reason": "TM_100_MATCH", "attempted": text}
         for sid, text in attempted.items()
-        if sid in locked_ids
+        if sid in protected_ids
     ]
-    skipped = locked_skipped
+    skipped = protected_skipped
     if not corrections and not skipped:
         print("[lqe_io] apply-fixes: no corrections found, state unchanged.")
         return
@@ -692,17 +719,17 @@ def cmd_apply_fixes(args):
         "score": float(args.score) if getattr(args, "score", None) else None,
         "errors": errors_data,
         "corrections_count": len(corrections),
-        "locked_ids": sorted(locked_ids),
+        "protected_ids": sorted(protected_ids),
         "skipped_corrections": skipped,
     }
     history.append(cur_entry)
     state["error_history"] = history
 
-    next_iter = cur_iter + (1 if corrections or locked_skipped else 0)
+    next_iter = cur_iter + (1 if corrections or protected_skipped else 0)
     for seg in state["segments"]:
-        if seg["id"] in locked_ids:
-            seg["locked"] = True
-            seg["lock_reason"] = "TM_100_MATCH"
+        if seg["id"] in protected_ids:
+            seg["protected"] = True
+            seg["protected_reason"] = "TM_100_MATCH"
             seg["corrected"] = None
             continue
         if seg["id"] in corrections:
@@ -783,12 +810,12 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
         for cat in categories
     }
     detail_rows: list[dict] = []
-    all_locked_ids = set()
+    all_protected_ids = set()
     for entry in history:
-        all_locked_ids.update(entry.get("locked_ids", []))
+        all_protected_ids.update(entry.get("protected_ids", []))
     for seg in segments:
-        if seg.get("locked"):
-            all_locked_ids.add(seg["id"])
+        if seg.get("protected"):
+            all_protected_ids.add(seg["id"])
     max_iter = max((entry["iteration"] for entry in history), default=0)
 
     for entry in history:
@@ -797,7 +824,7 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
             seg = seg_map.get(e_seg["id"])
             if not seg:
                 continue
-            if seg["id"] in all_locked_ids:
+            if seg["id"] in all_protected_ids:
                 continue
             corrected = e_seg.get("corrected")
             processing = _processing_label(e_seg)
@@ -1038,8 +1065,8 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
             (7, dr["category"]), (8, dr["severity"]),
             (9, dr["iteration"]),(10, dr["comment"]),
             (11, dr["processing"]),
-            (12, "Yes" if dr["seg_id"] in all_locked_ids else "No"),
-            (13, "TM_100_MATCH" if dr["seg_id"] in all_locked_ids else ""),
+            (12, "Yes" if dr["seg_id"] in all_protected_ids else "No"),
+            (13, "TM_100_MATCH" if dr["seg_id"] in all_protected_ids else ""),
         ]:
             c = ws.cell(row=cur_row, column=col, value=val)
             _s(c, fill=row_fill, align=_LEFT_TOP if col not in (2, 8, 9, 11) else _CENTER)
@@ -1079,29 +1106,29 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
     ws2.row_dimensions[1].height = 15.0
 
     for ri, (raw_row, seg) in enumerate(zip(state["rows_raw"], segments), start=2):
-        is_locked = seg["id"] in all_locked_ids
+        is_protected = seg["id"] in all_protected_ids
         current_entry = current_entries.get(seg["id"])
         entry = current_entry if current_entry is not None else {
             "errors": [],
             "corrected": seg.get("corrected"),
         }
-        errs = [] if is_locked else entry.get("errors", [])
+        errs = [] if is_protected else entry.get("errors", [])
         has_error = bool(errs)
-        if is_locked:
+        if is_protected:
             processing_entry = {"errors": [{"protected": True}], "corrected": None}
         else:
             processing_entry = entry
         processing = _processing_label(processing_entry)
         corrected = entry.get("corrected")
         suggestion = "" if processing == "已保护，不修改" else (corrected or "")
-        row_fill = _ORANGE if has_error else _GREEN_LIGHT if (is_locked or suggestion) else None
+        row_fill = _ORANGE if has_error else _GREEN_LIGHT if (is_protected or suggestion) else None
         row_data = list(raw_row) + [
             suggestion,
             processing,
             _fmt_errors(errs),
             seg.get("iter", 0),
-            "Yes" if is_locked else "No",
-            seg.get("lock_reason") or ("TM_100_MATCH" if is_locked else ""),
+            "Yes" if is_protected else "No",
+            seg.get("protected_reason") or ("TM_100_MATCH" if is_protected else ""),
         ]
         for ci, val in enumerate(row_data, start=1):
             c = ws2.cell(row=ri, column=ci, value=val)
@@ -1124,11 +1151,11 @@ def cmd_write(args):
     state_path = Path(args.state)
     state = read_json(state_path)
     final_errors_data = read_json(args.errors)
-    locked_ids = _state_locked_ids(state)
-    scrubbed = _scrub_locked_entries(final_errors_data, locked_ids)
+    protected_ids = _state_protected_ids(state)
+    scrubbed = _scrub_protected_entries(final_errors_data, protected_ids)
     if scrubbed:
         Path(args.errors).write_text(json.dumps(final_errors_data, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"[write] scrubbed {scrubbed} locked-segment issue(s) from {args.errors}")
+        print(f"[write] scrubbed {scrubbed} protected-segment issue(s) from {args.errors}")
     score = float(args.score)
 
     final_entry = {
@@ -1136,7 +1163,7 @@ def cmd_write(args):
         "score": score,
         "errors": final_errors_data,
         "corrections_count": 0,
-        "locked_ids": sorted(locked_ids),
+        "protected_ids": sorted(protected_ids),
     }
 
     history = state.get("error_history", [])
@@ -1220,7 +1247,7 @@ def cmd_export(args):
     }
 
     def export_kind(segment):
-        if segment.get("locked"):
+        if segment.get("protected"):
             return "已保护"
         label = _processing_label(result_entries[segment["id"]])
         if label == "已保护，不修改":
@@ -1294,7 +1321,7 @@ def main():
 
     r = sub.add_parser("read")
     r.add_argument("--input", required=True)
-    r.add_argument("--project", default=None, help="项目档案：projects/<名>/profile.json 或目录/文件路径；提供 SG/术语/词数基准/checks/adjudications 默认值，显式参数优先")
+    r.add_argument("--project", default=None, help="项目档案：projects/<名>/profile.json 或目录/文件路径；提供 SG/术语/词数基准/checks/confirmed_rules 默认值，显式参数优先")
     r.add_argument("--source-col", required=True, dest="source_col", help="列名或列索引（0-based，配合 --no-header）")
     r.add_argument("--target-col", required=True, dest="target_col", help="列名或列索引（0-based，配合 --no-header）")
     r.add_argument("--no-header", action="store_true", dest="no_header", help="文件无表头行，source-col/target-col 为整数索引")
@@ -1317,15 +1344,15 @@ def main():
     af.add_argument("--threshold", type=float, default=98.0)
     af.add_argument("--scorecard-profile", default="legacy", dest="scorecard_profile",
                     help="评分卡 profile id/目录/profile.json 路径；默认 legacy（当前原有评分标准）")
-    af.add_argument("--locked-ids", default=None, help="逗号分隔的 TM 100%% match segment ids")
-    af.add_argument("--locked-file", default=None, help="TM 100%% match locked ids JSON 文件")
+    af.add_argument("--protected-ids", default=None, help="逗号分隔的 TM 100%% match segment ids")
+    af.add_argument("--protected-file", default=None, help="TM 100%% match protected ids JSON 文件")
 
-    ls = sub.add_parser("lock-segments")
-    ls.add_argument("--state", required=True)
-    ls.add_argument("--locked-ids", default=None, help="agent 判定后的逗号分隔 segment ids")
-    ls.add_argument("--locked-file", default=None, help="agent 判定后的 locked ids JSON 文件")
-    ls.add_argument("--reason", default="TM_100_MATCH")
-    ls.add_argument("--out", default=None, help="输出 locked ids JSON，默认 {job}/tm_locked.json")
+    ps = sub.add_parser("protect-segments")
+    ps.add_argument("--state", required=True)
+    ps.add_argument("--protected-ids", default=None, help="agent 判定后的逗号分隔 segment ids")
+    ps.add_argument("--protected-file", default=None, help="agent 判定后的 protected ids JSON 文件")
+    ps.add_argument("--reason", default="TM_100_MATCH")
+    ps.add_argument("--out", default=None, help="输出 protected ids JSON，默认 {job}/tm_protected.json")
 
     br = sub.add_parser("build-results")
     br.add_argument("--state", required=True)
@@ -1360,7 +1387,7 @@ def main():
     {
         "read":           cmd_read,
         "pre-check":      cmd_pre_check,
-        "lock-segments":  cmd_lock_segments,
+        "protect-segments": cmd_protect_segments,
         "build-results":  cmd_build_results,
         "apply-fixes":    cmd_apply_fixes,
         "write":          cmd_write,

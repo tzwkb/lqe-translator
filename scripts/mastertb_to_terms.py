@@ -6,9 +6,9 @@ contains "术语 ZHCN" (source). The target language lives in its own column;
 status/category/definition columns are detected best-effort by header text
 (their position and header wording drift between master versions).
 
-Output: list of terms — {"source","target"[,"status"]} for a source with a
+Output: list of terms — {"source","target","confirmed","protected"[,"status"]} for a source with a
 single known translation, or {"source","senses":[{"target"[,"status"]
-[,"category"][,"definition"]}, ...]} when the SAME source legitimately has
+[,"category"][,"definition"],"confirmed","protected"}, ...]} when the SAME source legitimately has
 more than one translation (e.g. a name reused for both a Species and a
 Creature Individual, or a verb/noun pair) — a real, client-intended polysemy,
 not a data error. Rows with an empty target are dropped (untranslated,
@@ -89,7 +89,7 @@ def main():
             empty_src.add(src)
             continue
 
-        cand = {"target": tgt}
+        cand = {"target": tgt, "confirmed": False, "protected": False}
         st = clean(r[sti]) if (sti is not None and sti < len(r)) else ""
         if st:
             cand["status"] = st
@@ -117,7 +117,11 @@ def main():
             g = clean(t.get("target"))
             # only fill master's 待填充 holes; never resurrect dropped concepts
             if s and g and s in empty_src and s not in by_src:
-                item = {"target": g}
+                item = {
+                    "target": g,
+                    "confirmed": t.get("confirmed") is True,
+                    "protected": t.get("protected") is True,
+                }
                 st = clean(t.get("status"))
                 if st:
                     item["status"] = st
@@ -129,14 +133,20 @@ def main():
     for src, cands in by_src.items():
         if len(cands) == 1:
             c = cands[0]
-            item = {"source": src, "target": c["target"]}
+            item = {
+                "source": src,
+                "target": c["target"],
+                "confirmed": c["confirmed"],
+                "protected": c["protected"],
+            }
             if c.get("status"):
                 item["status"] = c["status"]
             terms.append(item)
         else:
             terms.append({"source": src, "senses": cands})
             multisense.append({"source": src,
-                                "senses": [{"target": c["target"], "category": c.get("category", "")}
+                                "senses": [{"target": c["target"], "category": c.get("category", ""),
+                                            "confirmed": c["confirmed"], "protected": c["protected"]}
                                            for c in cands]})
 
     Path(args.out).write_text(

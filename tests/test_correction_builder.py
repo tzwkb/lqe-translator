@@ -7,6 +7,7 @@ from scripts.lqe_corrections import (
     build_segment_result,
     normalize_check_entries,
 )
+from scripts.lqe_engine import term_senses
 
 
 def issue(edit=None, **overrides):
@@ -31,6 +32,34 @@ def edit(frm, to, start=None, end=None, evidence=None):
 
 
 class CorrectionBuilderTests(unittest.TestCase):
+    def test_confirmed_term_sense_authorizes_exact_name_edit(self):
+        entry = {
+            "source": "小花仙",
+            "target": "ดอกบ้องแบ๊ว",
+            "confirmed": True,
+            "protected": False,
+        }
+        segment = {
+            "id": 1,
+            "target": "ภูตดอกไม้",
+            "kind": "name",
+            "term_hits": [
+                {"source": entry["source"], **term_senses(entry)[0]}
+            ],
+        }
+        evidence = {
+            "type": "confirmed_term",
+            "source": entry["source"],
+            "target": entry["target"],
+        }
+
+        result = build_segment_result(
+            segment,
+            [issue(edit(segment["target"], entry["target"], evidence=evidence))],
+        )
+
+        self.assertEqual(result["corrected"], entry["target"])
+
     def test_rejects_model_corrected(self):
         with self.assertRaisesRegex(CheckFormatError, "corrected"):
             normalize_check_entries(

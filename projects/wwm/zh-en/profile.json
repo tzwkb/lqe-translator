@@ -8,6 +8,6 @@
   "style_guide": "sg.txt",
   "terminology": "terms_en_0710_upd.json",
   "checks": "checks.json",
-  "adjudications": "adjudications.md",
+  "confirmed_rules": "confirmed_rules.md",
   "threshold": 98
 }

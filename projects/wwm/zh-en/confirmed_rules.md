@@ -10,7 +10,7 @@
 标点半角与对齐、破折号·间隔号、千位、Item ×N、颜色标签/变量/换行、大小写 Title/Sentence 等**以 `sg.txt` §二/§三 为准**；已由检查自动覆盖的见 `checks.json`（middot/x-count/roman）+ pre-check（em_dash/全角标点/Markup/Length）。此处仅记 SG 未明、或需人工判的偏差：
 - **非代码内容禁用 `< >` 改半角直引号**；代码标签 `<desc_id=…>` 合法——人工区分，勿确定性硬判。
 
-（RAG/TM/locked 100% match 保护属通用 skill 机制，见 SKILL.md Step 1.2，非本项目裁决，已从此处移除）
+（RAG/TM/protected 100% match 属通用 skill 机制，见 SKILL.md Step 1.2，非本项目确认规则，已从此处移除）
 
 ## 0512 globaltrunk 人工 LQE 裁决（2026-06-11 注入，效力=Query 级）
 源：《【AI】【英】0512【globaltrunk】【0511新增】_LQE Report》——人工审校对 AI 译文的实判（×=被判错的 AI 译法）。检查项与关注点总表见 docs/质量检查项清单.md。

@@ -38,6 +38,7 @@ def _group_chunk_terms(terms):
                 if key not in {"source", "senses"}
             }
             sense["confirmed"] = raw.get("confirmed") is True
+            sense["protected"] = raw.get("protected") is True
             grouped.setdefault(source, []).append(sense)
     return grouped
 
@@ -68,6 +69,7 @@ def _term_hits(src_txt, titems, cap=15):
         for sense in senses:
             hit = {"source": source, **sense}
             hit["confirmed"] = sense.get("confirmed") is True
+            hit["protected"] = sense.get("protected") is True
             hits.append(hit)
     return hits
 
@@ -106,7 +108,7 @@ def cmd_split(a):
     # merge broadcasts the verdict back to every id in the group.
     groups = {}
     for seg in segs:
-        groups.setdefault((seg.get("source", ""), seg.get("target", ""), bool(seg.get("locked"))), []).append(seg)
+        groups.setdefault((seg.get("source", ""), seg.get("target", ""), bool(seg.get("protected"))), []).append(seg)
     reps, dedup_map = [], {}
     for gsegs in groups.values():          # dict 保序：组按首次出现序
         rep = min(gsegs, key=lambda s: s["id"])
@@ -153,8 +155,8 @@ def cmd_split(a):
                 "target": seg.get("target", ""),
                 "content_type": seg.get("content_type"),
                 "text_type_context": seg.get("text_type_context"),
-                "locked": bool(seg.get("locked")),
-                "lock_reason": seg.get("lock_reason"),
+                "protected": bool(seg.get("protected")),
+                "protected_reason": seg.get("protected_reason"),
                 "kind": _seg_kind(src_txt),
                 "precheck": pre_by_id.get(seg["id"], []),
                 "term_hits": hits,
@@ -178,7 +180,7 @@ def cmd_merge(a):
     state_segments = state["segments"]
     state_by_id = {segment["id"]: segment for segment in state_segments}
     ids = [segment["id"] for segment in state_segments]
-    locked_ids = {segment["id"] for segment in state_segments if segment.get("locked")}
+    protected_ids = {segment["id"] for segment in state_segments if segment.get("protected")}
     pre = normalize_check_entries(load(a.errors), label=Path(a.errors).name)
     pre_by_id = {entry["id"]: entry["issues"] for entry in pre}
     outdir = Path(a.outdir)
@@ -207,7 +209,7 @@ def cmd_merge(a):
 
     reinstated = 0
     for i in ids:
-        if i in locked_ids:
+        if i in protected_ids:
             continue
         if i not in merged:
             continue
@@ -220,7 +222,7 @@ def cmd_merge(a):
                 merged[i].append(copy.deepcopy(issue))
                 reinstated += 1
 
-    missing = [i for i in ids if i not in merged and i not in locked_ids]
+    missing = [i for i in ids if i not in merged and i not in protected_ids]
     out = []
     for i in ids:
         representative = representative_by_id.get(i, i)
@@ -238,7 +240,7 @@ def cmd_merge(a):
         }
         issues = (
             []
-            if i in locked_ids
+            if i in protected_ids
             else merged.get(i, copy.deepcopy(pre_by_id.get(i, [])))
         )
         out.append(build_segment_result(segment, issues))

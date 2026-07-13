@@ -14,17 +14,17 @@ from lqe_engine import (
 )
 
 
-def _parse_locked_ids(text: str | None) -> set[int]:
+def _parse_protected_ids(text: str | None) -> set[int]:
     return {int(x.strip()) for x in (text or "").split(",") if x.strip()}
 
 
-def _load_locked_file(path: str | None) -> set[int]:
+def _load_protected_file(path: str | None) -> set[int]:
     ids: set[int] = set()
     if not path:
         return ids
     data = read_json(path)
     if isinstance(data, dict):
-        data = data.get("locked_ids") or data.get("segments") or []
+        data = data.get("protected_ids") or data.get("segments") or []
     for item in data:
         if isinstance(item, int):
             ids.add(item)
@@ -48,10 +48,10 @@ def main():
                    help="严重度乘数档：lisa=0/1/5/10（默认）；mqm=0/1/5/25（指数间距）")
     p.add_argument("--scorecard-profile", default="legacy", dest="scorecard_profile",
                    help="评分卡 profile id/目录/profile.json 路径；默认 legacy（当前原有评分标准）")
-    p.add_argument("--locked-ids", default=None, dest="locked_ids",
-                   help="逗号分隔的 locked seg id，其错误不计入 Critical 门")
-    p.add_argument("--locked-file", default=None, dest="locked_file",
-                   help="locked ids JSON 文件（如 {\"locked_ids\":[...]}），其错误不计分")
+    p.add_argument("--protected-ids", default=None, dest="protected_ids",
+                   help="逗号分隔的 protected seg id，其错误不计入 Critical 门")
+    p.add_argument("--protected-file", default=None, dest="protected_file",
+                   help="protected ids JSON 文件（如 {\"protected_ids\":[...]}），其错误不计分")
     p.add_argument("--no-repeat-dedup", action="store_true", dest="no_repeat_dedup",
                    help="关闭 N4 重复错误去重（重复全额计分，旧行为）。默认：相同源译文段的同类同级错误仅首段计分，其余标 repeated（客户评分卡口径）")
     p.add_argument("--json", action="store_true",
@@ -63,9 +63,9 @@ def main():
 
     state  = read_json(args.state)
     errors = read_json(args.errors)
-    locked = _parse_locked_ids(args.locked_ids)
-    locked.update(_load_locked_file(args.locked_file))
-    locked.update(s["id"] for s in state.get("segments", []) if s.get("locked"))
+    protected = _parse_protected_ids(args.protected_ids)
+    protected.update(_load_protected_file(args.protected_file))
+    protected.update(s["id"] for s in state.get("segments", []) if s.get("protected"))
 
     wordcount = state["wordcount"]
     if wordcount == 0:
@@ -85,7 +85,7 @@ def main():
     repeated_count = 0
 
     for entry in errors:
-        if entry.get("id") in locked:
+        if entry.get("id") in protected:
             continue
         sid = entry.get("id")
         for e in entry.get("errors", []):

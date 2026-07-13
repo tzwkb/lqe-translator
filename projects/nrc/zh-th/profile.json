@@ -8,7 +8,7 @@
   "style_guide": "sources/Style Guide Translation TH_20260430.xlsx",
   "terminology": "terms_th.json",
   "checks": "checks.json",
-  "adjudications": "adjudications.md",
+  "confirmed_rules": "confirmed_rules.md",
   "threshold": 98,
-  "lock_statuses": []
+  "protected_term_statuses": []
 }
