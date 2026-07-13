@@ -33,7 +33,10 @@ _APPLICABLE_CORRECTION_STATUSES = {"suggested", "approved"}
 
 
 def _correction_status(entry):
-    return entry.get("correction_status") or "suggested"
+    status = entry.get("correction_status")
+    if status is None or status == "":
+        return "suggested"
+    return status if isinstance(status, str) else repr(status)
 
 
 def _label(p: Path) -> str:
@@ -121,25 +124,19 @@ def main():
             and _correction_status(e) in _APPLICABLE_CORRECTION_STATUSES
             and e["id"] in seg_rows
         }
-        gated_baselines = {
-            seg_rows[e["id"]]: seg_by_id[e["id"]]["corrected"]
-            for e in errors
-            if e.get("corrected")
-            and _correction_status(e) not in _APPLICABLE_CORRECTION_STATUSES
-            and e["id"] in seg_rows
-            and seg_by_id[e["id"]].get("corrected")
+        delivery_corr = {
+            seg_rows[sid]: seg["corrected"]
+            for sid, seg in seg_by_id.items()
+            if seg.get("corrected") is not None
         }
-        delivery_corr = {**gated_baselines, **corr}
+        delivery_corr.update(corr)
         res = _calc(sj, a.threshold)
         tot_L += res["npt"] * res["wordcount"] / 1000.0
         tot_wc += res["wordcount"]
         tot_err += res["errors"]
         tot_crit += res["critical"]
-        tot_fix += len(corr)
         nseg = len(state["segments"])
         tot_seg += nseg
-        summary.append([sj.name, nseg, res["wordcount"], res["errors"],
-                        res["critical"], res["score"], res["status"], len(corr)])
 
         src_path = state.get("input_path")
         if not src_path or not Path(src_path).exists():
@@ -152,16 +149,23 @@ def main():
         used_titles.add(title)
         ws = cwb.create_sheet(title)
         rows = list(sws.iter_rows(values_only=True))
+        delivery_replacements = 0
         if rows:
             ws.append(list(rows[0]))                  # header
             for p, row in enumerate(rows[1:]):
                 row = list(row)
                 if p in delivery_corr:
+                    source_target = row[tidx] if tidx < len(row) else None
+                    if delivery_corr[p] != source_target:
+                        delivery_replacements += 1
                     while len(row) <= tidx:
                         row.append(None)
                     row[tidx] = delivery_corr[p]
                 ws.append(row)
         src.close()
+        tot_fix += delivery_replacements
+        summary.append([sj.name, nseg, res["wordcount"], res["errors"],
+                        res["critical"], res["score"], res["status"], delivery_replacements])
 
     corr_out = job_dir / f"{label}_corrected.xlsx"
     cwb.save(corr_out)

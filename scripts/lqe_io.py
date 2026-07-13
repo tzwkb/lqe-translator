@@ -37,7 +37,10 @@ _CORRECTION_STATUSES = {"suggested", "pending_adjudication", "approved"}
 
 
 def _correction_status(entry):
-    return entry.get("correction_status") or "suggested"
+    status = entry.get("correction_status")
+    if status is None or status == "":
+        return "suggested"
+    return status if isinstance(status, str) else repr(status)
 
 
 def _is_pending_correction(entry):
@@ -1126,10 +1129,18 @@ def cmd_write(args):
 
     history = state.get("error_history", [])
     final_iter = state.get("iteration", 0)
-    if history and history[-1].get("iteration") == final_iter:
-        history[-1] = final_entry
-    else:
-        history.append(final_entry)
+    skipped_corrections = [
+        skipped
+        for entry in history
+        if entry.get("iteration") == final_iter
+        for skipped in entry.get("skipped_corrections", [])
+    ]
+    if skipped_corrections:
+        final_entry["skipped_corrections"] = skipped_corrections
+    history = [
+        entry for entry in history if entry.get("iteration") != final_iter
+    ]
+    history.append(final_entry)
     state["error_history"] = history
     state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
 
