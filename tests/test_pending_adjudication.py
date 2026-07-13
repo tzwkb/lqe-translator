@@ -927,6 +927,21 @@ class PendingAdjudicationTests(unittest.TestCase):
         entry = json.loads((chunks / "chunk_00.out.json").read_text(encoding="utf-8"))[0]
         self.assertEqual(entry.get("correction_status"), "pending_adjudication")
 
+    def test_finalize_accepts_absolute_job_directory(self):
+        (self.job / "chunks").mkdir(exist_ok=True)
+        (self.job / ".finalized").write_text("", encoding="utf-8")
+
+        result = subprocess.run(
+            ["bash", str(SCRIPTS / "finalize_job.sh"), str(self.job), "1", "single"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+
+        self._assert_success(result)
+        self.assertIn("ALREADY-FINALIZED", result.stdout)
+        self.assertNotIn("INCOMPLETE", result.stdout)
+
     def test_flat_lens_duplicate_promotes_pending_status(self):
         chunks = self.job / "flat_chunks"
         chunks.mkdir()
