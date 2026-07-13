@@ -927,6 +927,176 @@ class PendingAdjudicationTests(unittest.TestCase):
         entry = json.loads((chunks / "chunk_00.out.json").read_text(encoding="utf-8"))[0]
         self.assertEqual(entry.get("correction_status"), "pending_adjudication")
 
+    def test_flat_lens_duplicate_promotes_pending_status(self):
+        chunks = self.job / "flat_chunks"
+        chunks.mkdir()
+        self._write_json(
+            chunks / "chunk_00.json",
+            {
+                "chunk_id": 0,
+                "segments": [
+                    {"id": 0, "source": "原文A", "target": "原译A"},
+                ],
+            },
+        )
+        self._write_json(
+            chunks / "chunk_00.T.json",
+            [
+                {
+                    "id": 0,
+                    "category": "Terminology",
+                    "severity": "Major",
+                    "comment": "first flat finding",
+                    "corrected": "候选A",
+                    "correction_status": "suggested",
+                },
+                {
+                    "id": 0,
+                    "category": "Grammar",
+                    "severity": "Minor",
+                    "comment": "pending flat finding",
+                    "corrected": "候选A",
+                    "correction_status": "pending_adjudication",
+                },
+            ],
+        )
+
+        result = self._run_cli("lqe_chunk.py", "merge-lenses", "--outdir", chunks)
+        self._assert_success(result)
+
+        entry = json.loads(
+            (chunks / "chunk_00.out.json").read_text(encoding="utf-8")
+        )[0]
+        self.assertEqual(entry.get("correction_status"), "pending_adjudication")
+
+    def test_final_merge_dedup_broadcast_preserves_pending_status(self):
+        chunks = self.job / "dedup_chunks"
+        chunks.mkdir()
+        self._write_json(
+            chunks / "chunk_00.out.json",
+            [
+                {
+                    "id": 0,
+                    "errors": [
+                        {
+                            "category": "Terminology",
+                            "severity": "Major",
+                            "comment": "pending representative",
+                        }
+                    ],
+                    "corrected": "候选A",
+                    "correction_status": "pending_adjudication",
+                }
+            ],
+        )
+        self._write_json(chunks / "dedup_map.json", {"0": [0, 1]})
+        baseline = self.job / "dedup_errors_precheck.json"
+        final_errors = self.job / "dedup_merged_errors.json"
+        self._write_json(
+            baseline,
+            [
+                {"id": 0, "errors": [], "corrected": None},
+                {"id": 1, "errors": [], "corrected": None},
+            ],
+        )
+
+        result = self._run_cli(
+            "lqe_chunk.py",
+            "merge",
+            "--state",
+            self.state_path,
+            "--errors",
+            baseline,
+            "--outdir",
+            chunks,
+            "--out",
+            final_errors,
+        )
+        self._assert_success(result)
+
+        entries = {
+            entry["id"]: entry
+            for entry in json.loads(final_errors.read_text(encoding="utf-8"))
+        }
+        for segment_id in (0, 1):
+            with self.subTest(segment_id=segment_id):
+                self.assertEqual(
+                    entries[segment_id].get("correction_status"),
+                    "pending_adjudication",
+                )
+
+    def test_reconcile_clears_pending_metadata_only_when_all_errors_are_dropped(self):
+        chunks = self.job / "reconcile_chunks"
+        chunks.mkdir()
+        self._write_json(
+            chunks / "chunk_00.json",
+            {
+                "chunk_id": 0,
+                "segments": [
+                    {"id": 0, "source": "原文A", "target": "原译A"},
+                    {"id": 1, "source": "原文B", "target": "原译B"},
+                ],
+            },
+        )
+        self._write_json(
+            chunks / "chunk_00.out.json",
+            [
+                {
+                    "id": 0,
+                    "errors": [
+                        {
+                            "category": "Mistranslation",
+                            "severity": "Major",
+                            "comment": "unconfirmed A-owned error",
+                        }
+                    ],
+                    "corrected": "候选A",
+                    "correction_status": "pending_adjudication",
+                },
+                {
+                    "id": 1,
+                    "errors": [
+                        {
+                            "category": "Mistranslation",
+                            "severity": "Major",
+                            "comment": "unconfirmed A-owned error",
+                        },
+                        {
+                            "category": "Grammar",
+                            "severity": "Minor",
+                            "comment": "non-A-owned error remains",
+                        },
+                    ],
+                    "corrected": "候选B",
+                    "correction_status": "pending_adjudication",
+                },
+            ],
+        )
+
+        result = self._run_cli("lqe_chunk.py", "reconcile", "--outdir", chunks)
+        self._assert_success(result)
+
+        entries = {
+            entry["id"]: entry
+            for entry in json.loads(
+                (chunks / "chunk_00.out.json").read_text(encoding="utf-8")
+            )
+        }
+        with self.subTest(segment_id=0, branch="all-errors-dropped"):
+            self.assertEqual(entries[0]["errors"], [])
+            self.assertIsNone(entries[0]["corrected"])
+            self.assertNotIn("correction_status", entries[0])
+        with self.subTest(segment_id=1, branch="errors-remain"):
+            self.assertEqual(
+                [error["category"] for error in entries[1]["errors"]],
+                ["Grammar"],
+            )
+            self.assertEqual(entries[1]["corrected"], "候选B")
+            self.assertEqual(
+                entries[1].get("correction_status"),
+                "pending_adjudication",
+            )
+
     def test_aggregate_sheets_does_not_apply_pending_candidate(self):
         aggregate_job = self.tmp / "aggregate_job"
         sheet_job = aggregate_job / "sheet_a"
