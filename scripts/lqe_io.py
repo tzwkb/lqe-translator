@@ -13,6 +13,7 @@ import argparse
 import csv
 import io
 import json
+import os
 import re
 import sys
 import tempfile
@@ -564,6 +565,33 @@ def _validate_sdlxliff_languages(result, args, prof: dict | None) -> tuple[str, 
     return expected_source, expected_target
 
 
+def _file_identity(path: Path) -> tuple[int, int] | None:
+    try:
+        stat = path.lstat()
+    except FileNotFoundError:
+        return None
+    return stat.st_dev, stat.st_ino
+
+
+def _unlink_if_owned(path: Path, identity: tuple[int, int]) -> None:
+    if _file_identity(path) == identity:
+        path.unlink()
+
+
+def _publish_staged_file(source: Path, destination: Path) -> None:
+    identity = _file_identity(source)
+    if identity is None:
+        raise FileNotFoundError(f"staged artifact is missing: {source}")
+    try:
+        os.link(source, destination, follow_symlinks=False)
+        source.unlink()
+    except FileExistsError:
+        raise
+    except BaseException:
+        _unlink_if_owned(destination, identity)
+        raise
+
+
 def _publish_sdlxliff_job(
     state_path: Path,
     *,
@@ -611,7 +639,7 @@ def _publish_sdlxliff_job(
             "staged SDLXLIFF job asset is missing: "
             + ", ".join(str(path) for path in missing_staged)
         )
-    existing = [path for path in destinations if path.exists()]
+    existing = [path for path in destinations if os.path.lexists(path)]
     if existing:
         raise FileExistsError(
             "SDLXLIFF job artifact already exists; use a new job directory: "
@@ -630,6 +658,21 @@ def _publish_sdlxliff_job(
     }
     job_dir.mkdir(parents=True, exist_ok=True)
     staged: dict[str, Path] = {}
+    published: dict[Path, tuple[int, int]] = {}
+
+    def publish(source: Path, destination: Path) -> None:
+        identity = _file_identity(source)
+        if identity is None:
+            raise FileNotFoundError(f"staged artifact is missing: {source}")
+        published[destination] = identity
+        try:
+            _publish_staged_file(source, destination)
+        except FileExistsError as exc:
+            published.pop(destination, None)
+            raise FileExistsError(
+                f"SDLXLIFF job artifact appeared during publication: {destination}"
+            ) from exc
+
     try:
         for key, payload in serialized.items():
             with tempfile.NamedTemporaryFile(
@@ -645,14 +688,13 @@ def _publish_sdlxliff_job(
         for destination, source in sorted(
             assets.items(), key=lambda item: str(item[0])
         ):
-            source.replace(destination)
+            publish(source, destination)
         for key in ("manifest", "candidates", "scope"):
-            staged[key].replace(paths[key])
-        staged["state"].replace(paths["state"])
+            publish(staged[key], paths[key])
+        publish(staged["state"], paths["state"])
     except BaseException:
-        for path in reversed(destinations):
-            if path.exists():
-                path.unlink()
+        for path, identity in reversed(list(published.items())):
+            _unlink_if_owned(path, identity)
         raise
     finally:
         for path in staged.values():

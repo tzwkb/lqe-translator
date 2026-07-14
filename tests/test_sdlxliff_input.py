@@ -1600,6 +1600,30 @@ class SDLXLIFFIntegrationTests(unittest.TestCase):
                 self.assertEqual(asset.read_text(encoding="utf-8"), "sentinel")
                 self.assertEqual({path.name for path in job.iterdir()}, {asset_name})
 
+    def test_dangling_asset_symlink_is_not_replaced(self):
+        style_guide = self.root / "style.md"
+        style_guide.write_text("# Style\n", encoding="utf-8")
+        self.job.mkdir()
+        asset = self.job / "sg.txt"
+        link_target = self.job / "missing-style.txt"
+        asset.symlink_to(link_target)
+
+        result = self.run_io(
+            "read",
+            "--input",
+            self.fixture_dir,
+            "--style-guide",
+            style_guide,
+            "--out",
+            self.job / "state.json",
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("already exists", result.stderr)
+        self.assertTrue(asset.is_symlink())
+        self.assertEqual(asset.readlink(), link_target)
+        self.assertEqual({path.name for path in self.job.iterdir()}, {"sg.txt"})
+
     def test_sdl_state_path_cannot_alias_a_helper_artifact(self):
         state_path = self.job / "source_manifest.json"
 
@@ -1627,15 +1651,16 @@ class SDLXLIFFIntegrationTests(unittest.TestCase):
         staged_asset = self.root / "staged" / "sg.txt"
         staged_asset.parent.mkdir()
         staged_asset.write_text("# Style\n", encoding="utf-8")
-        original_replace = Path.replace
+        original_publish = lqe_io._publish_staged_file
 
-        def interrupt_after_replace(path, target):
-            result = original_replace(path, target)
-            if Path(target).name == "tm_candidates.json":
+        def interrupt_before_publish(source, target):
+            if target.name == "tm_candidates.json":
                 raise KeyboardInterrupt("simulated publication interruption")
-            return result
+            return original_publish(source, target)
 
-        with mock.patch.object(Path, "replace", interrupt_after_replace):
+        with mock.patch.object(
+            lqe_io, "_publish_staged_file", interrupt_before_publish
+        ):
             with self.assertRaises(KeyboardInterrupt):
                 lqe_io._publish_sdlxliff_job(
                     state_path,
@@ -1648,6 +1673,67 @@ class SDLXLIFFIntegrationTests(unittest.TestCase):
 
         self.assertTrue(self.job.exists())
         self.assertEqual(list(self.job.iterdir()), [])
+
+    def test_publish_race_preserves_competing_json_and_rolls_back_owned_files(self):
+        state_path = self.job / "state.json"
+        staged_asset = self.root / "staged-race" / "sg.txt"
+        staged_asset.parent.mkdir()
+        staged_asset.write_text("# Style\n", encoding="utf-8")
+        original_publish = lqe_io._publish_staged_file
+
+        def create_competing_json(source, target):
+            if target.name == "tm_candidates.json":
+                target.write_text("competitor", encoding="utf-8")
+            return original_publish(source, target)
+
+        with mock.patch.object(
+            lqe_io, "_publish_staged_file", create_competing_json
+        ):
+            with self.assertRaises(FileExistsError):
+                lqe_io._publish_sdlxliff_job(
+                    state_path,
+                    manifest={"kind": "manifest"},
+                    tm_candidates={"candidate_ids": []},
+                    scope={"mode": "standard"},
+                    state={"input_format": "sdlxliff"},
+                    staged_assets={self.job / "sg.txt": staged_asset},
+                )
+
+        competitor = self.job / "tm_candidates.json"
+        self.assertEqual(competitor.read_text(encoding="utf-8"), "competitor")
+        self.assertEqual({path.name for path in self.job.iterdir()}, {competitor.name})
+
+    def test_rollback_preserves_competing_replacement_of_published_asset(self):
+        state_path = self.job / "state.json"
+        staged_asset = self.root / "staged-replacement" / "sg.txt"
+        staged_asset.parent.mkdir()
+        staged_asset.write_text("# Style\n", encoding="utf-8")
+        original_publish = lqe_io._publish_staged_file
+
+        def replace_asset_then_interrupt(source, target):
+            if target.name == "source_manifest.json":
+                published_asset = self.job / "sg.txt"
+                published_asset.unlink()
+                published_asset.write_text("competitor", encoding="utf-8")
+                raise KeyboardInterrupt("simulated competing replacement")
+            return original_publish(source, target)
+
+        with mock.patch.object(
+            lqe_io, "_publish_staged_file", replace_asset_then_interrupt
+        ):
+            with self.assertRaises(KeyboardInterrupt):
+                lqe_io._publish_sdlxliff_job(
+                    state_path,
+                    manifest={"kind": "manifest"},
+                    tm_candidates={"candidate_ids": []},
+                    scope={"mode": "standard"},
+                    state={"input_format": "sdlxliff"},
+                    staged_assets={self.job / "sg.txt": staged_asset},
+                )
+
+        competitor = self.job / "sg.txt"
+        self.assertEqual(competitor.read_text(encoding="utf-8"), "competitor")
+        self.assertEqual({path.name for path in self.job.iterdir()}, {competitor.name})
 
     def test_explicit_sdl_directory_ignores_but_records_other_supported_files(self):
         state_path = self.job / "state.json"
