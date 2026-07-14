@@ -1185,7 +1185,13 @@ def _s(cell, fill=None, font=None, align=None):
     if align: cell.alignment = align
 
 
-def _segment_filename(state: dict, segment: dict) -> str:
+def _set_excel_text(cell, value) -> None:
+    cell.value = value
+    if isinstance(value, str) and value.startswith("="):
+        cell.data_type = "s"
+
+
+def _segment_filename(state: dict, segment: dict, source_row=None) -> str:
     if state.get("input_format") == "sdlxliff":
         metadata = segment.get("metadata") or {}
         sdl_metadata = metadata.get("sdlxliff") or {}
@@ -1197,7 +1203,25 @@ def _segment_filename(state: dict, segment: dict) -> str:
         if relative_path:
             return relative_path
         return Path(state.get("input_path") or "").name
-    return Path(state.get("input_path") or "").stem
+    fallback = Path(state.get("input_path") or "").stem
+    headers = state.get("headers") or []
+    try:
+        source_path_index = headers.index("来源相对路径")
+    except ValueError:
+        return fallback
+    if source_row is None:
+        segments = state.get("segments") or []
+        rows = state.get("rows_raw") or []
+        if len(rows) == len(segments):
+            segment_id = segment.get("id")
+            for index, candidate in enumerate(segments):
+                if candidate.get("id") == segment_id:
+                    source_row = rows[index]
+                    break
+    if not source_row or source_path_index >= len(source_row):
+        return fallback
+    value = source_row[source_path_index]
+    return _text(value) or fallback
 
 
 def _report_source_table(state: dict) -> tuple[list[str], list[list[object]]]:
@@ -1535,8 +1559,14 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
             _s(c, fill=row_fill, align=_LEFT_TOP if col not in (2, 8, 9, 11) else _CENTER)
         cur_row += 1
 
+    filename_width = (
+        70
+        if state.get("input_format") != "sdlxliff"
+        and "来源相对路径" in (state.get("headers") or [])
+        else 22
+    )
     for col_ltr, width in [
-        ("A",22),("B",8),("C",35),("D",45),("E",45),
+        ("A",filename_width),("B",8),("C",35),("D",45),("E",45),
         ("F",14),("G",22),("H",10),("I",10),("J",45),
         ("K",12),("L",12),("M",45),
     ]:
@@ -1688,7 +1718,12 @@ def _export_sdlxliff_xlsx(
         output_row = list(source_row)
         if not protected and corrected:
             output_row[4] = corrected
-        worksheet.append(output_row)
+        row_number = worksheet.max_row + 1
+        for column, value in enumerate(output_row, start=1):
+            _set_excel_text(
+                worksheet.cell(row=row_number, column=column),
+                value,
+            )
     out_path = state_path.parent / (_job_label(state_path) + "_corrected.xlsx")
     workbook.save(out_path)
     workbook.close()
@@ -1809,7 +1844,7 @@ def cmd_export(args):
         kind = export_kind(seg)
         corrected = result_entries[seg["id"]].get("corrected")
         if kind != "已保护" and corrected:
-            ws.cell(row=row_num, column=ti + 1, value=corrected)
+            _set_excel_text(ws.cell(row=row_num, column=ti + 1), corrected)
         counts[kind] += 1
 
     out_path = state_path.parent / (_job_label(state_path) + "_corrected.xlsx")

@@ -1324,6 +1324,65 @@ esac
         )
         self.assertIn("MODE=single", result.stdout)
 
+    def test_finalize_stops_before_marker_when_a_required_stage_fails(self):
+        bin_dir = self.root / "bin-stage-failures"
+        bin_dir.mkdir()
+        python_stub = bin_dir / "python3"
+        python_stub.write_text(
+            """#!/bin/sh
+case "$*" in
+  *"$FAIL_TOKEN"*) exit 9 ;;
+esac
+case "$1" in
+  -)
+    script=$(cat)
+    case "$script" in
+      *enabled_modules*) printf 'terminology, accuracy, grammar, naturalness\n' ;;
+      *) printf '98\n' ;;
+    esac
+    ;;
+  *lqe_calc.py) printf '{"score":100,"status":"PASS","errors":0,"wordcount":1,"critical":0,"npt":0}\n' ;;
+  -c)
+    case "$2" in
+      *score*) printf '100\n' ;;
+      *status*) printf 'PASS\n' ;;
+    esac
+    ;;
+esac
+""",
+            encoding="utf-8",
+        )
+        python_stub.chmod(0o755)
+
+        for index, token in enumerate(
+            (
+                "lqe_chunk.py reconcile",
+                "lqe_calc.py",
+                "lqe_io.py write",
+                "lqe_io.py export",
+            )
+        ):
+            with self.subTest(token=token):
+                job = self.root / f"stage-failure-{index}"
+                (job / "chunks").mkdir(parents=True)
+                write_json(job / "state.json", {})
+                write_json(job / "chunks" / "chunk_00.json", {})
+                env = dict(os.environ)
+                env["FAIL_TOKEN"] = token
+                env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+
+                result = subprocess.run(
+                    ["bash", str(FINALIZE_SCRIPT), str(job), "1", "single"],
+                    cwd=ROOT,
+                    text=True,
+                    capture_output=True,
+                    env=env,
+                )
+
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertFalse((job / ".finalized").exists())
+                self.assertNotIn("FINALIZED", result.stdout)
+
 
 class CorrectedOwnershipOutputTests(unittest.TestCase):
     def setUp(self):
@@ -1480,6 +1539,86 @@ class CorrectedOwnershipOutputTests(unittest.TestCase):
         finally:
             workbook.close()
 
+    def test_tabular_corrected_xlsx_keeps_formula_like_translation_as_text(self):
+        segments = [
+            {"id": 0, "row_index": 0, "source": "Formula", "target": "原译"}
+        ]
+        corrected = "=SUM(1,2)"
+        state, errors, output = self.make_export_fixture(
+            "literal-formula-export",
+            segments,
+            [
+                {
+                    "id": 0,
+                    "errors": [
+                        check_issue(edit=replacement("原译", corrected))
+                    ],
+                    "corrected": corrected,
+                }
+            ],
+        )
+
+        result = self.run_io("export", "--state", state, "--errors", errors)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        workbook = openpyxl.load_workbook(output, data_only=False)
+        try:
+            cell = workbook.active["B2"]
+            self.assertEqual(cell.value, corrected)
+            self.assertEqual(cell.data_type, "s")
+        finally:
+            workbook.close()
+        workbook = openpyxl.load_workbook(output, data_only=True)
+        try:
+            self.assertEqual(workbook.active["B2"].value, corrected)
+        finally:
+            workbook.close()
+
+    def test_sdl_corrected_xlsx_keeps_formula_like_text_literal(self):
+        job = self.root / "sdl-literal-formula"
+        job.mkdir()
+        state_path = job / "state.json"
+        state = {
+            "input_format": "sdlxliff",
+            "input_path": str(job / "source.sdlxliff"),
+            "segments": [
+                {
+                    "id": 0,
+                    "source": "=SOURCE()",
+                    "target": "=TARGET()",
+                    "source_ref": {
+                        "relative_path": "source.sdlxliff",
+                        "tu_id": "1",
+                        "sdl_segment_id": "1",
+                    },
+                    "metadata": {"sdlxliff": {"file_original": "ui.xml"}},
+                }
+            ],
+        }
+        corrected = "=CORRECTED()"
+
+        output = lqe_io._export_sdlxliff_xlsx(
+            state_path,
+            state,
+            {0: {"errors": [], "corrected": corrected}},
+        )
+
+        workbook = openpyxl.load_workbook(output, data_only=False)
+        try:
+            row = workbook.active[2]
+            self.assertEqual([cell.value for cell in row][3:], ["=SOURCE()", corrected])
+            self.assertEqual([cell.data_type for cell in row][3:], ["s", "s"])
+        finally:
+            workbook.close()
+        workbook = openpyxl.load_workbook(output, data_only=True)
+        try:
+            self.assertEqual(
+                [cell.value for cell in workbook.active[2]][3:],
+                ["=SOURCE()", corrected],
+            )
+        finally:
+            workbook.close()
+
     @staticmethod
     def workbook_signature(path):
         workbook = openpyxl.load_workbook(path, data_only=False)
@@ -1557,6 +1696,86 @@ class CorrectedOwnershipOutputTests(unittest.TestCase):
             self.assertEqual(
                 labels,
                 ["建议修改", "需要人工确认", "仅提醒", "无需修改", "已保护，不修改"],
+            )
+        finally:
+            workbook.close()
+
+    def test_scorecard_detail_uses_each_segments_source_relative_path(self):
+        output = self.root / "multi_source_lqe.xlsx"
+        state = {
+            "input_path": str(self.root / "aggregate_review_source.xlsx"),
+            "headers": ["来源相对路径", "原文", "译文"],
+            "rows_raw": [
+                ["day1/first.xlsx.sdlxliff", "Source one", "Target one"],
+                ["day2/second.xlsx.sdlxliff", "Source two", "Target two"],
+            ],
+            "segments": [
+                {"id": 0, "source": "Source one", "target": "Target one"},
+                {"id": 1, "source": "Source two", "target": "Target two"},
+            ],
+            "wordcount": 2,
+        }
+        history = [
+            {
+                "iteration": 0,
+                "errors": [
+                    {"id": 0, "errors": [check_issue()], "corrected": None},
+                    {"id": 1, "errors": [check_issue()], "corrected": None},
+                ],
+            }
+        ]
+
+        call_quietly(lqe_io._build_xlsx, state, history, 99, 98, output)
+
+        workbook = openpyxl.load_workbook(output)
+        try:
+            scorecard = workbook["LQA Scorecard"]
+            header_row = next(
+                row
+                for row in range(1, scorecard.max_row + 1)
+                if scorecard.cell(row=row, column=1).value == "File name"
+            )
+            self.assertEqual(
+                [
+                    scorecard.cell(row=row, column=1).value
+                    for row in range(header_row + 1, header_row + 3)
+                ],
+                ["day1/first.xlsx.sdlxliff", "day2/second.xlsx.sdlxliff"],
+            )
+        finally:
+            workbook.close()
+
+    def test_scorecard_source_relative_path_column_is_wide_enough(self):
+        output = self.root / "source_path_width_lqe.xlsx"
+        state = {
+            "input_path": str(self.root / "aggregate_review_source.xlsx"),
+            "headers": ["来源相对路径", "原文", "译文"],
+            "rows_raw": [
+                [
+                    "day/01_dialogs_words_overrided_name_result.xlsx.sdlxliff",
+                    "Source",
+                    "Target",
+                ]
+            ],
+            "segments": [{"id": 0, "source": "Source", "target": "Target"}],
+            "wordcount": 1,
+        }
+        history = [
+            {
+                "iteration": 0,
+                "errors": [
+                    {"id": 0, "errors": [check_issue()], "corrected": None}
+                ],
+            }
+        ]
+
+        call_quietly(lqe_io._build_xlsx, state, history, 99, 98, output)
+
+        workbook = openpyxl.load_workbook(output)
+        try:
+            self.assertGreaterEqual(
+                workbook["LQA Scorecard"].column_dimensions["A"].width,
+                70,
             )
         finally:
             workbook.close()

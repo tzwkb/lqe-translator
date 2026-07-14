@@ -47,25 +47,39 @@ if ! python3 "$SK/scripts/lqe_chunk.py" validate-checks --job "$JOB"; then
 if ! python3 "$SK/scripts/lqe_chunk.py" merge-checks --job "$JOB"; then
   echo "MERGE-CHECKS FAIL $1; not finalizing"; exit 3; fi
 # 3) 确认准确性问题来自准确性检查模块
-python3 "$SK/scripts/lqe_chunk.py" reconcile --job "$JOB"
+if ! python3 "$SK/scripts/lqe_chunk.py" reconcile --job "$JOB"; then
+  echo "RECONCILE FAIL $1; not finalizing"; exit 4
+fi
 # 4) 将重复段的检查结果复制到组内各段并写入 errors.json（任一 id 未覆盖则非零退出）
 if ! python3 "$SK/scripts/lqe_chunk.py" merge --state "$JOB/state.json" \
      --errors "$JOB/errors_precheck.json" --outdir "$CH" --out "$JOB/errors.json"; then
   echo "MERGE-INCOMPLETE $1 (some ids uncovered; see above); not finalizing"; exit 3
 fi
 # 5) 计分
-RES=$(python3 "$SK/scripts/lqe_calc.py" --state "$JOB/state.json" --errors "$JOB/errors.json" --threshold "$THRESH" --json)
+if ! RES=$(python3 "$SK/scripts/lqe_calc.py" --state "$JOB/state.json" --errors "$JOB/errors.json" --threshold "$THRESH" --json); then
+  echo "CALC FAIL $1; not finalizing"; exit 5
+fi
 echo "  calc: $RES"
-SCORE=$(printf '%s' "$RES" | python3 -c "import json,sys;print(json.load(sys.stdin)['score'])")
-STATUS=$(printf '%s' "$RES" | python3 -c "import json,sys;print(json.load(sys.stdin)['status'])")
+if ! SCORE=$(printf '%s' "$RES" | python3 -c "import json,sys;print(json.load(sys.stdin)['score'])"); then
+  echo "CALC RESULT FAIL $1; not finalizing"; exit 5
+fi
+if ! STATUS=$(printf '%s' "$RES" | python3 -c "import json,sys;print(json.load(sys.stdin)['status'])"); then
+  echo "CALC RESULT FAIL $1; not finalizing"; exit 5
+fi
 # 6) 报告：PASS 或单轮→write；否则 apply-fixes 迭代
 if [ "$STATUS" = "PASS" ] || [ "$MODE" = "single" ]; then
-  python3 "$SK/scripts/lqe_io.py" write --state "$JOB/state.json" --errors "$JOB/errors.json" --score "$SCORE" --threshold "$THRESH"
+  if ! python3 "$SK/scripts/lqe_io.py" write --state "$JOB/state.json" --errors "$JOB/errors.json" --score "$SCORE" --threshold "$THRESH"; then
+    echo "WRITE FAIL $1; not finalizing"; exit 6
+  fi
 else
-  python3 "$SK/scripts/lqe_io.py" apply-fixes --state "$JOB/state.json" --errors "$JOB/errors.json" --score "$SCORE" --threshold "$THRESH"
+  if ! python3 "$SK/scripts/lqe_io.py" apply-fixes --state "$JOB/state.json" --errors "$JOB/errors.json" --score "$SCORE" --threshold "$THRESH"; then
+    echo "APPLY-FIXES FAIL $1; not finalizing"; exit 6
+  fi
 fi
 # 7) 导出建议译文（--errors 可补充单轮任务中程序生成的建议译文）
-python3 "$SK/scripts/lqe_io.py" export --state "$JOB/state.json" --errors "$JOB/errors.json"
+if ! python3 "$SK/scripts/lqe_io.py" export --state "$JOB/state.json" --errors "$JOB/errors.json"; then
+  echo "EXPORT FAIL $1; not finalizing"; exit 7
+fi
 touch "$JOB/.finalized"
 echo "FINALIZED $1 SCORE=$SCORE STATUS=$STATUS MODE=$MODE"
 ls -1 "$JOB"/*.xlsx 2>/dev/null | sed "s|$HOME|~|"
