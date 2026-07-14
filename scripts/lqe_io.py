@@ -683,8 +683,8 @@ def _publish_sdlxliff_job(
                 suffix=".tmp",
                 delete=False,
             ) as handle:
-                handle.write(payload)
                 staged[key] = Path(handle.name)
+                handle.write(payload)
         for destination, source in sorted(
             assets.items(), key=lambda item: str(item[0])
         ):

@@ -1674,6 +1674,48 @@ class SDLXLIFFIntegrationTests(unittest.TestCase):
         self.assertTrue(self.job.exists())
         self.assertEqual(list(self.job.iterdir()), [])
 
+    def test_staging_write_interruption_removes_temporary_file(self):
+        state_path = self.job / "state.json"
+        original_named_temporary_file = lqe_io.tempfile.NamedTemporaryFile
+
+        def interrupting_named_temporary_file(*args, **kwargs):
+            context = original_named_temporary_file(*args, **kwargs)
+
+            class InterruptingContext:
+                def __enter__(self):
+                    handle = context.__enter__()
+
+                    class Handle:
+                        name = handle.name
+
+                        @staticmethod
+                        def write(_payload):
+                            raise KeyboardInterrupt("simulated staging interruption")
+
+                    return Handle()
+
+                def __exit__(self, *exc_info):
+                    return context.__exit__(*exc_info)
+
+            return InterruptingContext()
+
+        with mock.patch.object(
+            lqe_io.tempfile,
+            "NamedTemporaryFile",
+            interrupting_named_temporary_file,
+        ):
+            with self.assertRaises(KeyboardInterrupt):
+                lqe_io._publish_sdlxliff_job(
+                    state_path,
+                    manifest={"kind": "manifest"},
+                    tm_candidates={"candidate_ids": []},
+                    scope={"mode": "standard"},
+                    state={"input_format": "sdlxliff"},
+                )
+
+        self.assertTrue(self.job.exists())
+        self.assertEqual(list(self.job.iterdir()), [])
+
     def test_publish_race_preserves_competing_json_and_rolls_back_owned_files(self):
         state_path = self.job / "state.json"
         staged_asset = self.root / "staged-race" / "sg.txt"
