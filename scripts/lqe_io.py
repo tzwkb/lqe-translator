@@ -33,6 +33,7 @@ from lqe_engine import (
     load_scorecard_profile, normalize_category_for_profile, scorecard_category_order,
     scorecard_category_parent, scorecard_category_weight,
     language_tags_match, normalize_language_tag,
+    resolve_language_assets,
     validate_scope_entries,
 )
 from lqe_corrections import (
@@ -333,18 +334,24 @@ def _prepare_read_assets(
     segments: list[dict],
     source_lang: str,
     target_lang: str,
+    *,
+    asset_dir: Path | None = None,
+    publish_dir: Path | None = None,
 ) -> dict:
-    job_dir = Path(args.out).parent
-    job_dir.mkdir(parents=True, exist_ok=True)
+    output_dir = Path(args.out).parent
+    write_dir = Path(asset_dir) if asset_dir is not None else output_dir
+    final_dir = Path(publish_dir) if publish_dir is not None else write_dir
+    write_dir.mkdir(parents=True, exist_ok=True)
 
     sg_path = ""
     if args.style_guide:
         sg_text = _load_style_guide(args.style_guide)
         if sg_text:
-            sg_file = job_dir / "sg.txt"
-            sg_file.write_text(sg_text, encoding="utf-8")
-            sg_path = str(sg_file)
-            print(f"[lqe_io] style_guide: {len(sg_text)} chars → {sg_file}")
+            staged_file = write_dir / "sg.txt"
+            published_file = final_dir / "sg.txt"
+            staged_file.write_text(sg_text, encoding="utf-8")
+            sg_path = str(published_file)
+            print(f"[lqe_io] style_guide: {len(sg_text)} chars → {published_file}")
 
     terms_path = ""
     if args.terminology:
@@ -370,22 +377,22 @@ def _prepare_read_assets(
                     f"(protected_term_statuses: {sorted(protected_statuses)})"
                 )
             if terms:
-                terms_file = job_dir / "terms.json"
-                terms_file.write_text(
+                staged_file = write_dir / "terms.json"
+                published_file = final_dir / "terms.json"
+                staged_file.write_text(
                     json.dumps(terms, ensure_ascii=False, indent=2), encoding="utf-8"
                 )
-                terms_path = str(terms_file)
-                print(f"[lqe_io] terminology: {len(terms)} entries → {terms_file}")
+                terms_path = str(published_file)
+                print(
+                    f"[lqe_io] terminology: {len(terms)} entries → {published_file}"
+                )
 
-    asset_lang = (
+    requested_asset_lang = (
         _target_lang({"target_lang": getattr(args, "target_lang", None)})
         or _target_lang(prof if prof else {})
         or str(target_lang or "").lower()
     )
-    lang_cfg = _load_lang(asset_lang)
-    if not lang_cfg and "-" in asset_lang:
-        asset_lang = asset_lang.split("-", 1)[0]
-        lang_cfg = _load_lang(asset_lang)
+    asset_lang, lang_cfg = resolve_language_assets(requested_asset_lang)
     if lang_cfg:
         print(
             f"[lqe_io] target language attributes: "
@@ -396,20 +403,24 @@ def _prepare_read_assets(
     if asset_lang:
         notes_path = _LANG_DIR / asset_lang / "eval_notes.md"
         if notes_path.exists():
-            destination = job_dir / "lang_notes.md"
-            destination.write_text(notes_path.read_text(encoding="utf-8"), encoding="utf-8")
-            lang_notes_path = str(destination)
-            print(f"[lqe_io] language eval notes → {destination}")
+            staged_file = write_dir / "lang_notes.md"
+            published_file = final_dir / "lang_notes.md"
+            staged_file.write_text(
+                notes_path.read_text(encoding="utf-8"), encoding="utf-8"
+            )
+            lang_notes_path = str(published_file)
+            print(f"[lqe_io] language eval notes → {published_file}")
 
     background_path = ""
     if prof and (prof.get("background") or "").strip():
-        destination = job_dir / "background.md"
-        destination.write_text(
+        staged_file = write_dir / "background.md"
+        published_file = final_dir / "background.md"
+        staged_file.write_text(
             "# 项目背景\n\n" + prof["background"].strip() + "\n",
             encoding="utf-8",
         )
-        background_path = str(destination)
-        print(f"[lqe_io] project background → {destination}")
+        background_path = str(published_file)
+        print(f"[lqe_io] project background → {published_file}")
 
     basis = (
         getattr(args, "wordcount_basis", None)
@@ -460,12 +471,14 @@ def _prepare_read_assets(
                 + confirmed.read_text(encoding="utf-8")
             )
         if parts:
-            combined = job_dir / "confirmed_rules.md"
-            combined.write_text("\n\n".join(parts), encoding="utf-8")
-            confirmed_rules_path = str(combined)
+            staged_file = write_dir / "confirmed_rules.md"
+            published_file = final_dir / "confirmed_rules.md"
+            staged_file.write_text("\n\n".join(parts), encoding="utf-8")
+            confirmed_rules_path = str(published_file)
             print(
                 f"[lqe_io] confirmed rules: "
-                f"{'共通+' if common_confirmed.exists() else ''}语言专有 → {combined}"
+                f"{'共通+' if common_confirmed.exists() else ''}语言专有 → "
+                f"{published_file}"
             )
 
     return {
@@ -558,6 +571,7 @@ def _publish_sdlxliff_job(
     tm_candidates: dict,
     scope: dict,
     state: dict,
+    staged_assets: dict[Path, Path] | None = None,
 ) -> None:
     job_dir = state_path.parent
     reserved_names = {
@@ -575,7 +589,29 @@ def _publish_sdlxliff_job(
         "scope": job_dir / "scope.json",
         "state": state_path,
     }
-    existing = [path for path in paths.values() if path.exists()]
+    assets = {
+        Path(destination): Path(staged)
+        for destination, staged in (staged_assets or {}).items()
+    }
+    destinations = [*paths.values(), *assets]
+    canonical_destinations: dict[str, Path] = {}
+    for destination in destinations:
+        canonical = str(destination.resolve()).casefold()
+        previous = canonical_destinations.get(canonical)
+        if previous is not None:
+            raise ValueError(
+                "SDLXLIFF job artifacts resolve to the same path: "
+                f"{previous}, {destination}"
+            )
+        canonical_destinations[canonical] = destination
+
+    missing_staged = [path for path in assets.values() if not path.is_file()]
+    if missing_staged:
+        raise FileNotFoundError(
+            "staged SDLXLIFF job asset is missing: "
+            + ", ".join(str(path) for path in missing_staged)
+        )
+    existing = [path for path in destinations if path.exists()]
     if existing:
         raise FileExistsError(
             "SDLXLIFF job artifact already exists; use a new job directory: "
@@ -606,14 +642,15 @@ def _publish_sdlxliff_job(
             ) as handle:
                 handle.write(payload)
                 staged[key] = Path(handle.name)
+        for destination, source in sorted(
+            assets.items(), key=lambda item: str(item[0])
+        ):
+            source.replace(destination)
         for key in ("manifest", "candidates", "scope"):
             staged[key].replace(paths[key])
         staged["state"].replace(paths["state"])
     except BaseException:
-        if paths["state"].exists():
-            paths["state"].unlink()
-        for key in ("manifest", "candidates", "scope"):
-            path = paths[key]
+        for path in reversed(destinations):
             if path.exists():
                 path.unlink()
         raise
@@ -664,48 +701,61 @@ def _read_sdlxliff_job(args, prof: dict | None, check_scope: dict) -> None:
         segment["context_note"] = metadata.get("comment") or None
         segment["iter"] = 0
 
-    common = _prepare_read_assets(
-        args,
-        prof,
-        check_scope,
-        result.segments,
-        source_lang,
-        target_lang,
-    )
-    manifest_path = job_dir / "source_manifest.json"
-    candidates_path = job_dir / "tm_candidates.json"
-    candidates = {
-        "candidate_ids": list(result.tm_candidates.get("candidate_ids", [])),
-        "segments": [
-            {
-                "id": item["segment_id"],
-                "evidence": item.get("evidence", {}),
-                "source_ref": item.get("source_ref", {}),
-            }
-            for item in result.tm_candidates.get("segments", [])
-        ],
-    }
-    state = {
-        "input_format": "sdlxliff",
-        "input_path": str(Path(args.input).resolve()),
-        "input_paths": result.input_paths,
-        "source_manifest_path": str(manifest_path),
-        "tm_candidates_path": str(candidates_path),
-        "source_col": "原文",
-        "target_col": "译文",
-        "headers": result.headers,
-        "rows_raw": result.rows_raw,
-        "text_type_markers": [],
-        **common,
-        "segments": result.segments,
-    }
-    _publish_sdlxliff_job(
-        state_path,
-        manifest=result.manifest,
-        tm_candidates=candidates,
-        scope=check_scope,
-        state=state,
-    )
+    job_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(
+        dir=job_dir, prefix=".read-assets."
+    ) as asset_staging_dir:
+        staging_dir = Path(asset_staging_dir)
+        common = _prepare_read_assets(
+            args,
+            prof,
+            check_scope,
+            result.segments,
+            source_lang,
+            target_lang,
+            asset_dir=staging_dir,
+            publish_dir=job_dir,
+        )
+        manifest_path = job_dir / "source_manifest.json"
+        candidates_path = job_dir / "tm_candidates.json"
+        candidates = {
+            "candidate_ids": list(result.tm_candidates.get("candidate_ids", [])),
+            "segments": [
+                {
+                    "id": item["segment_id"],
+                    "evidence": item.get("evidence", {}),
+                    "source_ref": item.get("source_ref", {}),
+                }
+                for item in result.tm_candidates.get("segments", [])
+            ],
+        }
+        state = {
+            "input_format": "sdlxliff",
+            "input_path": str(Path(args.input).resolve()),
+            "input_paths": result.input_paths,
+            "source_manifest_path": str(manifest_path),
+            "tm_candidates_path": str(candidates_path),
+            "source_col": "原文",
+            "target_col": "译文",
+            "headers": result.headers,
+            "rows_raw": result.rows_raw,
+            "text_type_markers": [],
+            **common,
+            "segments": result.segments,
+        }
+        staged_assets = {
+            job_dir / path.name: path
+            for path in staging_dir.iterdir()
+            if path.is_file()
+        }
+        _publish_sdlxliff_job(
+            state_path,
+            manifest=result.manifest,
+            tm_candidates=candidates,
+            scope=check_scope,
+            state=state,
+            staged_assets=staged_assets,
+        )
     print(
         f"[lqe_io] {len(result.segments)} segments → {args.out}  "
         f"wordcount={state['wordcount']}"

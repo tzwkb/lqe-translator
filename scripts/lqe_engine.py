@@ -384,16 +384,20 @@ def _target_lang(state_or_pair) -> str:
     return _split_language_pair(state_or_pair or "")[1]
 
 
-def _load_lang(lang: str) -> dict:
+def resolve_language_assets(lang: str) -> tuple[str, dict]:
     if not lang:
-        return {}
+        return "", {}
     code = normalize_language_tag(lang).lower()
     code = _LANG_ALIASES.get(code, code)
     for candidate in dict.fromkeys((code, code.split("-", 1)[0])):
         path = _LANG_DIR / candidate / "attributes.json"
         if path.exists():
-            return read_json(path)
-    return {}
+            return candidate, read_json(path)
+    return "", {}
+
+
+def _load_lang(lang: str) -> dict:
+    return resolve_language_assets(lang)[1]
 
 
 def _lang_toggle_defaults(attrs: dict) -> dict:

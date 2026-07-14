@@ -1339,6 +1339,31 @@ class SDLXLIFFIntegrationTests(unittest.TestCase):
             lqe_engine._load_lang("th"),
         )
 
+    def test_regional_target_uses_base_language_attributes_and_notes(self):
+        state_path = self.job / "state.json"
+
+        result = self.run_io(
+            "read",
+            "--input",
+            self.fixture_dir,
+            "--target-lang",
+            "en-US",
+            "--out",
+            state_path,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state = read_json(state_path)
+        notes_path = self.job / "lang_notes.md"
+        self.assertEqual(state["lang_notes_path"], str(notes_path))
+        self.assertEqual(
+            notes_path.read_text(encoding="utf-8"),
+            (ROOT / "target_languages" / "en" / "eval_notes.md").read_text(
+                encoding="utf-8"
+            ),
+        )
+        self.assertIn("target_languages/en/attributes.json", result.stdout)
+
     def test_cli_reads_directory_without_source_target_columns(self):
         state_path = self.job / "state.json"
         result = self.run_io(
@@ -1544,6 +1569,37 @@ class SDLXLIFFIntegrationTests(unittest.TestCase):
                     {path.name for path in job.iterdir()}, {artifact_name}
                 )
 
+    def test_existing_generated_asset_is_not_overwritten(self):
+        style_guide = self.root / "style.md"
+        style_guide.write_text("# Style\n", encoding="utf-8")
+        terminology = self.root / "source-terms.json"
+        write_json(terminology, [{"source": "甲", "target": "Alpha"}])
+        cases = (
+            ("sg.txt", ("--style-guide", style_guide)),
+            ("terms.json", ("--terminology", terminology)),
+        )
+
+        for asset_name, extra_args in cases:
+            with self.subTest(asset=asset_name):
+                job = self.root / f"existing-{asset_name}"
+                job.mkdir()
+                asset = job / asset_name
+                asset.write_text("sentinel", encoding="utf-8")
+
+                result = self.run_io(
+                    "read",
+                    "--input",
+                    self.fixture_dir,
+                    *extra_args,
+                    "--out",
+                    job / "state.json",
+                )
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("already exists", result.stderr)
+                self.assertEqual(asset.read_text(encoding="utf-8"), "sentinel")
+                self.assertEqual({path.name for path in job.iterdir()}, {asset_name})
+
     def test_sdl_state_path_cannot_alias_a_helper_artifact(self):
         state_path = self.job / "source_manifest.json"
 
@@ -1568,6 +1624,9 @@ class SDLXLIFFIntegrationTests(unittest.TestCase):
 
     def test_publish_interruption_removes_state_helpers_and_staging_files(self):
         state_path = self.job / "state.json"
+        staged_asset = self.root / "staged" / "sg.txt"
+        staged_asset.parent.mkdir()
+        staged_asset.write_text("# Style\n", encoding="utf-8")
         original_replace = Path.replace
 
         def interrupt_after_replace(path, target):
@@ -1584,6 +1643,7 @@ class SDLXLIFFIntegrationTests(unittest.TestCase):
                     tm_candidates={"candidate_ids": []},
                     scope={"mode": "standard"},
                     state={"input_format": "sdlxliff"},
+                    staged_assets={self.job / "sg.txt": staged_asset},
                 )
 
         self.assertTrue(self.job.exists())
