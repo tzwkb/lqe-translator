@@ -247,6 +247,18 @@ class CorrectionBuilderTests(unittest.TestCase):
                         [{"id": 1, "issues": [malformed]}], label="T"
                     )
 
+    def test_normalize_rejects_blank_comment(self):
+        pending = {
+            "category": "Grammar",
+            "severity": "Minor",
+            "comment": "  \n",
+            "needs_confirmation": True,
+            "edit": None,
+        }
+
+        with self.assertRaisesRegex(CheckFormatError, "comment.*non-empty"):
+            normalize_check_entries([{"id": 1, "issues": [pending]}], label="T")
+
     def test_normalize_accepts_null_edit(self):
         pending = {
             "category": "Terminology",

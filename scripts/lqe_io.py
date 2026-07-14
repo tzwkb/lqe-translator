@@ -44,7 +44,10 @@ from lqe_corrections import (
     verify_results,
 )
 from lqe_inputs import SDLXLIFFImportError, detect_input_format, read_sdlxliff
-from lqe_inputs.sdlxliff import validate_options as validate_sdlxliff_options
+from lqe_inputs.sdlxliff import (
+    is_exact_tm,
+    validate_options as validate_sdlxliff_options,
+)
 
 
 def _write_json_atomic(path: Path, value: object) -> None:
@@ -1054,6 +1057,74 @@ def _protected_ids(args, *, allow_candidates: bool = False) -> set[int]:
     return ids
 
 
+def _paths_alias(first: Path, second: Path) -> bool:
+    first = Path(first)
+    second = Path(second)
+    if first.resolve() == second.resolve():
+        return True
+    return (
+        first.parent.resolve() == second.parent.resolve()
+        and first.name.casefold() == second.name.casefold()
+    )
+
+
+def _validated_tm_candidate_ids(
+    state: dict, candidate_path: Path, payload: object
+) -> set[int]:
+    expected_path = state.get("tm_candidates_path")
+    if not isinstance(expected_path, str) or not expected_path:
+        raise ValueError("state has no tm_candidates_path")
+    if not _paths_alias(candidate_path, Path(expected_path)):
+        raise ValueError(
+            "candidate file does not match state tm_candidates_path: "
+            f"{candidate_path} != {expected_path}"
+        )
+    if not isinstance(payload, dict):
+        raise ValueError("TM candidate payload must be an object")
+    candidate_ids = payload.get("candidate_ids")
+    candidates = payload.get("segments")
+    if not isinstance(candidate_ids, list) or not all(
+        type(segment_id) is int for segment_id in candidate_ids
+    ):
+        raise ValueError("TM candidate_ids must be an integer array")
+    if len(candidate_ids) != len(set(candidate_ids)):
+        raise ValueError("TM candidate_ids contains duplicates")
+    if not isinstance(candidates, list):
+        raise ValueError("TM candidate segments must be an array")
+
+    candidate_by_id = {}
+    for index, candidate in enumerate(candidates):
+        if not isinstance(candidate, dict) or type(candidate.get("id")) is not int:
+            raise ValueError(f"TM candidate segments[{index}] has an invalid id")
+        segment_id = candidate["id"]
+        if segment_id in candidate_by_id:
+            raise ValueError(f"TM candidate segments contains duplicate id {segment_id}")
+        candidate_by_id[segment_id] = candidate
+    if set(candidate_ids) != set(candidate_by_id):
+        raise ValueError(
+            "TM candidate_ids must exactly match candidate segment evidence"
+        )
+
+    state_by_id = {segment.get("id"): segment for segment in state.get("segments", [])}
+    for segment_id in candidate_ids:
+        candidate = candidate_by_id[segment_id]
+        state_segment = state_by_id.get(segment_id)
+        if state_segment is None:
+            raise ValueError(f"TM candidate id {segment_id} is not in state")
+        if candidate.get("source_ref") != state_segment.get("source_ref"):
+            raise ValueError(f"TM candidate id {segment_id} source_ref mismatch")
+        evidence = candidate.get("evidence")
+        metadata = (state_segment.get("metadata") or {}).get("sdlxliff") or {}
+        if not is_exact_tm(evidence) or not is_exact_tm(metadata):
+            raise ValueError(f"TM candidate id {segment_id} lacks exact-match evidence")
+        for key in ("origin", "match_percent", "text_match"):
+            if evidence.get(key) != metadata.get(key):
+                raise ValueError(
+                    f"TM candidate id {segment_id} evidence mismatch for {key}"
+                )
+    return set(candidate_ids)
+
+
 def _state_protected_ids(state) -> set[int]:
     return {s["id"] for s in state.get("segments", []) if s.get("protected")}
 
@@ -1072,10 +1143,32 @@ def _scrub_protected_entries(errors_data: list, protected_ids: set[int]) -> int:
 def cmd_protect_segments(args):
     state_path = Path(args.state)
     state = read_json(state_path)
-    ids = _protected_ids(args, allow_candidates=True)
+    protected_file = getattr(args, "protected_file", None)
+    protected_payload = read_json(protected_file) if protected_file else None
+    try:
+        if isinstance(protected_payload, dict) and "candidate_ids" in protected_payload:
+            ids = _validated_tm_candidate_ids(
+                state, Path(protected_file), protected_payload
+            )
+            if getattr(args, "protected_ids", None):
+                ids.update(
+                    int(value.strip())
+                    for value in args.protected_ids.split(",")
+                    if value.strip()
+                )
+        else:
+            ids = _protected_ids(args, allow_candidates=False)
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"[protect-segments] {exc}") from exc
     if not ids:
         print("[protect-segments] no ids supplied; state unchanged.")
         return
+
+    out_path = Path(args.out) if args.out else state_path.parent / "tm_protected.json"
+    if _paths_alias(out_path, state_path):
+        raise SystemExit(
+            f"[protect-segments] output path conflicts with state: {out_path}"
+        )
 
     seg_by_id = {s["id"]: s for s in state.get("segments", [])}
     valid = sorted(sid for sid in ids if sid in seg_by_id)
@@ -1089,7 +1182,6 @@ def cmd_protect_segments(args):
 
     state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    out_path = Path(args.out) if args.out else state_path.parent / "tm_protected.json"
     payload = {
         "protected_ids": valid,
         "reason": args.reason,

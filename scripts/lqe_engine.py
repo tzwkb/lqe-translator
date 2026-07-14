@@ -213,13 +213,26 @@ def scope_issue_problem(state: dict, issue: dict) -> str | None:
         return None
     if not isinstance(issue, dict):
         return "issue must be an object"
-    if issue.get("category") == "Terminology":
+    category = issue.get("category")
+    category_key = str(category or "").strip().casefold()
+    if category_key == "terminology":
         return "Terminology issue is disabled by check scope"
-    if str(issue.get("comment") or "").lstrip().startswith("TERM REVIEW:"):
+    if category is not None and category not in VALID_CATEGORIES:
+        return f"unsupported category {category!r}"
+    severity = issue.get("severity")
+    if severity is not None and severity not in VALID_SEVERITIES:
+        return f"unsupported severity {severity!r}"
+    if str(issue.get("comment") or "").lstrip().casefold().startswith(
+        "term review:"
+    ):
         return "TERM REVIEW evidence is disabled by check scope"
     edit = issue.get("edit")
     evidence = edit.get("evidence") if isinstance(edit, dict) else None
-    if isinstance(evidence, dict) and evidence.get("type") == "confirmed_term":
+    evidence_type = evidence.get("type") if isinstance(evidence, dict) else None
+    if (
+        isinstance(evidence_type, str)
+        and evidence_type.strip().casefold() == "confirmed_term"
+    ):
         return "confirmed_term edit evidence is disabled by check scope"
     return None
 

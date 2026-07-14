@@ -2222,6 +2222,69 @@ class CorrectedOwnershipProjectTests(unittest.TestCase):
     def tearDown(self):
         self.tempdir.cleanup()
 
+    def run_io(self, *args):
+        return subprocess.run(
+            [sys.executable, str(IO_SCRIPT), *map(str, args)],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+
+    def make_candidate_protection_job(self):
+        job = self.root / "candidate-job"
+        state_path = job / "state.json"
+        candidate_path = job / "tm_candidates.json"
+        source_ref = {
+            "relative_path": "source.sdlxliff",
+            "file_index": 0,
+            "tu_id": "tu-1",
+            "tu_index": 0,
+            "sdl_segment_id": "1",
+            "segment_index": 0,
+        }
+        write_json(
+            state_path,
+            {
+                "input_format": "sdlxliff",
+                "tm_candidates_path": str(candidate_path),
+                "segments": [
+                    {
+                        "id": 0,
+                        "source": "甲",
+                        "target": "Alpha",
+                        "corrected": None,
+                        "source_ref": source_ref,
+                        "metadata": {
+                            "sdlxliff": {
+                                "origin": "tm",
+                                "match_percent": "100",
+                                "text_match": "SourceAndTarget",
+                            }
+                        },
+                    }
+                ],
+            },
+        )
+        payload = {
+            "candidate_ids": [0],
+            "segments": [
+                {
+                    "id": 0,
+                    "source_ref": source_ref,
+                    "evidence": {
+                        "origin": "tm",
+                        "match_percent": "100",
+                        "text_match": "SourceAndTarget",
+                        "origin_is_tm": True,
+                        "percent_is_100": True,
+                        "text_match_is_source_and_target": True,
+                    },
+                }
+            ],
+        }
+        write_json(candidate_path, payload)
+        return job, state_path, candidate_path, payload
+
     def test_clean_terms_preserves_explicit_flags_and_defaults_missing_false(self):
         terms = lqe_io._clean_terms(
             [
@@ -2509,6 +2572,80 @@ class CorrectedOwnershipProjectTests(unittest.TestCase):
         payload = read_json(state_path.parent / "tm_protected.json")
         self.assertEqual(payload["protected_ids"], [0])
         self.assertNotIn("locked_ids", payload)
+
+    def test_protect_segments_rejects_candidate_file_from_another_job(self):
+        job, state_path, _, payload = self.make_candidate_protection_job()
+        foreign_candidates = self.root / "other-job" / "tm_candidates.json"
+        write_json(foreign_candidates, payload)
+        original_state = state_path.read_bytes()
+
+        result = self.run_io(
+            "protect-segments",
+            "--state",
+            state_path,
+            "--protected-file",
+            foreign_candidates,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("tm_candidates_path", result.stderr)
+        self.assertEqual(state_path.read_bytes(), original_state)
+        self.assertFalse((job / "tm_protected.json").exists())
+
+    def test_protect_segments_rejects_tampered_candidate_ownership(self):
+        job, state_path, candidate_path, payload = self.make_candidate_protection_job()
+        original_state = state_path.read_bytes()
+        cases = {
+            "missing-evidence": {
+                **payload,
+                "segments": [{**payload["segments"][0], "evidence": {}}],
+            },
+            "wrong-source-ref": {
+                **payload,
+                "segments": [
+                    {
+                        **payload["segments"][0],
+                        "source_ref": {
+                            **payload["segments"][0]["source_ref"],
+                            "tu_id": "other-tu",
+                        },
+                    }
+                ],
+            },
+        }
+        for name, candidate_payload in cases.items():
+            with self.subTest(name=name):
+                write_json(candidate_path, candidate_payload)
+                result = self.run_io(
+                    "protect-segments",
+                    "--state",
+                    state_path,
+                    "--protected-file",
+                    candidate_path,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("candidate", result.stderr.lower())
+                self.assertEqual(state_path.read_bytes(), original_state)
+                self.assertFalse((job / "tm_protected.json").exists())
+
+    def test_protect_segments_rejects_output_aliasing_state(self):
+        job, state_path, _, _ = self.make_candidate_protection_job()
+        original_state = state_path.read_bytes()
+
+        result = self.run_io(
+            "protect-segments",
+            "--state",
+            state_path,
+            "--protected-ids",
+            "0",
+            "--out",
+            state_path,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("conflicts with state", result.stderr)
+        self.assertEqual(state_path.read_bytes(), original_state)
+        self.assertFalse((job / "tm_protected.json").exists())
 
     def test_protected_segment_is_not_scored(self):
         state_path = self.root / "state.json"

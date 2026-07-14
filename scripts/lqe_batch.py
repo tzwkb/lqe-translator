@@ -74,6 +74,15 @@ def cmd_plan(args):
             )
         except (json.JSONDecodeError, CheckFormatError) as exc:
             raise SystemExit(f"[plan] invalid pre-check results: {exc}") from exc
+        try:
+            validate_scope_entries(
+                state,
+                pre_entries,
+                issues_key="issues",
+                label=pc.name,
+            )
+        except ValueError as exc:
+            raise SystemExit(f"[plan] {exc}") from exc
         pre = {
             entry["id"]: _with_precheck_refs(entry["id"], entry["issues"])
             for entry in pre_entries

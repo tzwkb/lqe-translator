@@ -272,8 +272,13 @@ class NoTerminologyScopeTests(unittest.TestCase):
         cases = (
             (None, "issue must be an object"),
             ({"category": "Terminology"}, "Terminology issue is disabled"),
+            ({"category": " terminology "}, "Terminology issue is disabled"),
             (
                 {"category": "Other", "comment": "  TERM REVIEW: verify"},
+                "TERM REVIEW evidence is disabled",
+            ),
+            (
+                {"category": "Other", "comment": "  term review: verify"},
                 "TERM REVIEW evidence is disabled",
             ),
             (
@@ -282,6 +287,18 @@ class NoTerminologyScopeTests(unittest.TestCase):
                     "edit": {"evidence": {"type": "confirmed_term"}},
                 },
                 "confirmed_term edit evidence is disabled",
+            ),
+            (
+                {
+                    "category": "Other",
+                    "edit": {"evidence": {"type": "Confirmed_Term"}},
+                },
+                "confirmed_term edit evidence is disabled",
+            ),
+            ({"category": "Unknown"}, "unsupported category"),
+            (
+                {"category": "Grammar", "severity": "Severe"},
+                "unsupported severity",
             ),
         )
         for issue, message in cases:
@@ -412,6 +429,7 @@ class NoTerminologyPrecheckTests(unittest.TestCase):
         self,
         *,
         category="Grammar",
+        severity=None,
         comment="check",
         edit=None,
         precheck_ref=None,
@@ -420,7 +438,9 @@ class NoTerminologyPrecheckTests(unittest.TestCase):
         rows = [{"id": segment["id"], "issues": []} for segment in segments]
         issue = {
             "category": category,
-            "severity": "Major" if category == "Terminology" else "Minor",
+            "severity": severity or (
+                "Major" if category == "Terminology" else "Minor"
+            ),
             "comment": comment,
             "needs_confirmation": edit is None,
             "edit": edit,
@@ -599,6 +619,119 @@ class NoTerminologyPrecheckTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("scope conflict", result.stderr)
                 self.assertFalse((self.job / "errors.json").exists())
+
+    def test_batch_merge_rejects_case_variants_and_unknown_schema_values(self):
+        cases = (
+            {"category": " terminology ", "comment": "forbidden"},
+            {"category": "Grammar", "comment": " term review: forbidden"},
+            {
+                "category": "Grammar",
+                "comment": "forbidden evidence",
+                "edit": {
+                    "from": "Health",
+                    "to": "HP",
+                    "start": 0,
+                    "end": 6,
+                    "evidence": {
+                        "type": "Confirmed_Term",
+                        "source": "生命值",
+                        "target": "HP",
+                    },
+                },
+            },
+            {"category": "Unknown", "comment": "unknown category"},
+            {
+                "category": "Grammar",
+                "severity": "Severe",
+                "comment": "unknown severity",
+            },
+            {
+                "category": "Grammar",
+                "severity": "major",
+                "comment": "non-canonical severity",
+            },
+        )
+        for case in cases:
+            with self.subTest(case=case):
+                self.write_batch_eval(**case)
+                result = self.run_batch("merge", "--job", self.job)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("scope conflict", result.stderr)
+                self.assertFalse((self.job / "errors.json").exists())
+
+    def test_split_does_not_deduplicate_different_per_id_prechecks(self):
+        issue = {
+            "category": "Length",
+            "severity": "Major",
+            "comment": "row-specific max length",
+            "needs_confirmation": True,
+            "edit": None,
+        }
+        for issue_id in (0, 1):
+            with self.subTest(issue_id=issue_id):
+                self.job = self.root / f"dedup-{issue_id}"
+                self.state = self.job / "state.json"
+                self.terms = self.job / "terms.json"
+                self.read_no_term_job([("重复", "Same"), ("重复", "Same")])
+                write_json(
+                    self.job / "errors_precheck.json",
+                    [
+                        {
+                            "id": segment_id,
+                            "issues": [issue] if segment_id == issue_id else [],
+                        }
+                        for segment_id in (0, 1)
+                    ],
+                )
+
+                result = self.run_chunk(
+                    "split",
+                    "--state",
+                    self.state,
+                    "--errors",
+                    self.job / "errors_precheck.json",
+                    "--outdir",
+                    self.job / "chunks",
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                chunk = read_json(self.job / "chunks" / "chunk_00.json")
+                self.assertEqual(
+                    [segment["id"] for segment in chunk["segments"]], [0, 1]
+                )
+
+                reviewed = next(
+                    segment["precheck"][0]
+                    for segment in chunk["segments"]
+                    if segment["id"] == issue_id
+                )
+                for module in NO_TERMINOLOGY_REQUIRED_MODULES:
+                    rows = [{"id": segment_id, "issues": []} for segment_id in (0, 1)]
+                    if module == "precheck_review":
+                        rows[issue_id]["issues"] = [reviewed]
+                    write_json(
+                        self.job / "chunks" / f"chunk_00.{module}.json", rows
+                    )
+
+                result = self.run_chunk("merge-checks", "--job", self.job)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                result = self.run_chunk(
+                    "merge",
+                    "--state",
+                    self.state,
+                    "--errors",
+                    self.job / "errors_precheck.json",
+                    "--outdir",
+                    self.job / "chunks",
+                    "--out",
+                    self.job / "errors.json",
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                errors = {
+                    entry["id"]: [item["category"] for item in entry["errors"]]
+                    for entry in read_json(self.job / "errors.json")
+                }
+                self.assertEqual(errors[issue_id], ["Length"])
+                self.assertEqual(errors[1 - issue_id], [])
 
     def test_batch_merge_rejects_unreferenced_precheck_issue(self):
         self.write_batch_eval(category="Markup", comment="invented")
@@ -993,6 +1126,34 @@ class NoTerminologyModuleTests(unittest.TestCase):
 
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(f"{module} cannot own", result.stderr)
+
+    def test_validate_rejects_unknown_severity(self):
+        self.make_no_term_chunk_job()
+        self.write_modules(
+            ("precheck_review", "accuracy", "grammar", "naturalness")
+        )
+        write_json(
+            self.chunks / "chunk_00.grammar.json",
+            [
+                {
+                    "id": 0,
+                    "issues": [
+                        {
+                            "category": "Grammar",
+                            "severity": "Severe",
+                            "comment": "unknown severity",
+                            "needs_confirmation": True,
+                            "edit": None,
+                        }
+                    ],
+                }
+            ],
+        )
+
+        result = self.run_chunk("validate-checks", "--job", self.job)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unsupported severity", result.stderr)
 
     def test_legacy_state_still_requires_standard_four_modules(self):
         self.make_legacy_chunk_job()

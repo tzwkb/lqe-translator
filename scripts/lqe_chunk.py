@@ -123,7 +123,10 @@ def _with_precheck_refs(segment_id: int, issues: list[dict]) -> list[dict]:
 
 def cmd_split(a):
     state = load(a.state)
-    pre = load(a.errors)
+    pre = normalize_check_entries(load(a.errors), label=Path(a.errors).name)
+    validate_scope_entries(
+        state, pre, issues_key="issues", label=Path(a.errors).name
+    )
     if a.terms and not terminology_enabled(state):
         raise SystemExit("[split] scope conflict: --terms is disabled by check scope")
     term_state = state
@@ -134,7 +137,11 @@ def cmd_split(a):
         term_state = {**state, "terms_path": str(terms_path), "terminology": []}
     terms = load_terms(term_state)
     segs = state["segments"]
-    pre_by_id = {e["id"]: e.get("issues", []) for e in pre}
+    pre_by_id = {e["id"]: e["issues"] for e in pre}
+    precheck_by_id = {
+        segment_id: _with_precheck_refs(segment_id, issues)
+        for segment_id, issues in pre_by_id.items()
+    }
     grouped = _group_chunk_terms(terms)
     titems = [(src, senses) for src, senses in grouped.items() if len(src) >= 2]
     titems.sort(key=lambda x: -len(x[0]))
@@ -155,6 +162,12 @@ def cmd_split(a):
                 seg.get("content_type"),
                 seg.get("text_type_context"),
                 seg.get("context_note"),
+                json.dumps(
+                    precheck_by_id.get(seg["id"], []),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
             ),
             [],
         ).append(seg)
@@ -208,9 +221,7 @@ def cmd_split(a):
                 "protected": bool(seg.get("protected")),
                 "protected_reason": seg.get("protected_reason"),
                 "kind": _seg_kind(src_txt),
-                "precheck": _with_precheck_refs(
-                    seg["id"], pre_by_id.get(seg["id"], [])
-                ),
+                "precheck": precheck_by_id.get(seg["id"], []),
                 "term_hits": hits,
                 "term_near": near,
                 "protected_texts": seg.get("protected_texts", []),

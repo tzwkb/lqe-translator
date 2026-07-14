@@ -26,6 +26,8 @@ def _canonical_issue(value: object, *, label: str) -> dict:
     for field in ("category", "severity", "comment"):
         if field not in value or not isinstance(value[field], str):
             raise CheckFormatError(f"{label}: {field} must be a string")
+    if not value["comment"].strip():
+        raise CheckFormatError(f"{label}: comment must be non-empty")
     if "needs_confirmation" not in value:
         raise CheckFormatError(f"{label}: needs_confirmation is required")
     needs_confirmation = value["needs_confirmation"]
