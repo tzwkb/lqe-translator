@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2"
+       xmlns:sdl="http://sdl.com/FileTypes/SdlXliff/1.0">
+  <file original="b.xml" source-language="zh-CN" target-language="en-US">
+    <body>
+      <trans-unit id="shared-tu">
+        <source>乙</source>
+        <target>Beta</target>
+        <sdl:seg-defs><sdl:seg id="b-1"/></sdl:seg-defs>
+      </trans-unit>
+      <trans-unit id="empty-target">
+        <source>保留空译文</source>
+        <target/>
+        <sdl:seg-defs><sdl:seg id="b-2"/></sdl:seg-defs>
+      </trans-unit>
+      <trans-unit id="blank-both">
+        <source/>
+        <target/>
+        <sdl:seg-defs><sdl:seg id="b-3"/></sdl:seg-defs>
+      </trans-unit>
+      <trans-unit id="tm-negative-origin">
+        <source>反例一</source>
+        <target>Negative one</target>
+        <sdl:seg-defs><sdl:seg id="b-4" origin="machine" percent="100" text-match="SourceAndTarget"/></sdl:seg-defs>
+      </trans-unit>
+      <trans-unit id="tm-negative-percent">
+        <source>反例二</source>
+        <target>Negative two</target>
+        <sdl:seg-defs><sdl:seg id="b-5" origin="tm" percent="99" text-match="SourceAndTarget"/></sdl:seg-defs>
+      </trans-unit>
+      <trans-unit id="tm-negative-match">
+        <source>反例三</source>
+        <target>Negative three</target>
+        <sdl:seg-defs><sdl:seg id="b-6" origin="tm" percent="100" text-match="Fuzzy"/></sdl:seg-defs>
+      </trans-unit>
+    </body>
+  </file>
+</xliff>

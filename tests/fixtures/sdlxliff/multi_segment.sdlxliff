@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2"
+       xmlns:sdl="http://sdl.com/FileTypes/SdlXliff/1.0">
+  <file original="dialogs.xml" source-language="zh-CN" target-language="en-US">
+    <body>
+      <trans-unit id="tu-1">
+        <seg-source><mrk mtype="seg" mid="1"> 你<x id="x1"/>好 </mrk><mrk mtype="seg" mid="2">第二句</mrk></seg-source>
+        <target><mrk mtype="seg" mid="1"> Hello<x id="x1"/> </mrk><mrk mtype="seg" mid="2">Second</mrk></target>
+        <sdl:seg-defs>
+          <sdl:seg id="1" conf="Translated" origin="tm" percent="100" text-match="SourceAndTarget"/>
+          <sdl:seg id="2" conf="Draft" locked="true"/>
+        </sdl:seg-defs>
+      </trans-unit>
+    </body>
+  </file>
+  <file original="ui.xml" source-language="zh-CN" target-language="en-US">
+    <body>
+      <trans-unit id="tu-2">
+        <source>开始</source>
+        <target>Start</target>
+        <sdl:seg-defs><sdl:seg id="3"/></sdl:seg-defs>
+      </trans-unit>
+    </body>
+  </file>
+</xliff>

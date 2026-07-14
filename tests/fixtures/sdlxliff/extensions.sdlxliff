@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2"
+       xmlns:sdl="http://sdl.com/FileTypes/SdlXliff/1.0"
+       xmlns:v="urn:vendor:test">
+  <file original="extensions.xml" source-language="zh-CN" target-language="en-US">
+    <header>
+      <skl><internal-file form="base64">QUJDREVGR0g=</internal-file></skl>
+    </header>
+    <body>
+      <trans-unit id="ext-tu">
+        <source> 前<g id="g1">组<x id="x1"/>尾</g><bx id="bx1"/><ex id="ex1"/><ph id="ph1"/><bpt id="bpt1"/><ept id="ept1"/><it id="it1"/><sub>子</sub><mrk mid="inner1" mtype="protected">内<v:meta key="opaque"><v:item>值</v:item>尾</v:meta>末</mrk> 后 </source>
+        <target> Before<g id="g1">group<x id="x1"/>tail</g><bx id="bx1"/><ex id="ex1"/><ph id="ph1"/><bpt id="bpt1"/><ept id="ept1"/><it id="it1"/><sub>sub</sub><mrk mid="inner1" mtype="protected">inner<v:meta key="opaque"><v:item>value</v:item>tail</v:meta>end</mrk> after </target>
+        <v:record code="anonymous"><v:item>metadata</v:item>tail</v:record>
+        <sdl:seg-defs><sdl:seg id="ext-1" conf="Translated"/></sdl:seg-defs>
+      </trans-unit>
+    </body>
+  </file>
+</xliff>
