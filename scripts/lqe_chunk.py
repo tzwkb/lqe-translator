@@ -16,7 +16,7 @@ from pathlib import Path
 
 
 from lqe_corrections import build_segment_result, normalize_check_entries
-from lqe_engine import read_json as load
+from lqe_engine import load_terms, read_json as load, terminology_enabled
 from term_suggest import build_index as _tn_build, suggest as _tn_suggest
 
 
@@ -92,7 +92,15 @@ def _seg_kind(src):
 def cmd_split(a):
     state = load(a.state)
     pre = load(a.errors)
-    terms = load(a.terms)
+    if a.terms and not terminology_enabled(state):
+        raise SystemExit("[split] scope conflict: --terms is disabled by check scope")
+    term_state = state
+    if a.terms:
+        terms_path = Path(a.terms)
+        if not terms_path.is_file():
+            raise SystemExit(f"[split] terminology file not found: {terms_path}")
+        term_state = {**state, "terms_path": str(terms_path), "terminology": []}
+    terms = load_terms(term_state)
     segs = state["segments"]
     pre_by_id = {e["id"]: e.get("issues", []) for e in pre}
     grouped = _group_chunk_terms(terms)
@@ -503,7 +511,7 @@ def main():
     s = sub.add_parser("split")
     s.add_argument("--state", required=True)
     s.add_argument("--errors", required=True)
-    s.add_argument("--terms", required=True)
+    s.add_argument("--terms", default=None)
     s.add_argument("--outdir", required=True)
     s.add_argument("--size", type=int, default=100)
     s.add_argument("--char-budget", type=int, default=0,

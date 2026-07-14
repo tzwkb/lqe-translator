@@ -16,7 +16,14 @@ import re
 from pathlib import Path
 
 from lqe_corrections import CheckFormatError, build_results, normalize_check_entries
-from lqe_engine import RE_CJK as _RE_CJK, term_senses
+from lqe_engine import (
+    RE_CJK as _RE_CJK,
+    get_check_scope,
+    load_terms,
+    term_senses,
+    terminology_enabled,
+    validate_scope_entries,
+)
 
 
 def _est_output_chars(seg, term_hits):
@@ -32,7 +39,9 @@ def cmd_plan(args):
     job = Path(args.job)
     state = json.loads((job / "state.json").read_text(encoding="utf-8"))
     segs = state["segments"]
-    terms = json.loads((job / "terms.json").read_text(encoding="utf-8")) if (job / "terms.json").exists() else []
+    scope = get_check_scope(state)
+    term_enabled = terminology_enabled(state)
+    terms = load_terms(state)
     tlist = []
     for term in terms:
         source = term.get("source")
@@ -78,10 +87,24 @@ def cmd_plan(args):
     if cur:
         batches.append(cur)
 
-    _SCHEMA_HEADER = (
+    scope_lines = [
+        f"# Enabled check modules: {', '.join(scope['enabled_modules'])}",
+        f"# Terminology check: {'enabled' if term_enabled else 'disabled'}",
+    ]
+    if term_enabled:
+        scope_lines.append(
+            "# Terminology issues must identify the source term, expected termbase "
+            "translation, and deviation."
+        )
+    else:
+        scope_lines.append(
+            "# Do not output Terminology, proper-name, TERM REVIEW, or confirmed-term "
+            "(confirmed_term) evidence."
+        )
+    _SCHEMA_HEADER = "\n".join(scope_lines) + "\n" + (
         "# 输出格式（强制）：JSON 数组，每项为 {id, issues:[...]}。"
         "每个 issue 必须含 category / severity / comment / needs_confirmation / edit；"
-        "comment 不得为空。术语类 comment 必须写明源词、术语表期望译法和偏离情况。"
+        "comment 不得为空。"
         "批量同类问题也要逐条填写。需要人工确认时 edit 必须为 null；"
         "安全局部修改写入 edit。检查任务不得输出 corrected。\n"
         "# ────────────────────────────────────────\n"
@@ -145,6 +168,15 @@ def cmd_merge(args):
         if extra:
             details.append(f"extra={extra}")
         raise SystemExit(f"[merge] incomplete check coverage: {', '.join(details)}")
+    try:
+        validate_scope_entries(
+            state,
+            list(merged.values()),
+            issues_key="issues",
+            label="batch merge",
+        )
+    except ValueError as exc:
+        raise SystemExit(f"[merge] {exc}") from exc
     out = build_results(state["segments"], list(merged.values()))
     (job / "errors.json").write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
 

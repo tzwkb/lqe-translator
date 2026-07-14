@@ -9,6 +9,8 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 IO_SCRIPT = SCRIPTS / "lqe_io.py"
+CHUNK_SCRIPT = SCRIPTS / "lqe_chunk.py"
+BATCH_SCRIPT = SCRIPTS / "lqe_batch.py"
 
 sys.path.insert(0, str(SCRIPTS))
 
@@ -37,6 +39,10 @@ def write_json(path: Path, value) -> None:
 
 def read_json(path: Path):
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def flatten_issues(entries):
+    return [issue for entry in entries for issue in entry.get("issues", [])]
 
 
 class NoTerminologyScopeTests(unittest.TestCase):
@@ -121,6 +127,8 @@ class NoTerminologyScopeTests(unittest.TestCase):
         self.assertEqual(
             read_json(self.state.parent / "scope.json"), state["check_scope"]
         )
+
+
         self.assertIn(
             "profile terminology overridden by --no-terminology", result.stdout
         )
@@ -331,6 +339,213 @@ class NoTerminologyScopeTests(unittest.TestCase):
         self.assertEqual(
             read_json(self.state.parent / "scope.json"), state["check_scope"]
         )
+
+
+class NoTerminologyPrecheckTests(unittest.TestCase):
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.root = Path(self.tempdir.name)
+        self.job = self.root / "job"
+        self.state = self.job / "state.json"
+        self.terms = self.job / "terms.json"
+        self.read_no_term_job(
+            [("生命值", "Health")],
+            terms=[{"source": "生命值", "target": "HP", "confirmed": True}],
+        )
+
+    def tearDown(self):
+        self.tempdir.cleanup()
+
+    def read_no_term_job(self, rows, *, terms=None):
+        terms = terms or []
+        write_json(self.terms, terms)
+        segments = [
+            {"id": index, "source": source, "target": target}
+            for index, (source, target) in enumerate(rows)
+        ]
+        write_json(
+            self.state,
+            {
+                "source_lang": "zh",
+                "target_lang": "en",
+                "segments": segments,
+                "check_scope": build_check_scope(True, "test"),
+                "terms_path": str(self.terms),
+                "terminology": terms,
+            },
+        )
+        write_json(
+            self.job / "errors_precheck.json",
+            [{"id": segment["id"], "issues": []} for segment in segments],
+        )
+
+    def run_script(self, script, *args):
+        return subprocess.run(
+            [sys.executable, str(script), *map(str, args)],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+
+    def run_precheck(self, *, out=None):
+        return self.run_script(
+            IO_SCRIPT,
+            "pre-check",
+            "--state",
+            self.state,
+            "--out",
+            out or self.job / "errors_precheck.json",
+        )
+
+    def run_chunk(self, *args):
+        return self.run_script(CHUNK_SCRIPT, *args)
+
+    def run_batch(self, *args):
+        return self.run_script(BATCH_SCRIPT, *args)
+
+    def write_batch_eval(self, *, category="Grammar", comment="check", edit=None):
+        segments = read_json(self.state)["segments"]
+        rows = [{"id": segment["id"], "issues": []} for segment in segments]
+        rows[0]["issues"] = [
+            {
+                "category": category,
+                "severity": "Major" if category == "Terminology" else "Minor",
+                "comment": comment,
+                "needs_confirmation": edit is None,
+                "edit": edit,
+            }
+        ]
+        write_json(self.job / "evals" / "eval_00.json", rows)
+
+    def test_precheck_omits_terms_but_keeps_non_term_checks(self):
+        self.read_no_term_job(
+            [
+                ("生命值", "Health"),
+                ("<b>你好</b>", "Hello"),
+                ("获得 100 金币 {0}", "Get 10 coins"),
+                ("点击开始", "Click Start"),
+                ("点击开始", "Tap Begin"),
+            ],
+            terms=[{"source": "生命值", "target": "HP", "confirmed": True}],
+        )
+
+        result = self.run_precheck()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        issues = flatten_issues(read_json(self.job / "errors_precheck.json"))
+        self.assertFalse(any(issue["category"] == "Terminology" for issue in issues))
+        self.assertFalse(
+            any(issue["comment"].startswith("TERM REVIEW:") for issue in issues)
+        )
+        self.assertTrue(any(issue["category"] == "Markup" for issue in issues))
+        self.assertTrue(any(issue["category"] == "Inconsistency" for issue in issues))
+        self.assertTrue(
+            any("100" in issue["comment"] or "{0}" in issue["comment"] for issue in issues)
+        )
+
+    def test_precheck_rejects_scope_forbidden_custom_issue_before_write(self):
+        checks = self.job / "checks.json"
+        write_json(
+            checks,
+            {
+                "custom": [
+                    {
+                        "id": "forbidden-term",
+                        "pattern": "Health",
+                        "where": "target",
+                        "category": "Terminology",
+                        "comment": "forbidden custom terminology issue",
+                    }
+                ]
+            },
+        )
+        state = read_json(self.state)
+        state["checks_path"] = str(checks)
+        write_json(self.state, state)
+        output = self.job / "forbidden_precheck.json"
+
+        result = self.run_precheck(out=output)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("scope conflict", result.stderr)
+        self.assertFalse(output.exists())
+
+    def test_split_without_terms_writes_empty_term_context(self):
+        result = self.run_chunk(
+            "split",
+            "--state",
+            self.state,
+            "--errors",
+            self.job / "errors_precheck.json",
+            "--outdir",
+            self.job / "chunks",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        segment = read_json(self.job / "chunks" / "chunk_00.json")["segments"][0]
+        self.assertEqual(segment["term_hits"], [])
+        self.assertEqual(segment["term_near"], [])
+
+    def test_split_rejects_explicit_terms_in_disabled_scope(self):
+        result = self.run_chunk(
+            "split",
+            "--state",
+            self.state,
+            "--errors",
+            self.job / "errors_precheck.json",
+            "--terms",
+            self.terms,
+            "--outdir",
+            self.job / "chunks",
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("scope conflict", result.stderr)
+
+    def test_batch_plan_ignores_residual_terms_file(self):
+        write_json(self.job / "terms.json", [{"source": "生命值", "target": "HP"}])
+
+        result = self.run_batch("plan", "--job", self.job)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        prompt = (self.job / "batches" / "batch_00.txt").read_text(encoding="utf-8")
+        self.assertNotIn("TERMS:", prompt)
+        self.assertIn("Terminology check: disabled", prompt)
+
+    def test_batch_merge_rejects_terminology_issue(self):
+        self.write_batch_eval(category="Terminology", comment="forbidden")
+
+        result = self.run_batch("merge", "--job", self.job)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("scope conflict", result.stderr)
+        self.assertFalse((self.job / "errors.json").exists())
+
+    def test_batch_merge_rejects_other_disabled_term_evidence(self):
+        cases = (
+            {"comment": "TERM REVIEW: forbidden", "edit": None},
+            {
+                "comment": "forbidden evidence",
+                "edit": {
+                    "from": "Health",
+                    "to": "HP",
+                    "start": 0,
+                    "end": 6,
+                    "evidence": {
+                        "type": "confirmed_term",
+                        "source": "生命值",
+                        "target": "HP",
+                    },
+                },
+            },
+        )
+        for case in cases:
+            with self.subTest(comment=case["comment"]):
+                self.write_batch_eval(comment=case["comment"], edit=case["edit"])
+                result = self.run_batch("merge", "--job", self.job)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("scope conflict", result.stderr)
+                self.assertFalse((self.job / "errors.json").exists())
 
 
 if __name__ == "__main__":

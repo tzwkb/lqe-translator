@@ -14,6 +14,7 @@ from pathlib import Path
 from lqe_engine import (
     read_json, load_terms as _load_terms, group_terms as _group_terms,
     RE_CJK as _RE_CJK, _target_lang, _load_lang, _lang_toggle_defaults,
+    terminology_enabled, validate_scope_entries,
 )
 
 _RE_DASH     = re.compile(r'—')
@@ -228,6 +229,8 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
 
     lang_attrs = _load_lang(_target_lang(state))
     toggles, custom = _load_checks(state, lang_attrs)
+    if not terminology_enabled(state):
+        toggles.update({"terminology": False, "term_case": False})
     on = lambda key: toggles.get(key, True)
 
     numerals = lang_attrs.get("numerals", [])
@@ -537,6 +540,13 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
 
         total += len(errs)
         results.append({"id": seg["id"], "issues": _check_issues(errs)})
+
+    try:
+        validate_scope_entries(
+            state, results, issues_key="issues", label="pre-check results"
+        )
+    except ValueError as exc:
+        raise SystemExit(f"[pre-check] {exc}") from exc
 
     out = out_path or state_path.parent / "errors_precheck.json"
     out.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")

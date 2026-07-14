@@ -935,7 +935,10 @@ class CorrectedOwnershipPipelineTests(unittest.TestCase):
         job = self.root / "batch-terms"
         write_json(
             job / "state.json",
-            {"segments": [{"id": 0, "source": "里奥出现", "target": "Rio"}]},
+            {
+                "segments": [{"id": 0, "source": "里奥出现", "target": "Rio"}],
+                "terms_path": str(job / "terms.json"),
+            },
         )
         write_json(
             job / "terms.json",
