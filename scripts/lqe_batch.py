@@ -135,7 +135,8 @@ def cmd_plan(args):
                 status = f"[status={term['status']}]" if term["status"] else ""
                 hh.append(f"{term['source']}={term['target']}[{flags}]{status}")
             flags = '; '.join(
-                f"precheck_ref={e['precheck_ref']} {e['category']}:{e['comment'][:60]}"
+                f"{e['category']}:{e['comment'][:60]} "
+                f"[precheck_ref={e['precheck_ref']}]"
                 for e in pre.get(sid, [])
             )
             block = f"#{sid}\nSRC: {src}\nTGT: {tgt}"

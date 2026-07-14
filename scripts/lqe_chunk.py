@@ -356,7 +356,11 @@ def _module_issue_problem(state: dict, module: str, issue: dict) -> str | None:
     if problem:
         return problem
     category = issue.get("category")
-    allowed = _MODULE_ALLOWED_CATEGORIES.get(module)
+    allowed = (
+        _MODULE_ALLOWED_CATEGORIES.get(module)
+        if not terminology_enabled(state) or module == "precheck_review"
+        else None
+    )
     if allowed is not None and category not in allowed:
         return f"{module} cannot own category {category!r}"
     return None
