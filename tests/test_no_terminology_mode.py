@@ -5,6 +5,8 @@ import sys
 import tempfile
 import unittest
 
+import openpyxl
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
@@ -12,6 +14,7 @@ IO_SCRIPT = SCRIPTS / "lqe_io.py"
 CHUNK_SCRIPT = SCRIPTS / "lqe_chunk.py"
 BATCH_SCRIPT = SCRIPTS / "lqe_batch.py"
 CALC_SCRIPT = SCRIPTS / "lqe_calc.py"
+FINALIZE_SCRIPT = SCRIPTS / "finalize_job.sh"
 
 sys.path.insert(0, str(SCRIPTS))
 
@@ -806,6 +809,282 @@ class NoTerminologyModuleTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("scope conflict", result.stderr)
+
+
+class NoTerminologyFinalizeTests(unittest.TestCase):
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.root = Path(self.tempdir.name)
+        self.job = self.root / "job"
+        self.state = self.job / "state.json"
+        self.source = self.root / "source.xlsx"
+        self.build_complete_no_term_job()
+
+    def tearDown(self):
+        self.tempdir.cleanup()
+
+    def run_io(self, *args):
+        return subprocess.run(
+            [sys.executable, str(IO_SCRIPT), *map(str, args)],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+
+    def run_finalize(self):
+        return subprocess.run(
+            ["bash", str(FINALIZE_SCRIPT), str(self.job), "1", "single"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+
+    def build_complete_no_term_job(self):
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.append(["Source", "Target"])
+        sheet.append(["A", "Alpha"])
+        workbook.save(self.source)
+        workbook.close()
+
+        result = self.run_io(
+            "read",
+            "--input",
+            self.source,
+            "--source-col",
+            "Source",
+            "--target-col",
+            "Target",
+            "--no-terminology",
+            "--out",
+            self.state,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        write_json(self.job / "errors_precheck.json", [{"id": 0, "issues": []}])
+        write_json(
+            self.job / "chunks" / "chunk_00.json",
+            {
+                "chunk_id": 0,
+                "segments": [
+                    {
+                        "id": 0,
+                        "source": "A",
+                        "target": "Alpha",
+                        "kind": "name",
+                        "term_hits": [],
+                        "protected_texts": [],
+                    }
+                ],
+            },
+        )
+        for module in NO_TERMINOLOGY_REQUIRED_MODULES:
+            write_json(
+                self.job / "chunks" / f"chunk_00.{module}.json",
+                [{"id": 0, "issues": []}],
+            )
+
+    def write_raw_checks(self, *, category="Terminology", comment="forbidden"):
+        write_json(
+            self.job / "checks.json",
+            [
+                {
+                    "id": 0,
+                    "issues": [
+                        {
+                            "category": category,
+                            "severity": "Minor",
+                            "comment": comment,
+                            "needs_confirmation": True,
+                            "edit": None,
+                        }
+                    ],
+                }
+            ],
+        )
+
+    def write_complete_no_term_errors(
+        self,
+        *,
+        category="Terminology",
+        comment="forbidden",
+        edit=None,
+        corrected=None,
+    ):
+        write_json(
+            self.job / "errors.json",
+            [
+                {
+                    "id": 0,
+                    "errors": [
+                        {
+                            "category": category,
+                            "severity": "Minor",
+                            "comment": comment,
+                            "needs_confirmation": edit is None,
+                            "edit": edit,
+                        }
+                    ],
+                    "corrected": corrected,
+                }
+            ],
+        )
+
+    def test_no_terminology_finalize_produces_report_without_term_files(self):
+        result = self.run_finalize()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            "enabled modules: precheck_review, accuracy, grammar, naturalness",
+            result.stdout,
+        )
+        self.assertTrue((self.job / "errors.json").exists())
+        self.assertFalse(any(self.job.glob("chunks/*.terminology.json")))
+        self.assertTrue(list(self.job.glob("*_lqe.xlsx")))
+        self.assertTrue(list(self.job.glob("*_corrected.xlsx")))
+
+    def test_report_records_disabled_terminology_and_enabled_modules(self):
+        result = self.run_finalize()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = next(self.job.glob("*_lqe.xlsx"))
+
+        workbook = openpyxl.load_workbook(report, data_only=True)
+        try:
+            values = [
+                str(cell.value)
+                for sheet in workbook
+                for row in sheet
+                for cell in row
+                if cell.value is not None
+            ]
+            scorecard = workbook["LQA Scorecard"]
+            terminology_row = next(
+                row
+                for row in range(1, scorecard.max_row + 1)
+                if scorecard.cell(row=row, column=1).value == "Terminology"
+            )
+            self.assertEqual(
+                [
+                    scorecard.cell(row=terminology_row, column=col).value
+                    for col in range(3, 13)
+                ],
+                [0] * 10,
+            )
+        finally:
+            workbook.close()
+
+        joined = "\n".join(values)
+        self.assertIn("Terminology check: Disabled by runtime request", joined)
+        self.assertIn("precheck_review, accuracy, grammar, naturalness", joined)
+
+    def test_standard_report_records_enabled_terminology(self):
+        state = read_json(self.state)
+        state["check_scope"] = build_check_scope(False, "test")
+        write_json(self.state, state)
+        write_json(
+            self.job / "errors.json",
+            [{"id": 0, "errors": [], "corrected": None}],
+        )
+
+        result = self.run_io(
+            "write",
+            "--state",
+            self.state,
+            "--errors",
+            self.job / "errors.json",
+            "--score",
+            "100",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        workbook = openpyxl.load_workbook(
+            next(self.job.glob("*_lqe.xlsx")), data_only=True
+        )
+        try:
+            values = [
+                str(cell.value)
+                for sheet in workbook
+                for row in sheet
+                for cell in row
+                if cell.value is not None
+            ]
+        finally:
+            workbook.close()
+        self.assertIn("Terminology check: Enabled", "\n".join(values))
+
+    def test_write_rejects_forbidden_issue_before_state_or_workbook_write(self):
+        self.write_complete_no_term_errors()
+        original_state = self.state.read_bytes()
+
+        result = self.run_io(
+            "write",
+            "--state",
+            self.state,
+            "--errors",
+            self.job / "errors.json",
+            "--score",
+            "100",
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("scope conflict", result.stderr)
+        self.assertEqual(self.state.read_bytes(), original_state)
+        self.assertFalse(list(self.job.glob("*_lqe.xlsx")))
+
+    def test_apply_fixes_rejects_forbidden_issue_before_state_or_workbook_write(self):
+        self.write_complete_no_term_errors(
+            edit={"from": "Alpha", "to": "Beta", "evidence": None},
+            corrected="Beta",
+        )
+        original_state = self.state.read_bytes()
+
+        result = self.run_io(
+            "apply-fixes",
+            "--state",
+            self.state,
+            "--errors",
+            self.job / "errors.json",
+            "--score",
+            "90",
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("scope conflict", result.stderr)
+        self.assertEqual(self.state.read_bytes(), original_state)
+        self.assertFalse(list(self.job.glob("*_lqe_iter*.xlsx")))
+
+    def test_build_results_rejects_forbidden_issue_before_output_write(self):
+        self.write_raw_checks()
+        output = self.job / "built-errors.json"
+
+        result = self.run_io(
+            "build-results",
+            "--state",
+            self.state,
+            "--checks",
+            self.job / "checks.json",
+            "--out",
+            output,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("scope conflict", result.stderr)
+        self.assertFalse(output.exists())
+
+    def test_export_rejects_forbidden_issue_before_workbook_write(self):
+        self.write_complete_no_term_errors()
+
+        result = self.run_io(
+            "export",
+            "--state",
+            self.state,
+            "--errors",
+            self.job / "errors.json",
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("scope conflict", result.stderr)
+        self.assertFalse(list(self.job.glob("*_corrected.xlsx")))
 
 
 if __name__ == "__main__":

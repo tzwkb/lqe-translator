@@ -1,6 +1,6 @@
 #!/bin/bash
 # finalize_job.sh <jobname> <nchunks> [single|iterate]
-# 多模块一键收尾：validate-checks → merge-checks → reconcile → merge → calc → report → export
+# 多模块一键收尾：validate-checks → merge-checks → reconcile → merge → calc → write/apply → export
 #   single  = 单轮：FAIL 也只出报告（不 apply-fixes 迭代）
 #   iterate = 显式启用：FAIL 走 apply-fixes（自动迭代）
 # 幂等：仅当 N 个基础 chunk 齐了才跑。
@@ -23,6 +23,18 @@ except Exception:
     print(98)
 PY
 )
+ENABLED_MODULES=$(PYTHONPATH="$SK/scripts${PYTHONPATH:+:$PYTHONPATH}" python3 - "$JOB/state.json" <<'PY'
+import json
+import sys
+
+from lqe_engine import get_check_scope
+
+with open(sys.argv[1], encoding="utf-8") as f:
+    state = json.load(f)
+print(", ".join(get_check_scope(state)["enabled_modules"]))
+PY
+)
+echo "FINALIZING $1 MODE=$MODE; enabled modules: $ENABLED_MODULES"
 
 have=$(find "$CH" -maxdepth 1 -type f -name 'chunk_[0-9][0-9].json' | wc -l | tr -d ' ')
 if [ "$have" -lt "$N" ]; then echo "INCOMPLETE $1: chunks $have/$N"; exit 0; fi

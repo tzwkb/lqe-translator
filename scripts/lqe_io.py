@@ -26,10 +26,12 @@ from lqe_engine import (
     read_json, RE_CJK as _RE_CJK, _source_lang, _target_lang, _load_lang, _LANG_DIR, _SKILL_ROOT,
     CATEGORY_ORDER as _ALL_CATS, CATEGORY_PARENT as _PARENT,
     VALID_CATEGORIES as _VALID_CATEGORIES, VALID_SEVERITIES as _VALID_SEVERITIES,
-    apply_severity, build_check_scope, load_terms as _load_terms, group_terms as _group_terms,
+    apply_severity, build_check_scope, get_check_scope,
+    load_terms as _load_terms, group_terms as _group_terms,
     raw_points, weighted_points,
     load_scorecard_profile, normalize_category_for_profile, scorecard_category_order,
     scorecard_category_parent, scorecard_category_weight,
+    validate_scope_entries,
 )
 from lqe_corrections import (
     CheckFormatError,
@@ -45,6 +47,23 @@ def _write_json_atomic(path: Path, value: object) -> None:
         json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     staging.replace(path)
+
+
+def _validate_scope_or_exit(
+    state: dict,
+    entries: list[dict],
+    *,
+    issues_key: str,
+    label: str,
+    command: str,
+) -> None:
+    try:
+        get_check_scope(state)
+        validate_scope_entries(
+            state, entries, issues_key=issues_key, label=label
+        )
+    except ValueError as exc:
+        raise SystemExit(f"[{command}] {exc}") from exc
 
 
 def _processing_label(entry: dict) -> str:
@@ -686,6 +705,13 @@ def cmd_build_results(args):
         json.loads(Path(args.checks).read_text(encoding="utf-8")),
         label=args.checks,
     )
+    _validate_scope_or_exit(
+        state,
+        entries,
+        issues_key="issues",
+        label=Path(args.checks).name,
+        command="build-results",
+    )
     segments = state["segments"]
     state_ids = {segment["id"] for segment in segments}
     check_ids = {entry["id"] for entry in entries}
@@ -706,6 +732,13 @@ def cmd_apply_fixes(args):
     state_path = Path(args.state)
     state = read_json(state_path)
     errors_data = read_json(args.errors)
+    _validate_scope_or_exit(
+        state,
+        errors_data,
+        issues_key="errors",
+        label=Path(args.errors).name,
+        command="apply-fixes",
+    )
     protected_ids = _protected_ids(args) | _state_protected_ids(state)
     scrubbed = _scrub_protected_entries(errors_data, protected_ids)
     if scrubbed:
@@ -823,6 +856,17 @@ def _s(cell, fill=None, font=None, align=None):
 def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id="legacy"):
     scorecard_profile = load_scorecard_profile(scorecard_profile_id)
     categories = scorecard_category_order(scorecard_profile)
+    check_scope = get_check_scope(state)
+    terminology_status = (
+        "Enabled"
+        if check_scope["terminology_enabled"]
+        else "Disabled by runtime request"
+    )
+    enabled_modules = ", ".join(check_scope["enabled_modules"])
+    scope_summary = (
+        f"Terminology check: {terminology_status}; "
+        f"Enabled modules: {enabled_modules}"
+    )
     segments = state["segments"]
     seg_map = {s["id"]: s for s in segments}
     cat_counts: dict[str, dict[str, int]] = {
@@ -898,7 +942,7 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
         ("LQE 质检报告 · 导读", "", "", ""),
         ("", "", "", ""),
         (f"本报告 3 个 sheet：本「说明·导读」+ 后两个正文。阈值 {threshold}；本次 {status}（{score:.2f} 分）。", "", "", ""),
-        ("", "", "", ""),
+        ("Check scope", scope_summary, "", ""),
         ("Sheet", "是什么", "给谁看", "怎么用"),
         ("LQA Scorecard（第 2 个）", "计分卡：过/不过 + 分数 + 错误(类别×严重度)分布 + 罚分", "PM / 客户", f"先看这里拿整体判定：是否达标(阈值 {threshold})、差在哪类"),
         ("LQE Results（第 3 个）", "逐段明细：原文 / 原译 / 建议译文 / 错误详情 / 处理方式", "审校 / 译员", "逐段审阅「建议译文」与「处理方式」，结合错误详情处理"),
@@ -914,6 +958,7 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
         for c in intro[intro.max_row]:
             c.alignment = _wrap
     intro["A1"].font = Font(bold=True, size=13, color="073763")
+    intro["A4"].font = _BOLD
     for c in intro[5]:                       # 表头行
         c.fill = _DARK_BLUE; c.font = _WHITE_FONT
     intro["A9"].font = Font(bold=True)
@@ -941,7 +986,7 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
         ("File", Path(state["input_path"]).name, "Wordcount", state.get("wordcount", 0)),
         ("Source language", source_lang, "Target language", target_lang),
         ("Total iterations", len(history), "Threshold", threshold),
-        ("Date", date.today().isoformat(), "", ""),
+        ("Date", date.today().isoformat(), "Terminology check", terminology_status),
     ]
     for ri, (l1, v1, l2, v2) in enumerate(info, start=4):
         _db_row(ri, height=15.0)
@@ -1175,6 +1220,13 @@ def cmd_write(args):
     state_path = Path(args.state)
     state = read_json(state_path)
     final_errors_data = read_json(args.errors)
+    _validate_scope_or_exit(
+        state,
+        final_errors_data,
+        issues_key="errors",
+        label=Path(args.errors).name,
+        command="write",
+    )
     protected_ids = _state_protected_ids(state)
     scrubbed = _scrub_protected_entries(final_errors_data, protected_ids)
     if scrubbed:
@@ -1243,6 +1295,13 @@ def cmd_export(args):
             )
         except CheckFormatError as exc:
             sys.exit(f"[export] {exc}")
+        _validate_scope_or_exit(
+            state,
+            overlay_entries,
+            issues_key="errors",
+            label=Path(args.errors).name,
+            command="export",
+        )
         for e in overlay_entries:
             seg = seg_map.get(e["id"])
             if seg is None:

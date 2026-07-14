@@ -1191,7 +1191,13 @@ class CorrectedOwnershipPipelineTests(unittest.TestCase):
             """#!/bin/sh
 printf '%s\\n' "$*" >> "$CALL_LOG"
 case "$1" in
-  -) printf '98\\n' ;;
+  -)
+    script=$(cat)
+    case "$script" in
+      *enabled_modules*) printf 'terminology, accuracy, grammar, naturalness\\n' ;;
+      *) printf '98\\n' ;;
+    esac
+    ;;
   *lqe_calc.py) printf '{"score":100,"status":"PASS","errors":0,"wordcount":1,"critical":0,"npt":0}\\n' ;;
   -c)
     case "$2" in
@@ -1217,6 +1223,10 @@ esac
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            "enabled modules: terminology, accuracy, grammar, naturalness",
+            result.stdout,
+        )
         calls = [
             line.split()
             for line in log.read_text(encoding="utf-8").splitlines()
@@ -1251,7 +1261,13 @@ esac
             """#!/bin/sh
 printf '%s\n' "$*" >> "$CALL_LOG"
 case "$1" in
-  -) printf '98\n' ;;
+  -)
+    script=$(cat)
+    case "$script" in
+      *enabled_modules*) printf 'terminology, accuracy, grammar, naturalness\n' ;;
+      *) printf '98\n' ;;
+    esac
+    ;;
   *lqe_calc.py) printf '{"score":90,"status":"FAIL","errors":1,"wordcount":1,"critical":0,"npt":0}\n' ;;
   -c)
     case "$2" in
@@ -1280,6 +1296,10 @@ esac
         calls = log.read_text(encoding="utf-8").splitlines()
         self.assertTrue(any("lqe_io.py write" in call for call in calls), calls)
         self.assertFalse(any("lqe_io.py apply-fixes" in call for call in calls), calls)
+        self.assertIn(
+            "enabled modules: terminology, accuracy, grammar, naturalness",
+            result.stdout,
+        )
         self.assertIn("MODE=single", result.stdout)
 
 
