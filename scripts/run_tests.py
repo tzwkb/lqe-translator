@@ -354,7 +354,7 @@ def t10():
     ]}
     (job / "state.json").write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
     (job / "errors_precheck.json").write_text(json.dumps(
-        [{"id": 0, "errors": []}, {"id": 1, "errors": []}], ensure_ascii=False), encoding="utf-8")
+        [{"id": 0, "issues": []}, {"id": 1, "issues": []}], ensure_ascii=False), encoding="utf-8")
     (job / "terms.json").write_text(json.dumps([
         {"source": "里奥", "senses": [
             {"target": "ลีโอ", "category": "Creature Individual"},
