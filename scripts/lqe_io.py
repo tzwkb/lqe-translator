@@ -1053,6 +1053,18 @@ def cmd_apply_fixes(args):
         command="apply-fixes",
     )
     protected_ids = _protected_ids(args) | _state_protected_ids(state)
+    attempted_candidates = [
+        entry
+        for entry in errors_data
+        if entry.get("corrected")
+        and not any(
+            error.get("protected") for error in (entry.get("errors") or [])
+        )
+    ]
+    attempted = {
+        entry["id"]: entry["corrected"] for entry in attempted_candidates
+    }
+
     scrubbed = _scrub_protected_entries(errors_data, protected_ids)
     if scrubbed:
         Path(args.errors).write_text(json.dumps(errors_data, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -1064,13 +1076,6 @@ def cmd_apply_fixes(args):
     for msg in issues:
         print(f"[validate] {msg}")
 
-    attempted_entries = {
-        e["id"]: e
-        for e in errors_data
-        if e.get("corrected")
-        and not any(error.get("protected") for error in (e.get("errors") or []))
-    }
-    attempted = {sid: entry["corrected"] for sid, entry in attempted_entries.items()}
     corrections = {sid: text for sid, text in attempted.items() if sid not in protected_ids}
     protected_reasons = {
         segment["id"]: _protection_reason(segment, protected_ids)

@@ -1802,9 +1802,25 @@ class SDLXLIFFOutputTests(unittest.TestCase):
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        segment = read_json(state_path)["segments"][1]
+        updated = read_json(state_path)
+        segment = updated["segments"][1]
         self.assertEqual(segment["protected_reason"], "SOURCE_LOCKED")
         self.assertEqual(segment["protection_evidence"], before)
+        self.assertIsNone(segment.get("corrected"))
+        self.assertEqual(
+            updated["error_history"][-1]["skipped_corrections"],
+            [
+                {
+                    "id": 1,
+                    "reason": "SOURCE_LOCKED",
+                    "evidence": before,
+                    "attempted": "Changed",
+                }
+            ],
+        )
+        scrubbed = read_json(errors_path)[0]
+        self.assertEqual(scrubbed["errors"], [])
+        self.assertIsNone(scrubbed["corrected"])
 
 
 if __name__ == "__main__":
