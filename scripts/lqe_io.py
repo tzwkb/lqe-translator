@@ -305,6 +305,15 @@ def _extract_text_type_marker(src, tgt=None, content_type=None):
 
 def cmd_read(args):
     check_scope = build_check_scope(getattr(args, "no_terminology", False))
+    out_path = Path(args.out)
+    job_dir = out_path.parent
+    scope_path = job_dir / "scope.json"
+    if out_path.resolve() == scope_path.resolve():
+        print(
+            f"[ERROR] --out path conflicts with reserved scope artifact: {scope_path}",
+            file=sys.stderr,
+        )
+        sys.exit(2)
     prof = _load_project(args.project) if getattr(args, "project", None) else None
     if prof:
         _validate_project_profile(prof)
@@ -422,9 +431,7 @@ def cmd_read(args):
         print("[ERROR] No data rows found.", file=sys.stderr)
         sys.exit(1)
 
-    out_path  = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    job_dir   = out_path.parent
 
     # ── Style Guide → 独立文本文件 ─────────────────────────────────────────
     sg_path = ""
@@ -559,7 +566,7 @@ def cmd_read(args):
         "iteration": 0,
         "segments": segments,
     }
-    _write_json_atomic(job_dir / "scope.json", check_scope)
+    _write_json_atomic(scope_path, check_scope)
     _write_json_atomic(out_path, state)
     print(f"[lqe_io] {len(segments)} segments → {args.out}  wordcount={state['wordcount']}")
 
