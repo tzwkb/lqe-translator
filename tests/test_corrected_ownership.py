@@ -2647,6 +2647,69 @@ class CorrectedOwnershipProjectTests(unittest.TestCase):
         self.assertEqual(state_path.read_bytes(), original_state)
         self.assertFalse((job / "tm_protected.json").exists())
 
+    def test_protect_segments_output_failure_does_not_mutate_state(self):
+        _, state_path, _, _ = self.make_candidate_protection_job()
+        original_state = state_path.read_bytes()
+        missing_output = self.root / "missing-parent" / "decision.json"
+
+        result = self.run_io(
+            "protect-segments",
+            "--state",
+            state_path,
+            "--protected-ids",
+            "0",
+            "--out",
+            missing_output,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(state_path.read_bytes(), original_state)
+        self.assertFalse(missing_output.exists())
+
+    def test_protect_segments_rejects_output_aliasing_candidate_input(self):
+        _, state_path, candidate_path, _ = self.make_candidate_protection_job()
+        original_state = state_path.read_bytes()
+        original_candidates = candidate_path.read_bytes()
+
+        result = self.run_io(
+            "protect-segments",
+            "--state",
+            state_path,
+            "--protected-file",
+            candidate_path,
+            "--out",
+            candidate_path,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("conflicts with protected input", result.stderr)
+        self.assertEqual(state_path.read_bytes(), original_state)
+        self.assertEqual(candidate_path.read_bytes(), original_candidates)
+
+    def test_protect_segments_state_publish_failure_rolls_back_decision(self):
+        job, state_path, _, _ = self.make_candidate_protection_job()
+        original_state = state_path.read_bytes()
+        original_replace = lqe_io.os.replace
+
+        def fail_state_publish(source, destination):
+            if Path(destination).resolve() == state_path.resolve():
+                raise OSError("simulated state publication failure")
+            return original_replace(source, destination)
+
+        args = SimpleNamespace(
+            state=str(state_path),
+            protected_ids="0",
+            protected_file=None,
+            reason="TM_100_MATCH",
+            out=None,
+        )
+        with mock.patch.object(lqe_io.os, "replace", fail_state_publish):
+            with self.assertRaisesRegex(SystemExit, "state publication failure"):
+                call_quietly(lqe_io.cmd_protect_segments, args)
+
+        self.assertEqual(state_path.read_bytes(), original_state)
+        self.assertFalse((job / "tm_protected.json").exists())
+
     def test_protected_segment_is_not_scored(self):
         state_path = self.root / "state.json"
         errors_path = self.root / "errors.json"

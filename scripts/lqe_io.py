@@ -1060,6 +1060,11 @@ def _protected_ids(args, *, allow_candidates: bool = False) -> set[int]:
 def _paths_alias(first: Path, second: Path) -> bool:
     first = Path(first)
     second = Path(second)
+    try:
+        if os.path.samefile(first, second):
+            return True
+    except (FileNotFoundError, OSError):
+        pass
     if first.resolve() == second.resolve():
         return True
     return (
@@ -1129,6 +1134,96 @@ def _state_protected_ids(state) -> set[int]:
     return {s["id"] for s in state.get("segments", []) if s.get("protected")}
 
 
+def _stage_json_replacement(path: Path, value: object) -> Path:
+    payload = json.dumps(value, ensure_ascii=False, indent=2)
+    staged = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            staged = Path(handle.name)
+            handle.write(payload)
+        return staged
+    except BaseException:
+        if staged is not None and staged.exists():
+            staged.unlink()
+        raise
+
+
+def _restore_replaced_file(
+    path: Path,
+    published_identity: tuple[int, int],
+    original: bytes | None,
+) -> None:
+    if _file_identity(path) != published_identity:
+        return
+    if original is None:
+        path.unlink()
+        return
+    staged = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=path.parent,
+            prefix=f".{path.name}.restore.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            staged = Path(handle.name)
+            handle.write(original)
+        os.replace(staged, path)
+    finally:
+        if staged is not None and staged.exists():
+            staged.unlink()
+
+
+def _publish_protection_transaction(
+    state_path: Path,
+    state: dict,
+    output_path: Path,
+    payload: dict,
+) -> None:
+    if os.path.lexists(output_path) and (
+        output_path.is_symlink() or not output_path.is_file()
+    ):
+        raise ValueError(
+            f"protection output must be a regular file: {output_path}"
+        )
+    originals = {
+        output_path: output_path.read_bytes() if output_path.exists() else None,
+        state_path: state_path.read_bytes(),
+    }
+    staged: dict[Path, Path] = {}
+    published: dict[Path, tuple[int, int]] = {}
+    try:
+        staged[output_path] = _stage_json_replacement(output_path, payload)
+        staged[state_path] = _stage_json_replacement(state_path, state)
+        for destination in (output_path, state_path):
+            source = staged[destination]
+            identity = _file_identity(source)
+            if identity is None:
+                raise FileNotFoundError(f"staged artifact is missing: {source}")
+            published[destination] = identity
+            os.replace(source, destination)
+    except BaseException:
+        for destination in (state_path, output_path):
+            identity = published.get(destination)
+            if identity is not None:
+                _restore_replaced_file(
+                    destination, identity, originals[destination]
+                )
+        raise
+    finally:
+        for path in staged.values():
+            if path.exists():
+                path.unlink()
+
+
 def _scrub_protected_entries(errors_data: list, protected_ids: set[int]) -> int:
     changed = 0
     for entry in errors_data:
@@ -1141,7 +1236,7 @@ def _scrub_protected_entries(errors_data: list, protected_ids: set[int]) -> int:
 
 
 def cmd_protect_segments(args):
-    state_path = Path(args.state)
+    state_path = Path(args.state).resolve()
     state = read_json(state_path)
     protected_file = getattr(args, "protected_file", None)
     protected_payload = read_json(protected_file) if protected_file else None
@@ -1169,6 +1264,11 @@ def cmd_protect_segments(args):
         raise SystemExit(
             f"[protect-segments] output path conflicts with state: {out_path}"
         )
+    if protected_file and _paths_alias(out_path, Path(protected_file)):
+        raise SystemExit(
+            "[protect-segments] output path conflicts with protected input: "
+            f"{out_path}"
+        )
 
     seg_by_id = {s["id"]: s for s in state.get("segments", [])}
     valid = sorted(sid for sid in ids if sid in seg_by_id)
@@ -1180,8 +1280,6 @@ def cmd_protect_segments(args):
             seg["protected_reason"] = args.reason
         seg["corrected"] = None
 
-    state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
-
     payload = {
         "protected_ids": valid,
         "reason": args.reason,
@@ -1189,7 +1287,10 @@ def cmd_protect_segments(args):
     }
     if unknown:
         payload["unknown_ids"] = unknown
-    out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    try:
+        _publish_protection_transaction(state_path, state, out_path, payload)
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"[protect-segments] {exc}") from exc
     print(f"[protect-segments] protected {len(valid)} segment(s) → {state_path}")
     print(f"[protect-segments] protected file → {out_path}")
     if unknown:
