@@ -69,12 +69,6 @@ def main():
     protected.update(s["id"] for s in state.get("segments", []) if s.get("protected"))
 
     wordcount = state["wordcount"]
-    if wordcount == 0:
-        print(json.dumps({"score": 100.0, "status": "PASS", "errors": 0, "wordcount": 0,
-                          "critical": 0, "repeated": 0, "npt": 0.0, "critical_gate": False})
-              if args.json else "SCORE=100.00 STATUS=PASS CRITICAL=0")
-        return
-
     cat_raw = defaultdict(float)
     dist    = defaultdict(int)
     total_errors = 0
@@ -109,10 +103,15 @@ def main():
         Path(args.errors).write_text(json.dumps(errors, ensure_ascii=False, indent=2), encoding="utf-8")
 
     total_weighted = sum(scorecard_category_weight(cat, scorecard_profile) * raw for cat, raw in cat_raw.items())
-    score  = max((1 - total_weighted / wordcount) * 100, 0)
-    npt    = total_weighted * 1000 / wordcount  # 每千词惩罚分 (MQM RWC=1000)
     gate_fail = args.critical_gate and critical_count > 0
-    status = "FAIL" if (gate_fail or score < args.threshold) else "PASS"
+    if wordcount == 0:
+        score = 0.0 if total_weighted > 0 else 100.0
+        npt = 0.0
+        status = "FAIL" if (gate_fail or total_weighted > 0) else "PASS"
+    else:
+        score = max((1 - total_weighted / wordcount) * 100, 0)
+        npt = total_weighted * 1000 / wordcount  # 每千词惩罚分 (MQM RWC=1000)
+        status = "FAIL" if (gate_fail or score < args.threshold) else "PASS"
 
     if args.json:
         print(json.dumps({"score": round(score, 2), "status": status, "errors": total_errors,

@@ -1064,6 +1064,40 @@ class NoTerminologyModuleTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("scope conflict", result.stderr)
 
+    def test_calc_zero_wordcount_with_penalized_error_is_not_full_score(self):
+        self.make_no_term_chunk_job()
+        state = read_json(self.job / "state.json")
+        state["wordcount"] = 0
+        state["segments"][0]["target"] = ""
+        write_json(self.job / "state.json", state)
+        write_json(
+            self.job / "errors.json",
+            [
+                {
+                    "id": 0,
+                    "errors": [
+                        {
+                            "category": "Untranslated",
+                            "severity": "Major",
+                            "comment": "The target is empty.",
+                            "needs_confirmation": True,
+                            "edit": None,
+                        }
+                    ],
+                    "corrected": None,
+                }
+            ],
+        )
+
+        result = self.run_calc()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        score = json.loads(result.stdout)
+        self.assertEqual(score["wordcount"], 0)
+        self.assertEqual(score["errors"], 1)
+        self.assertEqual(score["score"], 0)
+        self.assertEqual(score["status"], "FAIL")
+
 
 class NoTerminologyFinalizeTests(unittest.TestCase):
     def setUp(self):
