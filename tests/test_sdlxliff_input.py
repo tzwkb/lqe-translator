@@ -2,20 +2,29 @@ import hashlib
 import json
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from xml.etree import ElementTree as ET
+
+import openpyxl
 
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
+IO_SCRIPT = SCRIPTS / "lqe_io.py"
+CHUNK_SCRIPT = SCRIPTS / "lqe_chunk.py"
+BATCH_SCRIPT = SCRIPTS / "lqe_batch.py"
 FIXTURES = ROOT / "tests" / "fixtures" / "sdlxliff"
 RECURSIVE_FIXTURES = FIXTURES / "recursive"
 
 sys.path.insert(0, str(SCRIPTS))
 
 from lqe_inputs import detect_input_format
+import lqe_engine
+import lqe_io
 from lqe_inputs.sdlxliff import (
     SDLXLIFFImportError,
     SDLXLIFFOptions,
@@ -27,6 +36,17 @@ from lqe_inputs.sdlxliff import (
     serialize_mixed,
     validate_options,
 )
+
+
+def write_json(path: Path, value) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+def read_json(path: Path):
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 XLIFF_NS = "urn:oasis:names:tc:xliff:document:1.2"
@@ -933,6 +953,655 @@ class SDLXLIFFRuleTests(unittest.TestCase):
         self.assertTrue(evidence["included"])
         self.assertFalse(evidence["locked"]["matched"])
         self.assertFalse(evidence["tm"]["candidate"])
+
+
+class SDLXLIFFIntegrationTests(unittest.TestCase):
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.root = Path(self.tempdir.name)
+        self.job = self.root / "job"
+        self.fixture_dir = self.root / "sdl"
+        shutil.copytree(RECURSIVE_FIXTURES, self.fixture_dir)
+
+        self.mixed_input_dir = self.root / "mixed-input"
+        shutil.copytree(RECURSIVE_FIXTURES, self.mixed_input_dir)
+        (self.mixed_input_dir / "notes.csv").write_text(
+            "Source,Target\n甲,Alpha\n", encoding="utf-8"
+        )
+
+        self.csv = self.root / "source.csv"
+        self.csv.write_text("Source,Target\n甲,Alpha\n乙,Beta\n", encoding="utf-8")
+        self.tsv = self.root / "source.tsv"
+        self.tsv.write_text("Source\tTarget\n甲\tAlpha\n乙\tBeta\n", encoding="utf-8")
+        self.xlsx = self.root / "source.xlsx"
+        workbook = openpyxl.Workbook()
+        worksheet = workbook.active
+        worksheet.append(["Source", "Target"])
+        worksheet.append(["甲", "Alpha"])
+        worksheet.append(["乙", "Beta"])
+        workbook.save(self.xlsx)
+        workbook.close()
+
+        self.candidate_profile = self.root / "profile" / "profile.json"
+        write_json(
+            self.candidate_profile,
+            {
+                "name": "anonymous/zh-en",
+                "language_pair": "zh-en",
+                "source_lang": "zh",
+                "target_lang": "en",
+                "sdlxliff": {
+                    "tm_protection": "candidate-only",
+                    "content_type_rules": [
+                        {
+                            "id": "all-dialogue",
+                            "glob": "*.sdlxliff",
+                            "content_type": "Dialogue",
+                        }
+                    ],
+                },
+            },
+        )
+
+    def tearDown(self):
+        self.tempdir.cleanup()
+
+    def run_script(self, script: Path, *args):
+        return subprocess.run(
+            [sys.executable, str(script), *map(str, args)],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+
+    def run_io(self, *args):
+        return self.run_script(IO_SCRIPT, *args)
+
+    def make_sdl(
+        self,
+        path: Path,
+        *,
+        source_language: str = "zh-CN",
+        target_language: str = "en-US",
+        source: str = "甲",
+        target: str = "Alpha",
+        seg_attributes: str = "",
+    ) -> Path:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            f'<xliff version="1.2" xmlns="{XLIFF_NS}" xmlns:sdl="{SDL_NS}">'
+            f'<file original="anonymous.xml" source-language="{source_language}" '
+            f'target-language="{target_language}"><body><trans-unit id="tu">'
+            f'<source>{source}</source><target>{target}</target>'
+            f'<sdl:seg-defs><sdl:seg id="1" {seg_attributes}/></sdl:seg-defs>'
+            "</trans-unit></body></file></xliff>",
+            encoding="utf-8",
+        )
+        return path
+
+    def read_tabular(self, source: Path) -> dict:
+        state_path = self.root / f"job-{source.suffix[1:]}" / "state.json"
+        result = self.run_io(
+            "read",
+            "--input",
+            source,
+            "--source-col",
+            "Source",
+            "--target-col",
+            "Target",
+            "--out",
+            state_path,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return read_json(state_path)
+
+    def test_language_tag_normalization_and_base_matching(self):
+        self.assertEqual(
+            lqe_engine.normalize_language_tag(" ZH_hans_cn_x-private "),
+            "zh-Hans-CN-x-private",
+        )
+        self.assertEqual(
+            lqe_engine.normalize_language_tag("en-latn-us-x-ab"),
+            "en-Latn-US-x-ab",
+        )
+        self.assertTrue(lqe_engine.language_tags_match("zh", "zh-CN"))
+        self.assertTrue(lqe_engine.language_tags_match("en_us", "en-US"))
+        self.assertFalse(lqe_engine.language_tags_match("zh-TW", "zh-CN"))
+        self.assertFalse(lqe_engine.language_tags_match("", "zh-CN"))
+        self.assertTrue(lqe_engine._load_lang("th"))
+        self.assertEqual(
+            lqe_engine._load_lang("th-TH"),
+            lqe_engine._load_lang("th"),
+        )
+
+    def test_cli_reads_directory_without_source_target_columns(self):
+        state_path = self.job / "state.json"
+        result = self.run_io(
+            "read",
+            "--input",
+            self.fixture_dir,
+            "--input-format",
+            "sdlxliff",
+            "--source-lang",
+            "zh",
+            "--target-lang",
+            "en",
+            "--out",
+            state_path,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state = read_json(state_path)
+        self.assertEqual(state["input_format"], "sdlxliff")
+        self.assertEqual(
+            state["headers"],
+            ["来源文件", "TU ID", "SDL Segment ID", "原文", "译文"],
+        )
+        self.assertEqual(state["source_lang"], "zh-CN")
+        self.assertEqual(state["target_lang"], "en-US")
+        self.assertEqual(
+            state["input_paths"],
+            [
+                str((self.fixture_dir / "a" / "dialogs.sdlxliff").resolve()),
+                str((self.fixture_dir / "b.sdlxliff").resolve()),
+            ],
+        )
+        self.assertEqual(
+            state["source_manifest_path"],
+            str(self.job / "source_manifest.json"),
+        )
+        self.assertEqual(
+            state["tm_candidates_path"], str(self.job / "tm_candidates.json")
+        )
+        commented = next(
+            segment
+            for segment in state["segments"]
+            if segment["source_ref"]["tu_id"] == "shared-tu"
+            and segment["source_ref"]["relative_path"] == "a/dialogs.sdlxliff"
+        )
+        self.assertEqual(commented["context_note"], "Anonymous review note")
+        self.assertEqual(
+            commented["metadata"]["sdlxliff"]["comment"],
+            "Anonymous review note",
+        )
+        self.assertIn("source_plain", commented)
+        self.assertIn("target_plain", commented)
+        self.assertEqual(
+            read_json(self.job / "scope.json"), state["check_scope"]
+        )
+
+    def test_language_and_structure_errors_are_atomic(self):
+        mixed_language_dir = self.root / "mixed-language"
+        self.make_sdl(mixed_language_dir / "a.sdlxliff")
+        self.make_sdl(
+            mixed_language_dir / "b.sdlxliff",
+            source_language="ja-JP",
+            target_language="en-US",
+        )
+        state_path = self.job / "state.json"
+
+        result = self.run_io(
+            "read", "--input", mixed_language_dir, "--out", state_path
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("language", result.stderr.lower())
+        for name in (
+            "state.json",
+            "source_manifest.json",
+            "tm_candidates.json",
+            "scope.json",
+        ):
+            self.assertFalse((self.job / name).exists(), name)
+
+        invalid_inputs = {
+            "invalid-xml.sdlxliff": "<xliff>",
+            "missing-source.sdlxliff": (
+                f'<xliff version="1.2" xmlns="{XLIFF_NS}" xmlns:sdl="{SDL_NS}">'
+                '<file source-language="zh-CN" target-language="en-US"><body>'
+                '<trans-unit id="tu"><target>Alpha</target></trans-unit>'
+                "</body></file></xliff>"
+            ),
+        }
+        for index, (name, content) in enumerate(invalid_inputs.items()):
+            with self.subTest(structure=name):
+                source = self.root / name
+                source.write_text(content, encoding="utf-8")
+                job = self.root / f"invalid-job-{index}"
+                result = self.run_io(
+                    "read", "--input", source, "--out", job / "state.json"
+                )
+                self.assertNotEqual(result.returncode, 0)
+                for artifact in (
+                    "state.json",
+                    "source_manifest.json",
+                    "tm_candidates.json",
+                    "scope.json",
+                ):
+                    self.assertFalse((job / artifact).exists(), artifact)
+
+    def test_configured_language_mismatch_is_atomic(self):
+        state_path = self.job / "state.json"
+        result = self.run_io(
+            "read",
+            "--input",
+            self.fixture_dir,
+            "--source-lang",
+            "ja",
+            "--target-lang",
+            "en",
+            "--out",
+            state_path,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("source language", result.stderr.lower())
+        self.assertFalse(self.job.exists())
+
+    def test_cli_base_language_cannot_mask_profile_region_mismatch(self):
+        profile = self.root / "mismatched-profile" / "profile.json"
+        write_json(
+            profile,
+            {
+                "name": "anonymous/zh-tw-en",
+                "language_pair": "zh-TW-en",
+                "source_lang": "zh-TW",
+                "target_lang": "en",
+            },
+        )
+
+        result = self.run_io(
+            "read",
+            "--input",
+            self.fixture_dir,
+            "--project",
+            profile,
+            "--source-lang",
+            "zh",
+            "--out",
+            self.job / "state.json",
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("profile source language", result.stderr.lower())
+        self.assertFalse(self.job.exists())
+
+    def test_existing_sdl_job_artifact_is_not_overwritten(self):
+        for artifact_name in (
+            "state.json",
+            "source_manifest.json",
+            "tm_candidates.json",
+            "scope.json",
+        ):
+            with self.subTest(artifact=artifact_name):
+                job = self.root / f"existing-{artifact_name}"
+                state_path = job / "state.json"
+                artifact = job / artifact_name
+                artifact.parent.mkdir(parents=True)
+                artifact.write_text("sentinel", encoding="utf-8")
+
+                result = self.run_io(
+                    "read", "--input", self.fixture_dir, "--out", state_path
+                )
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("already exists", result.stderr)
+                self.assertEqual(artifact.read_text(encoding="utf-8"), "sentinel")
+                expected = {
+                    "state.json",
+                    "source_manifest.json",
+                    "tm_candidates.json",
+                    "scope.json",
+                }
+                self.assertEqual(
+                    {path.name for path in job.iterdir()}, {artifact_name}
+                )
+
+    def test_sdl_state_path_cannot_alias_a_helper_artifact(self):
+        state_path = self.job / "source_manifest.json"
+
+        result = self.run_io(
+            "read", "--input", self.fixture_dir, "--out", state_path
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("reserved", result.stderr)
+        self.assertFalse(self.job.exists())
+
+    def test_sdl_state_path_case_variant_cannot_alias_helper_artifact(self):
+        state_path = self.job / "SOURCE_MANIFEST.JSON"
+
+        result = self.run_io(
+            "read", "--input", self.fixture_dir, "--out", state_path
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("reserved", result.stderr)
+        self.assertFalse(self.job.exists())
+
+    def test_publish_interruption_removes_state_helpers_and_staging_files(self):
+        state_path = self.job / "state.json"
+        original_replace = Path.replace
+
+        def interrupt_after_replace(path, target):
+            result = original_replace(path, target)
+            if Path(target).name == "tm_candidates.json":
+                raise KeyboardInterrupt("simulated publication interruption")
+            return result
+
+        with mock.patch.object(Path, "replace", interrupt_after_replace):
+            with self.assertRaises(KeyboardInterrupt):
+                lqe_io._publish_sdlxliff_job(
+                    state_path,
+                    manifest={"kind": "manifest"},
+                    tm_candidates={"candidate_ids": []},
+                    scope={"mode": "standard"},
+                    state={"input_format": "sdlxliff"},
+                )
+
+        self.assertTrue(self.job.exists())
+        self.assertEqual(list(self.job.iterdir()), [])
+
+    def test_explicit_sdl_directory_ignores_but_records_other_supported_files(self):
+        state_path = self.job / "state.json"
+        result = self.run_io(
+            "read",
+            "--input",
+            self.mixed_input_dir,
+            "--input-format",
+            "sdlxliff",
+            "--out",
+            state_path,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        manifest = read_json(self.job / "source_manifest.json")
+        self.assertEqual(manifest["unselected_supported_files"], ["notes.csv"])
+
+    def test_tabular_read_still_requires_columns(self):
+        result = self.run_io(
+            "read", "--input", self.csv, "--out", self.job / "state.json"
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--source-col", result.stderr)
+        self.assertFalse(self.job.exists())
+
+    def test_tabular_csv_tsv_and_xlsx_success_paths_are_unchanged(self):
+        for source in (self.csv, self.tsv, self.xlsx):
+            with self.subTest(source=source.name):
+                state = self.read_tabular(source)
+                self.assertEqual(state["input_format"], "tabular")
+                self.assertEqual(
+                    [segment["source"] for segment in state["segments"]],
+                    ["甲", "乙"],
+                )
+
+    def test_protect_exact_tm_is_rejected_for_tabular_input(self):
+        result = self.run_io(
+            "read",
+            "--input",
+            self.csv,
+            "--source-col",
+            "Source",
+            "--target-col",
+            "Target",
+            "--protect-exact-tm",
+            "--out",
+            self.job / "state.json",
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--protect-exact-tm", result.stderr)
+        self.assertFalse(self.job.exists())
+
+    def test_cli_exact_tm_overrides_candidate_only_profile(self):
+        state_path = self.job / "state.json"
+        result = self.run_io(
+            "read",
+            "--input",
+            FIXTURES / "multi_segment.sdlxliff",
+            "--project",
+            self.candidate_profile,
+            "--protect-exact-tm",
+            "--out",
+            state_path,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state = read_json(state_path)
+        self.assertEqual(state["segments"][0]["protected_reason"], "TM_100_MATCH")
+        self.assertEqual(state["segments"][0]["content_type"], "Dialogue")
+        self.assertEqual(
+            state["segments"][0]["metadata"]["sdlxliff"]["content_type"],
+            "Dialogue",
+        )
+
+    def test_candidate_file_requires_explicit_protect_segments_decision(self):
+        state_path = self.job / "state.json"
+        result = self.run_io(
+            "read",
+            "--input",
+            FIXTURES / "multi_segment.sdlxliff",
+            "--project",
+            self.candidate_profile,
+            "--out",
+            state_path,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state = read_json(state_path)
+        self.assertFalse(state["segments"][0].get("protected", False))
+        candidates = read_json(self.job / "tm_candidates.json")
+        self.assertEqual(candidates["candidate_ids"], [0])
+        self.assertEqual(candidates["segments"][0]["id"], 0)
+
+        result = self.run_io(
+            "protect-segments",
+            "--state",
+            state_path,
+            "--protected-file",
+            self.job / "tm_candidates.json",
+            "--reason",
+            "TM_100_MATCH",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        protected = read_json(state_path)["segments"][0]
+        self.assertTrue(protected["protected"])
+        self.assertEqual(protected["protected_reason"], "TM_100_MATCH")
+
+    def test_candidate_ids_are_not_generic_apply_fixes_protected_ids(self):
+        candidate_file = self.root / "tm_candidates.json"
+        write_json(candidate_file, {"candidate_ids": [0]})
+        args = type(
+            "ProtectionArgs",
+            (),
+            {"protected_ids": None, "protected_file": candidate_file},
+        )()
+
+        self.assertEqual(lqe_io._protected_ids(args), set())
+        self.assertEqual(
+            lqe_io._protected_ids(args, allow_candidates=True),
+            {0},
+        )
+
+    def test_explicit_candidate_protection_preserves_source_locked_reason(self):
+        source = self.make_sdl(
+            self.root / "locked-exact.sdlxliff",
+            seg_attributes=(
+                'locked="true" origin="tm" percent="100" '
+                'text-match="SourceAndTarget"'
+            ),
+        )
+        state_path = self.job / "state.json"
+        result = self.run_io(
+            "read",
+            "--input",
+            source,
+            "--project",
+            self.candidate_profile,
+            "--out",
+            state_path,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            read_json(state_path)["segments"][0]["protected_reason"],
+            "SOURCE_LOCKED",
+        )
+
+        result = self.run_io(
+            "protect-segments",
+            "--state",
+            state_path,
+            "--protected-file",
+            self.job / "tm_candidates.json",
+            "--reason",
+            "TM_100_MATCH",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            read_json(state_path)["segments"][0]["protected_reason"],
+            "SOURCE_LOCKED",
+        )
+
+    def test_wordcount_uses_plain_text_not_inline_attributes(self):
+        source = self.make_sdl(
+            self.root / "inline.sdlxliff",
+            source='甲<x id="attribute_should_not_count"/>乙 AB',
+        )
+        state_path = self.job / "state.json"
+        result = self.run_io(
+            "read",
+            "--input",
+            source,
+            "--wordcount-basis",
+            "source-chars",
+            "--out",
+            state_path,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(read_json(state_path)["wordcount"], 3)
+
+        target_source = self.make_sdl(
+            self.root / "inline-target.sdlxliff",
+            target='Alpha<x id="attribute should not count"/> Beta',
+        )
+        target_state = self.root / "target-wordcount-job" / "state.json"
+        result = self.run_io(
+            "read",
+            "--input",
+            target_source,
+            "--wordcount-basis",
+            "target-words",
+            "--out",
+            target_state,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(read_json(target_state)["wordcount"], 2)
+
+    def test_chunk_dedup_and_batch_prompt_keep_review_context(self):
+        state_path = self.job / "state.json"
+        errors_path = self.job / "errors_precheck.json"
+        base = {
+            "source": "Same",
+            "target": "相同",
+            "protected": False,
+            "content_type": "UI",
+            "text_type_context": "Menu",
+            "context_note": "Button label",
+        }
+        segments = [
+            {
+                "id": 0,
+                **base,
+                "source_ref": {"relative_path": "base.sdlxliff"},
+            },
+            {
+                "id": 1,
+                **base,
+                "source_ref": {"relative_path": "duplicate.sdlxliff"},
+            },
+            {
+                "id": 2,
+                **base,
+                "protected": True,
+                "source_ref": {"relative_path": "protected.sdlxliff"},
+            },
+            {
+                "id": 3,
+                **base,
+                "content_type": "Dialogue",
+                "source_ref": {"relative_path": "content.sdlxliff"},
+            },
+            {
+                "id": 4,
+                **base,
+                "text_type_context": "Story",
+                "source_ref": {"relative_path": "text-context.sdlxliff"},
+            },
+            {
+                "id": 5,
+                **base,
+                "context_note": "Spoken line",
+                "source_ref": {"relative_path": "note.sdlxliff"},
+            },
+        ]
+        write_json(
+            state_path,
+            {
+                "segments": segments,
+                "check_scope": {
+                    "mode": "no-terminology",
+                    "terminology_enabled": False,
+                    "enabled_modules": [
+                        "precheck_review",
+                        "accuracy",
+                        "grammar",
+                        "naturalness",
+                    ],
+                    "disabled_modules": [
+                        "terminology",
+                        "proper_names",
+                        "term_audit",
+                    ],
+                    "source": "test",
+                },
+            },
+        )
+        write_json(errors_path, [])
+        chunks = self.job / "chunks"
+
+        result = self.run_script(
+            CHUNK_SCRIPT,
+            "split",
+            "--state",
+            state_path,
+            "--errors",
+            errors_path,
+            "--outdir",
+            chunks,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        chunk_rows = read_json(chunks / "chunk_00.json")["segments"]
+        self.assertEqual([row["id"] for row in chunk_rows], [0, 2, 3, 4, 5])
+        self.assertEqual(
+            read_json(chunks / "dedup_map.json")["0"],
+            [0, 1],
+        )
+        self.assertEqual(chunk_rows[0]["context_note"], "Button label")
+        self.assertEqual(
+            chunk_rows[2]["source_ref"], {"relative_path": "content.sdlxliff"}
+        )
+
+        result = self.run_script(BATCH_SCRIPT, "plan", "--job", self.job)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        prompt = (self.job / "batches" / "batch_00.txt").read_text(encoding="utf-8")
+        self.assertIn("CONTENT_TYPE: UI", prompt)
+        self.assertIn("CONTEXT: Menu | Button label", prompt)
+        self.assertIn("CONTENT_TYPE: Dialogue", prompt)
+        self.assertIn("CONTEXT: Menu | Spoken line", prompt)
 
 
 if __name__ == "__main__":

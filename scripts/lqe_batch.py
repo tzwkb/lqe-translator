@@ -124,6 +124,18 @@ def cmd_plan(args):
                 hh.append(f"{term['source']}={term['target']}[{flags}]{status}")
             flags = '; '.join(f"{e['category']}:{e['comment'][:60]}" for e in pre.get(sid, []))
             block = f"#{sid}\nSRC: {src}\nTGT: {tgt}"
+            if s.get("content_type"):
+                block += f"\nCONTENT_TYPE: {s['content_type']}"
+            contexts = [
+                value
+                for value in (
+                    s.get("text_type_context"),
+                    s.get("context_note"),
+                )
+                if value
+            ]
+            if contexts:
+                block += f"\nCONTEXT: {' | '.join(dict.fromkeys(contexts))}"
             if hh:
                 block += f"\nTERMS: {' | '.join(hh[:8])}"
             if flags:

@@ -124,7 +124,17 @@ def cmd_split(a):
     # 相同源文和译文只检查一次；合并时把结果复制到组内每个 id
     groups = {}
     for seg in segs:
-        groups.setdefault((seg.get("source", ""), seg.get("target", ""), bool(seg.get("protected"))), []).append(seg)
+        groups.setdefault(
+            (
+                seg.get("source", ""),
+                seg.get("target", ""),
+                bool(seg.get("protected")),
+                seg.get("content_type"),
+                seg.get("text_type_context"),
+                seg.get("context_note"),
+            ),
+            [],
+        ).append(seg)
     reps, dedup_map = [], {}
     for gsegs in groups.values():          # dict 保序：组按首次出现序
         rep = min(gsegs, key=lambda s: s["id"])
@@ -170,6 +180,8 @@ def cmd_split(a):
                 "target": seg.get("target", ""),
                 "content_type": seg.get("content_type"),
                 "text_type_context": seg.get("text_type_context"),
+                "context_note": seg.get("context_note"),
+                "source_ref": seg.get("source_ref"),
                 "protected": bool(seg.get("protected")),
                 "protected_reason": seg.get("protected_reason"),
                 "kind": _seg_kind(src_txt),

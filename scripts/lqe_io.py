@@ -15,6 +15,7 @@ import io
 import json
 import re
 import sys
+import tempfile
 from datetime import date
 from pathlib import Path
 
@@ -31,6 +32,7 @@ from lqe_engine import (
     raw_points, weighted_points,
     load_scorecard_profile, normalize_category_for_profile, scorecard_category_order,
     scorecard_category_parent, scorecard_category_weight,
+    language_tags_match, normalize_language_tag,
     validate_scope_entries,
 )
 from lqe_corrections import (
@@ -39,6 +41,8 @@ from lqe_corrections import (
     normalize_check_entries,
     verify_results,
 )
+from lqe_inputs import SDLXLIFFImportError, detect_input_format, read_sdlxliff
+from lqe_inputs.sdlxliff import validate_options as validate_sdlxliff_options
 
 
 def _write_json_atomic(path: Path, value: object) -> None:
@@ -322,6 +326,392 @@ def _extract_text_type_marker(src, tgt=None, content_type=None):
     return None
 
 
+def _prepare_read_assets(
+    args,
+    prof: dict | None,
+    check_scope: dict,
+    segments: list[dict],
+    source_lang: str,
+    target_lang: str,
+) -> dict:
+    job_dir = Path(args.out).parent
+    job_dir.mkdir(parents=True, exist_ok=True)
+
+    sg_path = ""
+    if args.style_guide:
+        sg_text = _load_style_guide(args.style_guide)
+        if sg_text:
+            sg_file = job_dir / "sg.txt"
+            sg_file.write_text(sg_text, encoding="utf-8")
+            sg_path = str(sg_file)
+            print(f"[lqe_io] style_guide: {len(sg_text)} chars → {sg_file}")
+
+    terms_path = ""
+    if args.terminology:
+        protected_statuses = {
+            str(status).lower()
+            for status in (prof.get("protected_term_statuses") or [])
+        } if prof else set()
+        src = Path(args.terminology)
+        if prof and src.suffix.lower() == ".json" and not protected_statuses and src.exists():
+            terms_path = str(src)
+            print(f"[lqe_io] terminology: 引用项目 TB（不复制）→ {src}")
+        else:
+            terms = _load_terminology(args.terminology)
+            if terms and protected_statuses:
+                n_protected = 0
+                for term in terms:
+                    for sense in term.get("senses", [term]):
+                        if str(sense.get("status", "")).lower() in protected_statuses:
+                            sense["protected"] = True
+                            n_protected += 1
+                print(
+                    f"[lqe_io] protected term senses: {n_protected} "
+                    f"(protected_term_statuses: {sorted(protected_statuses)})"
+                )
+            if terms:
+                terms_file = job_dir / "terms.json"
+                terms_file.write_text(
+                    json.dumps(terms, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+                terms_path = str(terms_file)
+                print(f"[lqe_io] terminology: {len(terms)} entries → {terms_file}")
+
+    asset_lang = (
+        _target_lang({"target_lang": getattr(args, "target_lang", None)})
+        or _target_lang(prof if prof else {})
+        or str(target_lang or "").lower()
+    )
+    lang_cfg = _load_lang(asset_lang)
+    if not lang_cfg and "-" in asset_lang:
+        asset_lang = asset_lang.split("-", 1)[0]
+        lang_cfg = _load_lang(asset_lang)
+    if lang_cfg:
+        print(
+            f"[lqe_io] target language attributes: "
+            f"target_languages/{asset_lang}/attributes.json"
+        )
+
+    lang_notes_path = ""
+    if asset_lang:
+        notes_path = _LANG_DIR / asset_lang / "eval_notes.md"
+        if notes_path.exists():
+            destination = job_dir / "lang_notes.md"
+            destination.write_text(notes_path.read_text(encoding="utf-8"), encoding="utf-8")
+            lang_notes_path = str(destination)
+            print(f"[lqe_io] language eval notes → {destination}")
+
+    background_path = ""
+    if prof and (prof.get("background") or "").strip():
+        destination = job_dir / "background.md"
+        destination.write_text(
+            "# 项目背景\n\n" + prof["background"].strip() + "\n",
+            encoding="utf-8",
+        )
+        background_path = str(destination)
+        print(f"[lqe_io] project background → {destination}")
+
+    basis = (
+        getattr(args, "wordcount_basis", None)
+        or (prof.get("wordcount_basis") if prof else None)
+        or lang_cfg.get("wordcount_basis")
+        or "target-words"
+    )
+    if lang_cfg.get("word_delim") == "none" and basis == "target-words":
+        print(
+            "[warn] target language has no word delimiter — 'target-words' basis will "
+            "undercount severely; use source-chars",
+            file=sys.stderr,
+        )
+    if basis == "source-chars":
+        wordcount = sum(
+            len(_RE_CJK.findall(segment.get("source_plain", segment["source"])))
+            + len(
+                re.findall(
+                    r"[A-Za-z0-9]+",
+                    segment.get("source_plain", segment["source"]),
+                )
+            )
+            for segment in segments
+        )
+    else:
+        wordcount = sum(
+            len(segment.get("target_plain", segment["target"]).split())
+            for segment in segments
+        )
+
+    checks_path = confirmed_rules_path = ""
+    if prof:
+        checks = Path(_project_path(prof, prof.get("checks", "checks.json")))
+        checks_path = str(checks) if checks.exists() else ""
+        confirmed = Path(
+            _project_path(prof, prof.get("confirmed_rules", "confirmed_rules.md"))
+        )
+        common_confirmed = confirmed.parent.parent / "common" / "confirmed_rules_common.md"
+        parts = []
+        if common_confirmed.exists():
+            parts.append(
+                f"<!-- ===== 共通确认规则（游戏级）: {common_confirmed.name} ===== -->\n"
+                + common_confirmed.read_text(encoding="utf-8")
+            )
+        if confirmed.exists():
+            parts.append(
+                f"<!-- ===== 语言专有确认规则: {confirmed} ===== -->\n"
+                + confirmed.read_text(encoding="utf-8")
+            )
+        if parts:
+            combined = job_dir / "confirmed_rules.md"
+            combined.write_text("\n\n".join(parts), encoding="utf-8")
+            confirmed_rules_path = str(combined)
+            print(
+                f"[lqe_io] confirmed rules: "
+                f"{'共通+' if common_confirmed.exists() else ''}语言专有 → {combined}"
+            )
+
+    return {
+        "aipe_url": None,
+        "check_scope": check_scope,
+        "project": prof.get("name", "") if prof else "",
+        "language_pair": prof.get("language_pair", "") if prof else (
+            f"{source_lang}-{target_lang}" if source_lang and target_lang else ""
+        ),
+        "source_lang": source_lang,
+        "target_lang": target_lang,
+        "lang_notes_path": lang_notes_path,
+        "background_path": background_path,
+        "checks_path": checks_path,
+        "confirmed_rules_path": confirmed_rules_path,
+        "threshold": prof.get("threshold", 98) if prof else 98,
+        "sg_path": sg_path,
+        "terms_path": terms_path,
+        "terminology": [],
+        "style_guide": "",
+        "wordcount": wordcount,
+        "wordcount_basis": basis,
+        "iteration": 0,
+    }
+
+
+def _language_values_match(first: str, second: str) -> bool:
+    return language_tags_match(first, second) or language_tags_match(second, first)
+
+
+def _validate_sdlxliff_languages(result, args, prof: dict | None) -> tuple[str, str]:
+    declarations = result.manifest.get("languages", [])
+    if not declarations:
+        raise SDLXLIFFImportError("SDLXLIFF input has no language declarations")
+    normalized = []
+    for index, declaration in enumerate(declarations):
+        source = normalize_language_tag(declaration.get("source_language"))
+        target = normalize_language_tag(declaration.get("target_language"))
+        if not source or not target:
+            raise SDLXLIFFImportError(
+                f"language declaration {index} must include source-language and target-language"
+            )
+        normalized.append((source, target))
+    expected_source, expected_target = normalized[0]
+    for index, (source, target) in enumerate(normalized[1:], start=1):
+        if source != expected_source or target != expected_target:
+            raise SDLXLIFFImportError(
+                "conflicting SDLXLIFF language declarations: "
+                f"declaration 0={expected_source}->{expected_target}, "
+                f"declaration {index}={source}->{target}"
+            )
+
+    profile_source = normalize_language_tag(prof.get("source_lang")) if prof else ""
+    profile_target = normalize_language_tag(prof.get("target_lang")) if prof else ""
+    cli_source = normalize_language_tag(getattr(args, "source_lang", None))
+    cli_target = normalize_language_tag(getattr(args, "target_lang", None))
+    for label, profile_value, cli_value in (
+        ("source", profile_source, cli_source),
+        ("target", profile_target, cli_target),
+    ):
+        if profile_value and cli_value and not _language_values_match(
+            profile_value, cli_value
+        ):
+            raise SDLXLIFFImportError(
+                f"profile and CLI {label} language conflict: "
+                f"{profile_value!r} != {cli_value!r}"
+            )
+
+    for origin, source, target in (
+        ("profile", profile_source, profile_target),
+        ("CLI", cli_source, cli_target),
+    ):
+        if source and not language_tags_match(source, expected_source):
+            raise SDLXLIFFImportError(
+                f"{origin} source language {source!r} does not match "
+                f"declared source language {expected_source!r}"
+            )
+        if target and not language_tags_match(target, expected_target):
+            raise SDLXLIFFImportError(
+                f"{origin} target language {target!r} does not match "
+                f"declared target language {expected_target!r}"
+            )
+    return expected_source, expected_target
+
+
+def _publish_sdlxliff_job(
+    state_path: Path,
+    *,
+    manifest: dict,
+    tm_candidates: dict,
+    scope: dict,
+    state: dict,
+) -> None:
+    job_dir = state_path.parent
+    reserved_names = {
+        "source_manifest.json",
+        "tm_candidates.json",
+        "scope.json",
+    }
+    if state_path.name.casefold() in reserved_names:
+        raise ValueError(
+            f"SDLXLIFF state path conflicts with reserved helper artifact: {state_path}"
+        )
+    paths = {
+        "manifest": job_dir / "source_manifest.json",
+        "candidates": job_dir / "tm_candidates.json",
+        "scope": job_dir / "scope.json",
+        "state": state_path,
+    }
+    existing = [path for path in paths.values() if path.exists()]
+    if existing:
+        raise FileExistsError(
+            "SDLXLIFF job artifact already exists; use a new job directory: "
+            + ", ".join(str(path) for path in existing)
+        )
+
+    values = {
+        "manifest": manifest,
+        "candidates": tm_candidates,
+        "scope": scope,
+        "state": state,
+    }
+    serialized = {
+        key: json.dumps(value, ensure_ascii=False, indent=2)
+        for key, value in values.items()
+    }
+    job_dir.mkdir(parents=True, exist_ok=True)
+    staged: dict[str, Path] = {}
+    try:
+        for key, payload in serialized.items():
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=job_dir,
+                prefix=f".{paths[key].name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                handle.write(payload)
+                staged[key] = Path(handle.name)
+        for key in ("manifest", "candidates", "scope"):
+            staged[key].replace(paths[key])
+        staged["state"].replace(paths["state"])
+    except BaseException:
+        if paths["state"].exists():
+            paths["state"].unlink()
+        for key in ("manifest", "candidates", "scope"):
+            path = paths[key]
+            if path.exists():
+                path.unlink()
+        raise
+    finally:
+        for path in staged.values():
+            if path.exists():
+                path.unlink()
+
+
+def _read_sdlxliff_job(args, prof: dict | None, check_scope: dict) -> None:
+    state_path = Path(args.out)
+    job_dir = state_path.parent
+    helper_paths = (
+        job_dir / "source_manifest.json",
+        job_dir / "tm_candidates.json",
+        job_dir / "scope.json",
+    )
+    if state_path.name.casefold() in {
+        helper_path.name.casefold() for helper_path in helper_paths
+    } or any(
+        state_path.resolve() == helper_path.resolve() for helper_path in helper_paths
+    ):
+        raise ValueError(
+            f"SDLXLIFF --out path conflicts with reserved helper artifact: {state_path}"
+        )
+    formal_paths = (
+        state_path,
+        *helper_paths,
+    )
+    existing = [path for path in formal_paths if path.exists()]
+    if existing:
+        raise FileExistsError(
+            "SDLXLIFF job artifact already exists; use a new job directory: "
+            + ", ".join(str(path) for path in existing)
+        )
+
+    raw_options = prof.get("sdlxliff", {}) if prof else {}
+    options = validate_sdlxliff_options(
+        raw_options,
+        cli_protect_exact_tm=getattr(args, "protect_exact_tm", False),
+    )
+    result = read_sdlxliff(Path(args.input), options=options)
+    source_lang, target_lang = _validate_sdlxliff_languages(result, args, prof)
+
+    for segment in result.segments:
+        metadata = segment["metadata"]["sdlxliff"]
+        metadata["content_type"] = segment.get("content_type")
+        segment["context_note"] = metadata.get("comment") or None
+        segment["iter"] = 0
+
+    common = _prepare_read_assets(
+        args,
+        prof,
+        check_scope,
+        result.segments,
+        source_lang,
+        target_lang,
+    )
+    manifest_path = job_dir / "source_manifest.json"
+    candidates_path = job_dir / "tm_candidates.json"
+    candidates = {
+        "candidate_ids": list(result.tm_candidates.get("candidate_ids", [])),
+        "segments": [
+            {
+                "id": item["segment_id"],
+                "evidence": item.get("evidence", {}),
+                "source_ref": item.get("source_ref", {}),
+            }
+            for item in result.tm_candidates.get("segments", [])
+        ],
+    }
+    state = {
+        "input_format": "sdlxliff",
+        "input_path": str(Path(args.input).resolve()),
+        "input_paths": result.input_paths,
+        "source_manifest_path": str(manifest_path),
+        "tm_candidates_path": str(candidates_path),
+        "source_col": "原文",
+        "target_col": "译文",
+        "headers": result.headers,
+        "rows_raw": result.rows_raw,
+        "text_type_markers": [],
+        **common,
+        "segments": result.segments,
+    }
+    _publish_sdlxliff_job(
+        state_path,
+        manifest=result.manifest,
+        tm_candidates=candidates,
+        scope=check_scope,
+        state=state,
+    )
+    print(
+        f"[lqe_io] {len(result.segments)} segments → {args.out}  "
+        f"wordcount={state['wordcount']}"
+    )
+
+
 def cmd_read(args):
     check_scope = build_check_scope(getattr(args, "no_terminology", False))
     out_path = Path(args.out)
@@ -336,6 +726,13 @@ def cmd_read(args):
             file=sys.stderr,
         )
         sys.exit(2)
+    try:
+        input_format = detect_input_format(
+            Path(args.input), getattr(args, "input_format", "auto")
+        )
+    except ValueError as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        sys.exit(1)
     prof = _load_project(args.project) if getattr(args, "project", None) else None
     if prof:
         _validate_project_profile(prof)
@@ -347,6 +744,27 @@ def cmd_read(args):
             elif not args.terminology:
                 args.terminology = _project_path(prof, prof["terminology"])
         print(f"[lqe_io] project: {prof.get('name', '?')} ({prof.get('language_pair', '?')})")
+
+    if input_format == "sdlxliff":
+        try:
+            _read_sdlxliff_job(args, prof, check_scope)
+        except (OSError, ValueError) as exc:
+            print(f"[ERROR] {exc}", file=sys.stderr)
+            sys.exit(1)
+        return
+
+    if getattr(args, "protect_exact_tm", False):
+        print(
+            "[ERROR] --protect-exact-tm is only valid for SDLXLIFF input",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    if args.source_col is None or args.target_col is None:
+        print(
+            "[ERROR] tabular input requires --source-col and --target-col",
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
     no_header = getattr(args, "no_header", False)
     input_path = Path(args.input)
@@ -453,139 +871,28 @@ def cmd_read(args):
         print("[ERROR] No data rows found.", file=sys.stderr)
         sys.exit(1)
 
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # ── Style Guide → 独立文本文件 ─────────────────────────────────────────
-    sg_path = ""
-    if args.style_guide:
-        sg_text = _load_style_guide(args.style_guide)
-        if sg_text:
-            sg_file = job_dir / "sg.txt"
-            sg_file.write_text(sg_text, encoding="utf-8")
-            sg_path = str(sg_file)
-            print(f"[lqe_io] style_guide: {len(sg_text)} chars → {sg_file}")
-
-    # ── Terminology ───────────────────────────────────────────────────────
-    # 优化：项目模式下源已是干净 JSON 且无保护标记 → terms_path 直接指向项目权威 TB，
-    # 不在每个 job 里复制一份（项目 terms_*.json 由 mastertb_to_terms 产出、已清理）。
-    # 需格式转换(xlsx/csv) 或要打 protected 标时，才落一份 job 副本。
-    terms_path = ""
-    if args.terminology:
-        protected_statuses = {
-            str(status).lower()
-            for status in (prof.get("protected_term_statuses") or [])
-        } if prof else set()
-        src = Path(args.terminology)
-        if prof and src.suffix.lower() == ".json" and not protected_statuses and src.exists():
-            terms_path = str(src)
-            print(f"[lqe_io] terminology: 引用项目 TB（不复制）→ {src}")
-        else:
-            terms = _load_terminology(args.terminology)
-            if terms and protected_statuses:
-                n_protected = 0
-                for t in terms:
-                    senses = t.get("senses", [t])
-                    for sense in senses:
-                        if str(sense.get("status", "")).lower() in protected_statuses:
-                            sense["protected"] = True
-                            n_protected += 1
-                print(
-                    f"[lqe_io] protected term senses: {n_protected} "
-                    f"(protected_term_statuses: {sorted(protected_statuses)})"
-                )
-            if terms:
-                terms_file = job_dir / "terms.json"
-                terms_file.write_text(json.dumps(terms, ensure_ascii=False, indent=2), encoding="utf-8")
-                terms_path = str(terms_file)
-                print(f"[lqe_io] terminology: {len(terms)} entries → {terms_file}")
-
     source_lang = _source_lang({"source_lang": getattr(args, "source_lang", None)}) \
         or _source_lang(prof if prof else {})
     lang = _target_lang({"target_lang": getattr(args, "target_lang", None)}) \
         or _target_lang(prof if prof else {})
-    lang_cfg = _load_lang(lang)
-    if lang_cfg:
-        print(f"[lqe_io] target language attributes: target_languages/{lang}/attributes.json")
-
-    # 语言级检查说明（固定名 eval_notes.md，存在即挂载）会复制到任务目录；效力低于风格指南和确认规则
-    lang_notes_path = ""
-    if lang:
-        np = _LANG_DIR / lang / "eval_notes.md"
-        if np.exists():
-            dst = job_dir / "lang_notes.md"
-            dst.write_text(np.read_text(encoding="utf-8"), encoding="utf-8")
-            lang_notes_path = str(dst)
-            print(f"[lqe_io] language eval notes → {dst}")
-
-    # 项目背景（游戏类型/受众/语气/语域基调）提供给各检查模块和单任务，校准自然度与口吻判断
-    # 检查模块规范保持项目中立；具体背景来自 profile.background
-    background_path = ""
-    if prof and (prof.get("background") or "").strip():
-        dst = job_dir / "background.md"
-        dst.write_text("# 项目背景\n\n" + prof["background"].strip() + "\n", encoding="utf-8")
-        background_path = str(dst)
-        print(f"[lqe_io] project background → {dst}")
-
-    basis = getattr(args, "wordcount_basis", None) \
-        or (prof.get("wordcount_basis") if prof else None) \
-        or lang_cfg.get("wordcount_basis") or "target-words"
-    if lang_cfg.get("word_delim") == "none" and basis == "target-words":
-        print("[warn] target language has no word delimiter — 'target-words' basis will "
-              "undercount severely; use source-chars", file=sys.stderr)
-    if basis == "source-chars":
-        wordcount = sum(
-            len(_RE_CJK.findall(s["source"])) + len(re.findall(r"[A-Za-z0-9]+", s["source"]))
-            for s in segments
-        )
-    else:
-        wordcount = sum(len(s["target"].split()) for s in segments)
-
-    checks_path = confirmed_rules_path = ""
-    if prof:
-        cp = Path(_project_path(prof, prof.get("checks", "checks.json")))
-        checks_path = str(cp) if cp.exists() else ""
-        # confirmed rules = game 级共通 + 语言专有，拼成 job 内一份
-        ap = Path(_project_path(prof, prof.get("confirmed_rules", "confirmed_rules.md")))
-        common_ap = ap.parent.parent / "common" / "confirmed_rules_common.md"
-        parts = []
-        if common_ap.exists():
-            parts.append(f"<!-- ===== 共通确认规则（游戏级）: {common_ap.name} ===== -->\n" + common_ap.read_text(encoding="utf-8"))
-        if ap.exists():
-            parts.append(f"<!-- ===== 语言专有确认规则: {ap} ===== -->\n" + ap.read_text(encoding="utf-8"))
-        if parts:
-            combined = Path(args.out).parent / "confirmed_rules.md"
-            combined.parent.mkdir(parents=True, exist_ok=True)
-            combined.write_text("\n\n".join(parts), encoding="utf-8")
-            confirmed_rules_path = str(combined)
-            print(f"[lqe_io] confirmed rules: {'共通+' if common_ap.exists() else ''}语言专有 → {combined}")
+    common = _prepare_read_assets(
+        args,
+        prof,
+        check_scope,
+        segments,
+        source_lang,
+        lang,
+    )
 
     state = {
+        "input_format": "tabular",
         "input_path": str(Path(args.input).resolve()),
         "source_col": args.source_col,
         "target_col": args.target_col,
         "headers": headers,
         "rows_raw": rows_raw,
         "text_type_markers": text_type_markers,
-        "aipe_url": None,
-        "check_scope": check_scope,
-        "project": prof.get("name", "") if prof else "",
-        "language_pair": prof.get("language_pair", "") if prof else (
-            f"{source_lang}-{lang}" if source_lang and lang else ""
-        ),
-        "source_lang": source_lang,
-        "target_lang": lang,
-        "lang_notes_path": lang_notes_path,
-        "background_path": background_path,
-        "checks_path": checks_path,
-        "confirmed_rules_path": confirmed_rules_path,
-        "threshold": prof.get("threshold", 98) if prof else 98,
-        "sg_path":    sg_path,
-        "terms_path": terms_path,
-        "terminology": [],
-        "style_guide": "",
-        "wordcount": wordcount,
-        "wordcount_basis": basis,
-        "iteration": 0,
+        **common,
         "segments": segments,
     }
     _write_json_atomic(scope_path, check_scope)
@@ -632,14 +939,19 @@ def cmd_lookup_terms(args):
 
 # ── apply-fixes ───────────────────────────────────────────────────────────────
 
-def _protected_ids(args) -> set[int]:
+def _protected_ids(args, *, allow_candidates: bool = False) -> set[int]:
     ids: set[int] = set()
     if getattr(args, "protected_ids", None):
         ids.update(int(x.strip()) for x in args.protected_ids.split(",") if x.strip())
     if getattr(args, "protected_file", None):
         data = read_json(args.protected_file)
         if isinstance(data, dict):
-            data = data.get("protected_ids") or data.get("segments") or []
+            if "protected_ids" in data:
+                data = data["protected_ids"]
+            elif "candidate_ids" in data:
+                data = data["candidate_ids"] if allow_candidates else []
+            else:
+                data = data.get("segments") or []
         for item in data:
             if isinstance(item, int):
                 ids.add(item)
@@ -668,7 +980,7 @@ def _scrub_protected_entries(errors_data: list, protected_ids: set[int]) -> int:
 def cmd_protect_segments(args):
     state_path = Path(args.state)
     state = read_json(state_path)
-    ids = _protected_ids(args)
+    ids = _protected_ids(args, allow_candidates=True)
     if not ids:
         print("[protect-segments] no ids supplied; state unchanged.")
         return
@@ -679,7 +991,8 @@ def cmd_protect_segments(args):
     for sid in valid:
         seg = seg_by_id[sid]
         seg["protected"] = True
-        seg["protected_reason"] = args.reason
+        if seg.get("protected_reason") != "SOURCE_LOCKED":
+            seg["protected_reason"] = args.reason
         seg["corrected"] = None
 
     state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -759,8 +1072,16 @@ def cmd_apply_fixes(args):
     }
     attempted = {sid: entry["corrected"] for sid, entry in attempted_entries.items()}
     corrections = {sid: text for sid, text in attempted.items() if sid not in protected_ids}
+    protected_reasons = {
+        segment["id"]: segment.get("protected_reason") or "TM_100_MATCH"
+        for segment in state["segments"]
+    }
     protected_skipped = [
-        {"id": sid, "reason": "TM_100_MATCH", "attempted": text}
+        {
+            "id": sid,
+            "reason": protected_reasons.get(sid, "TM_100_MATCH"),
+            "attempted": text,
+        }
         for sid, text in attempted.items()
         if sid in protected_ids
     ]
@@ -786,7 +1107,8 @@ def cmd_apply_fixes(args):
     for seg in state["segments"]:
         if seg["id"] in protected_ids:
             seg["protected"] = True
-            seg["protected_reason"] = "TM_100_MATCH"
+            if not seg.get("protected_reason"):
+                seg["protected_reason"] = "TM_100_MATCH"
             seg["corrected"] = None
             continue
         if seg["id"] in corrections:
@@ -1404,9 +1726,21 @@ def main():
 
     r = sub.add_parser("read")
     r.add_argument("--input", required=True)
+    r.add_argument(
+        "--input-format",
+        choices=["auto", "tabular", "sdlxliff"],
+        default="auto",
+        dest="input_format",
+    )
+    r.add_argument(
+        "--protect-exact-tm",
+        action="store_true",
+        dest="protect_exact_tm",
+        help="保护同时满足 origin=TM、100%% 和 SourceAndTarget 的 SDLXLIFF 段",
+    )
     r.add_argument("--project", default=None, help="项目档案：projects/<名>/profile.json 或目录/文件路径；提供 SG/术语/词数基准/checks/confirmed_rules 默认值，显式参数优先")
-    r.add_argument("--source-col", required=True, dest="source_col", help="列名或列索引（0-based，配合 --no-header）")
-    r.add_argument("--target-col", required=True, dest="target_col", help="列名或列索引（0-based，配合 --no-header）")
+    r.add_argument("--source-col", default=None, dest="source_col", help="列名或列索引（0-based，配合 --no-header）；表格输入必填")
+    r.add_argument("--target-col", default=None, dest="target_col", help="列名或列索引（0-based，配合 --no-header）；表格输入必填")
     r.add_argument("--no-header", action="store_true", dest="no_header", help="文件无表头行，source-col/target-col 为整数索引")
     r.add_argument("--group-col", default=None, dest="group_col", help="成组文本（对联/题目）的组标识列名或索引；同组段落 Step 2 合并评估")
     terminology = r.add_mutually_exclusive_group()

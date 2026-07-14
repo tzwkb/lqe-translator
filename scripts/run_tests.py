@@ -754,9 +754,18 @@ def t24():
         root / "scripts/lqe_io.py",
     ]
     stale = []
-    old_path = re.compile(r"(?<!target_)languages(?:/|<|`|\"|')")
+    old_paths = (
+        re.compile(r"(?<!target_)languages/"),
+        re.compile(r"`languages(?:`|/|<)"),
+        re.compile(r"(?<!target_)languages<"),
+        re.compile(r"/\s*[\"']languages[\"']"),
+        re.compile(r"\bPath\(\s*[\"']languages[\"']\s*\)"),
+    )
     for path in scanned:
-        if path.exists() and old_path.search(path.read_text(encoding="utf-8")):
+        if path.exists() and any(
+            pattern.search(path.read_text(encoding="utf-8"))
+            for pattern in old_paths
+        ):
             stale.append(str(path.relative_to(root)))
     check("T24 no stale languages path refs", not stale, "; ".join(stale))
 

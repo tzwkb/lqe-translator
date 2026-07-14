@@ -313,6 +313,52 @@ _LANG_ALIASES = {
 }
 
 
+def normalize_language_tag(value: str) -> str:
+    parts = str(value or "").strip().replace("_", "-").split("-")
+    if not parts or not parts[0]:
+        return ""
+    normalized = [parts[0].lower()]
+    script_seen = False
+    region_seen = False
+    extension_started = False
+    for part in parts[1:]:
+        if len(part) == 1:
+            extension_started = True
+            normalized.append(part)
+        elif (
+            not extension_started
+            and not script_seen
+            and not region_seen
+            and len(part) == 4
+            and part.isalpha()
+        ):
+            normalized.append(part.title())
+            script_seen = True
+        elif (
+            not extension_started
+            and not region_seen
+            and len(part) == 2
+            and part.isalpha()
+        ):
+            normalized.append(part.upper())
+            region_seen = True
+        else:
+            normalized.append(part)
+    return "-".join(normalized)
+
+
+def language_tags_match(configured: str, declared: str) -> bool:
+    configured_tag = normalize_language_tag(configured)
+    declared_tag = normalize_language_tag(declared)
+    if not configured_tag or not declared_tag:
+        return False
+    if configured_tag == declared_tag:
+        return True
+    return "-" not in configured_tag and (
+        configured_tag == declared_tag.split("-", 1)[0]
+    )
+
+
 def _lang_code(value) -> str:
     raw = str(value or "").strip().lower()
     return _LANG_ALIASES.get(raw, raw)
@@ -341,8 +387,13 @@ def _target_lang(state_or_pair) -> str:
 def _load_lang(lang: str) -> dict:
     if not lang:
         return {}
-    p = _LANG_DIR / lang / "attributes.json"
-    return read_json(p) if p.exists() else {}
+    code = normalize_language_tag(lang).lower()
+    code = _LANG_ALIASES.get(code, code)
+    for candidate in dict.fromkeys((code, code.split("-", 1)[0])):
+        path = _LANG_DIR / candidate / "attributes.json"
+        if path.exists():
+            return read_json(path)
+    return {}
 
 
 def _lang_toggle_defaults(attrs: dict) -> dict:
