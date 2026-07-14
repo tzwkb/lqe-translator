@@ -1,6 +1,6 @@
 # LQE 检查模块公共规范
 
-标准模式要求 `terminology`、`accuracy`、`grammar`、`naturalness` 四个模块；`proper_names` 是可选模块，只用于术语表自检中的专名。无术语模式要求 `precheck_review`、`accuracy`、`grammar`、`naturalness` 四个模块，并禁用术语相关模块。每个模块只提交检查结果；最终译文由脚本根据已验证的局部修改生成。
+标准模式要求 `terminology`、`accuracy`、`grammar`、`naturalness` 四个模块；`proper_names` 是可选模块，只用于术语表自检中的专名。无术语模式要求 `precheck_review`、`accuracy`、`grammar`、`naturalness` 四个模块，并禁用术语相关模块。当前模式和必需模块以 `state.check_scope` 为准；每个模块只提交检查结果，最终译文由脚本根据已验证的局部修改生成。
 
 ## 开始前读取
 

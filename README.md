@@ -12,8 +12,8 @@ Agent skill for game-localization LQE: deterministic pre-checks, focused AI chec
 
 ## What the workflow guarantees
 
-- Project context is loaded from `profile.json`, `confirmed_rules.md`, the style guide, terminology, and target-language notes.
-- Four required check modules cover terminology, accuracy, grammar, and naturalness. An optional proper-name module supports terminology-table audits.
+- Project context is loaded from `profile.json`, `confirmed_rules.md`, the style guide, and target-language notes; standard mode also loads terminology.
+- Standard mode requires terminology, accuracy, grammar, and naturalness. No-terminology mode requires `precheck_review`, accuracy, grammar, and naturalness; the optional proper-name module is standard-mode only.
 - Models report `issues` and safe local `edit` operations. Python validates edits and builds the internal full-text result.
 - `confirmed: true` authorizes a unique terminology edit; `protected: true` means the content must not be changed.
 - Protected segments are neither changed nor scored.
@@ -32,6 +32,7 @@ lqe-translator/
 ├── docs/check_modules/
 │   ├── common.md
 │   ├── terminology.md
+│   ├── precheck_review.md
 │   ├── accuracy.md
 │   ├── grammar.md
 │   ├── naturalness.md
@@ -48,6 +49,7 @@ lqe-translator/
 │   └── sg*.md / sg*.txt
 └── jobs/<job>/
     ├── state.json
+    ├── scope.json
     ├── confirmed_rules.md
     ├── errors_precheck.json
     ├── errors.json
@@ -87,9 +89,23 @@ python3 "$SCRIPTS/lqe_io.py" read \
 
 The profile must declare `language_pair`, `source_lang`, and `target_lang`. Run checks only after reading the project background, `confirmed_rules.md`, the style guide, and language notes.
 
+When the request explicitly excludes terminology and proper-name checks, add `--no-terminology` to `read`. It overrides profile terminology and is mutually exclusive with an explicit `--terminology <file>`:
+
+```bash
+python3 "$SCRIPTS/lqe_io.py" read \
+  --project "<game>/<source>-<target>" \
+  --input "<file>.xlsx" \
+  --source-col "<source column>" \
+  --target-col "<target column>" \
+  --no-terminology \
+  --out "$JOB/state.json"
+```
+
+The resolved mode is stored in `state.check_scope` and copied to `$JOB/scope.json`. No-terminology mode disables terminology, proper-name, and term-audit work; it does not disable file-wide consistency, Markup, or numeric checks.
+
 ### 2. Mark protected content
 
-Terminology entries use explicit flags:
+Terminology entries use explicit flags in standard mode; no-terminology mode ignores them. Explicit segment protection, including verified TM matches, remains available in both modes.
 
 ```json
 {"source":"Source term","target":"Approved rendering","confirmed":true,"protected":false}
@@ -118,7 +134,7 @@ python3 "$SCRIPTS/lqe_io.py" pre-check \
   --out "$JOB/errors_precheck.json"
 ```
 
-Checks include untranslated or empty targets, variables, tags, line breaks, numbers, length, whitespace, punctuation, repeated words, case, source-target consistency, terminology, and project-specific rules. Results still require contextual review.
+Checks include untranslated or empty targets, variables, tags, line breaks, numbers, length, whitespace, punctuation, repeated words, case, source-target consistency, and project-specific rules. Standard mode also runs terminology and terminology-dependent proper-name checks. No-terminology mode skips those checks while keeping all non-terminology pre-checks for contextual review.
 
 ### 4. Split and run check modules
 
@@ -126,21 +142,31 @@ Checks include untranslated or empty targets, variables, tags, line breaks, numb
 python3 "$SCRIPTS/lqe_chunk.py" split \
   --state "$JOB/state.json" \
   --errors "$JOB/errors_precheck.json" \
-  --terms "$JOB/terms.json" \
   --outdir "$JOB/chunks" \
   --size 100
 ```
 
-For every `chunk_NN.json`, produce these required files:
+`split` reads terminology through the state in standard mode. `--terms <file>` is an optional standard-mode override and is rejected in no-terminology mode.
+
+For every `chunk_NN.json`, produce the files selected by `state.check_scope`:
 
 ```text
+# Standard mode
 chunk_NN.terminology.json
+chunk_NN.accuracy.json
+chunk_NN.grammar.json
+chunk_NN.naturalness.json
+
+# No-terminology mode
+chunk_NN.precheck_review.json
 chunk_NN.accuracy.json
 chunk_NN.grammar.json
 chunk_NN.naturalness.json
 ```
 
 Each module reads `docs/check_modules/common.md`, its own specification, and the job context. It must cover every assigned id, including rows with no findings.
+
+`precheck_review` confirms or removes non-terminology pre-check findings in the Markup, Length, Locale convention, Company style, Inconsistency, and Other categories. It must not create Terminology issues, `TERM REVIEW:` evidence, or `confirmed_term` edits.
 
 The only model-facing contract is:
 
@@ -246,6 +272,8 @@ The parent job preserves worksheet order, blank rows, formulas, styles, and merg
 ```bash
 python3 -m unittest -v tests.test_correction_builder
 python3 -m unittest -v tests.test_corrected_ownership
+python3 -m unittest -v tests.test_no_terminology_mode
+python3 -m unittest -v tests.test_documented_contract
 python3 -m unittest -v tests.test_plain_language
 python3 scripts/run_tests.py
 ```

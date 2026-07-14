@@ -12,8 +12,8 @@
 
 ## 核心约束
 
-- 项目上下文来自 `profile.json`、`confirmed_rules.md`、风格指南、术语表和目标语言说明。
-- 四个必需检查模块分别负责术语、准确性、语法和自然度；术语表自检可增加专名模块。
+- 项目上下文来自 `profile.json`、`confirmed_rules.md`、风格指南和目标语言说明；标准模式还加载术语表。
+- 标准模式必需模块为术语、准确性、语法和自然度；无术语模式必需模块为 `precheck_review`、准确性、语法和自然度，专名模块只在标准模式下可选。
 - 模型只提交 `issues` 和安全的局部 `edit`；Python 校验后生成内部完整文本。
 - `confirmed: true` 表示该译法已经确认，可在证据唯一时安全修改；`protected: true` 表示不可修改。
 - 受保护段不修改、不计分。
@@ -32,6 +32,7 @@ lqe-translator/
 ├── docs/check_modules/
 │   ├── common.md
 │   ├── terminology.md
+│   ├── precheck_review.md
 │   ├── accuracy.md
 │   ├── grammar.md
 │   ├── naturalness.md
@@ -48,6 +49,7 @@ lqe-translator/
 │   └── sg*.md / sg*.txt
 └── jobs/<任务名>/
     ├── state.json
+    ├── scope.json
     ├── confirmed_rules.md
     ├── errors_precheck.json
     ├── errors.json
@@ -87,9 +89,23 @@ python3 "$SCRIPTS/lqe_io.py" read \
 
 项目档案必须声明 `language_pair`、`source_lang` 和 `target_lang`。运行检查前，必须读取项目背景、`confirmed_rules.md`、风格指南和语言说明。
 
+任务明确不检查术语和专名时，在 `read` 中加入 `--no-terminology`。该参数覆盖 profile 术语配置，且不能与显式 `--terminology <file>` 同时使用：
+
+```bash
+python3 "$SCRIPTS/lqe_io.py" read \
+  --project "<game>/<source>-<target>" \
+  --input "<file>.xlsx" \
+  --source-col "<原文列>" \
+  --target-col "<译文列>" \
+  --no-terminology \
+  --out "$JOB/state.json"
+```
+
+解析后的模式写入 `state.check_scope`，并同步生成 `$JOB/scope.json`。无术语模式只关闭术语、专名和术语审计；不会关闭文件内一致性、Markup、数字等检查。
+
 ### 2. 标记受保护内容
 
-术语条目使用明确字段：
+标准模式的术语条目使用明确字段；无术语模式忽略术语条目。两种模式都可使用经过证据确认的 TM 匹配等显式段保护。
 
 ```json
 {"source":"源词","target":"确认译法","confirmed":true,"protected":false}
@@ -118,7 +134,7 @@ python3 "$SCRIPTS/lqe_io.py" pre-check \
   --out "$JOB/errors_precheck.json"
 ```
 
-预检覆盖未翻译或空译文、变量、标签、换行、数字、长度、空格、标点、重复词、大小写、文件内一致性、术语和项目自定义规则。结果仍需结合上下文复核。
+预检覆盖未翻译或空译文、变量、标签、换行、数字、长度、空格、标点、重复词、大小写、文件内一致性和项目自定义规则。标准模式还运行术语及依赖术语表的专名检查；无术语模式跳过这些术语检查，其余预检仍需结合上下文复核。
 
 ### 4. 分块并运行检查模块
 
@@ -126,21 +142,29 @@ python3 "$SCRIPTS/lqe_io.py" pre-check \
 python3 "$SCRIPTS/lqe_chunk.py" split \
   --state "$JOB/state.json" \
   --errors "$JOB/errors_precheck.json" \
-  --terms "$JOB/terms.json" \
   --outdir "$JOB/chunks" \
   --size 100
 ```
 
-每个 `chunk_NN.json` 必须生成：
+标准模式下，`split` 通过 state 读取术语；`--terms <file>` 只是可选覆盖，无术语模式会拒绝该参数。每个 `chunk_NN.json` 按 `state.check_scope` 生成：
 
 ```text
+# 标准模式
 chunk_NN.terminology.json
+chunk_NN.accuracy.json
+chunk_NN.grammar.json
+chunk_NN.naturalness.json
+
+# 无术语模式
+chunk_NN.precheck_review.json
 chunk_NN.accuracy.json
 chunk_NN.grammar.json
 chunk_NN.naturalness.json
 ```
 
 每个模块读取 `docs/check_modules/common.md`、自己的说明和任务上下文，并覆盖全部分配 id；没有问题的段也要输出空 `issues`。
+
+`precheck_review` 只确认或删除 Markup、Length、Locale convention、Company style、Inconsistency、Other 类别的非术语预检，不得创建 Terminology、`TERM REVIEW:` 或 `confirmed_term` 证据。
 
 模型唯一输出协议：
 
@@ -246,6 +270,8 @@ python3 "$SCRIPTS/aggregate_sheets.py" \
 ```bash
 python3 -m unittest -v tests.test_correction_builder
 python3 -m unittest -v tests.test_corrected_ownership
+python3 -m unittest -v tests.test_no_terminology_mode
+python3 -m unittest -v tests.test_documented_contract
 python3 -m unittest -v tests.test_plain_language
 python3 scripts/run_tests.py
 ```

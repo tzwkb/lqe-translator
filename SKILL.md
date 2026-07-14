@@ -71,9 +71,13 @@ python "$SCRIPTS/lqe_io.py" read \
   --out "jobs/<文件名>/state.json"
 ```
 
-初始化后报告段数、词数、语言、风格指南、术语表、确认规则和受保护内容的加载情况。
+任务明确要求“不检查术语”时，在同一条 `read` 命令加入 `--no-terminology`。该参数高于 profile 的术语配置，且不能与显式 `--terminology <file>` 同时使用。初始化会把解析后的模式写入 `state.check_scope`，并在 job 根目录生成内容相同的 `scope.json`。
+
+`--no-terminology` 只关闭术语、专名和术语审计；不会关闭文件内一致性、Markup、数字等检查。初始化后报告段数、词数、语言、检查模式、启用模块、风格指南、确认规则、术语表和受保护内容的加载情况。
 
 ## 3. 术语标记
+
+本节只适用于标准模式；无术语模式不读取或使用术语条目。
 
 术语条目或多义候选必须显式带：
 
@@ -126,7 +130,7 @@ python "$SCRIPTS/lqe_io.py" pre-check \
   --out "$JOB/errors_precheck.json"
 ```
 
-预检覆盖：未翻译内容、空译文、变量、标签、换行、数字、长度、空格、全角标点、句尾标点、中文数字与量词、重复词、词内大小写、成对标点、拼音残留、文件内一致性、术语命中和项目自定义规则。
+预检覆盖：未翻译内容、空译文、变量、标签、换行、数字、长度、空格、全角标点、句尾标点、中文数字与量词、重复词、词内大小写、成对标点、拼音残留、文件内一致性和项目自定义规则。标准模式还运行术语命中、术语大小写和依赖术语表的专名检查；无术语模式从源头跳过这些术语检查。
 
 `checks.json` 的 `builtin` 可关闭不适用项，`custom` 可增加 regex 或 `count_match` 检查。语言属性会自动关闭不适用于目标语言的检查。预检结果仍需按上下文复核。
 
@@ -137,6 +141,7 @@ python "$SCRIPTS/lqe_io.py" pre-check \
 ```text
 docs/check_modules/common.md
 docs/check_modules/terminology.md
+docs/check_modules/precheck_review.md
 docs/check_modules/accuracy.md
 docs/check_modules/grammar.md
 docs/check_modules/naturalness.md
@@ -185,6 +190,7 @@ docs/check_modules/term_audit.md
 | 模块 | 类别 |
 |---|---|
 | `terminology` | Terminology、Inconsistency、Company style、预检复核 |
+| `precheck_review` | 无术语模式下复核 Markup、Length、Locale convention、Company style、非术语 Inconsistency 和 Other 预检 |
 | `accuracy` | Mistranslation、Omission、Addition、Untranslated |
 | `grammar` | Grammar、Spelling、Punctuation |
 | `naturalness` | Audience appropriateness、Culture specific reference、Unidiomatic |
@@ -196,17 +202,23 @@ docs/check_modules/term_audit.md
 python "$SCRIPTS/lqe_chunk.py" split \
   --state "$JOB/state.json" \
   --errors "$JOB/errors_precheck.json" \
-  --terms "$JOB/terms.json" \
   --outdir "$JOB/chunks" \
   --size 100
 ```
 
-`split` 会按相同源文和译文去重、过滤被更长术语覆盖的命中、保留术语候选标记，并为每段写 `kind`。密集内容可加 `--char-budget N`。
+`split` 会从 state 读取当前模式允许的术语，按相同源文和译文去重、过滤被更长术语覆盖的命中、保留术语候选标记，并为每段写 `kind`。标准模式可用 `--terms <file>` 显式覆盖术语源；无术语模式禁止该参数。密集内容可加 `--char-budget N`。
 
-每个 chunk 的必需输出：
+必需输出由 `state.check_scope` 决定：
 
 ```text
+# 标准模式
 chunk_NN.terminology.json
+chunk_NN.accuracy.json
+chunk_NN.grammar.json
+chunk_NN.naturalness.json
+
+# 无术语模式
+chunk_NN.precheck_review.json
 chunk_NN.accuracy.json
 chunk_NN.grammar.json
 chunk_NN.naturalness.json
@@ -227,7 +239,7 @@ python "$SCRIPTS/lqe_chunk.py" merge \
   --out "$JOB/errors.json"
 ```
 
-`validate-checks` 要求四个必需模块结构正确且 id 完整。`merge-checks` 合并并去重问题；`reconcile` 确保准确性类别只由 `accuracy` 模块确认；`merge` 广播重复段、恢复必须保留的确定性问题，并由脚本生成最终内部结果。
+`validate-checks` 按 `state.check_scope` 要求当前四个必需模块结构正确且 id 完整。`merge-checks` 合并并去重问题；`reconcile` 确保准确性类别只由 `accuracy` 模块确认；`merge` 广播重复段、恢复必须保留的确定性问题，并由脚本生成最终内部结果。
 
 一键收尾：
 
@@ -306,11 +318,12 @@ python "$SCRIPTS/aggregate_sheets.py" \
 ```text
 jobs/<文件名>/
 ├── state.json
+├── scope.json
 ├── sg.txt
 ├── background.md
 ├── lang_notes.md
 ├── confirmed_rules.md
-├── terms.json
+├── terms.json                 # 仅标准模式需要落盘转换时存在
 ├── errors_precheck.json
 ├── errors.json
 ├── chunks/
@@ -325,6 +338,8 @@ jobs/<文件名>/
 ```bash
 python3 -m unittest -v tests.test_correction_builder
 python3 -m unittest -v tests.test_corrected_ownership
+python3 -m unittest -v tests.test_no_terminology_mode
+python3 -m unittest -v tests.test_documented_contract
 python3 -m unittest -v tests.test_plain_language
 python3 scripts/run_tests.py
 ```

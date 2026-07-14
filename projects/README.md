@@ -9,7 +9,7 @@
 | `profile.json` | 语言、背景、阈值及各资源路径 | `lqe_io.py read --project` |
 | `checks.json` | 机器预检开关和项目自定义规则 | `lqe_io.py pre-check` |
 | `confirmed_rules.md` | 客户或用户已经确认的项目规则 | Agent，检查前必读 |
-| `terms_*.json` | 术语数据，可显式带 `confirmed` 和 `protected` | 初始化时复制到任务目录 |
+| `terms_*.json` | 术语数据，可显式带 `confirmed` 和 `protected` | 标准模式引用或按需转换；无术语模式不读取 |
 | `sg*.md` / `sg*.txt` | 风格指南文本 | 初始化时复制到任务目录 |
 | `sources/` | 原始风格指南、术语表及其工作副本 | 项目维护与溯源 |
 | `inputs/` | 待检查的原始交付文件 | 人工传给 `read --input` |
@@ -33,6 +33,19 @@
 ```
 
 `language_pair`、`source_lang`、`target_lang` 必填。相对路径以当前语言轨目录为基准。设置合并顺序为：内置默认 < 目标语言属性 < 项目 `checks.json` < 命令行参数。
+
+## 运行时检查模式
+
+profile 可以配置术语，但任务明确不检查术语时，在初始化命令加入 `--no-terminology`：
+
+```bash
+python3 scripts/lqe_io.py read \
+  --project <game>/<source>-<target> \
+  --input <输入文件> --source-col <原文列> --target-col <译文列> \
+  --no-terminology --out jobs/<任务名>/state.json
+```
+
+该实时参数高于 profile 术语配置，且不能与显式 `--terminology <file>` 同时使用。解析结果写入 `state.check_scope` 和任务根目录的 `scope.json`。标准模式要求 `terminology`、`accuracy`、`grammar`、`naturalness`；无术语模式要求 `precheck_review`、`accuracy`、`grammar`、`naturalness`。无术语模式只关闭术语、专名和术语审计；不会关闭文件内一致性、Markup、数字等检查。
 
 ## 术语字段
 
@@ -59,6 +72,7 @@
 
 ```text
 state.json
+scope.json
 confirmed_rules.md
 errors_precheck.json
 errors.json

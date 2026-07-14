@@ -52,10 +52,10 @@ footer{margin-top:56px;text-align:center;color:#99a;font-size:12px}
 </header>
 
 <h2 id="prepare">一、用途与准备</h2>
-<p>LQE Translator 是 Codex 中的译文质检 skill。它先运行机器预检，再由术语、准确性、语法和自然度检查模块报告问题；脚本校验局部修改、计算 LQE 分数并生成 Excel 交付文件。</p>
+<p>LQE Translator 是 Codex 中的译文质检 skill。它先运行机器预检，再按当前检查模式运行专项模块；脚本校验局部修改、计算 LQE 分数并生成 Excel 交付文件。</p>
 <table>
 <tr><th width="120">必需</th><td>Excel、CSV 或 TSV；明确原文列、译文列和项目语言轨，例如 <code>nrc/zh-th</code></td></tr>
-<tr><th>项目资料</th><td><code>profile.json</code>、<code>confirmed_rules.md</code>、风格指南、术语表和目标语言说明</td></tr>
+<tr><th>项目资料</th><td><code>profile.json</code>、<code>confirmed_rules.md</code>、风格指南和目标语言说明；标准模式还使用术语表</td></tr>
 <tr><th>运行环境</th><td>macOS 或 Linux shell、Python 3；首次安装 <code>openpyxl requests python-docx</code></td></tr>
 <tr><th>运行选择</th><td>默认首轮检查；只有明确要求时才启用自动迭代</td></tr>
 </table>
@@ -74,18 +74,19 @@ JOB="$PWD/jobs/&lt;任务名&gt;"</p>
 python3 "$SCRIPTS/lqe_io.py" pre-check --state "$JOB/state.json" \
   --out "$JOB/errors_precheck.json"
 python3 "$SCRIPTS/lqe_chunk.py" split --state "$JOB/state.json" \
-  --errors "$JOB/errors_precheck.json" --terms "$JOB/terms.json" \
+  --errors "$JOB/errors_precheck.json" \
   --outdir "$JOB/chunks" --size 100</p>
+<div class="callout"><b>不检查术语：</b>在 <code>read</code> 命令的 <code>--out</code> 前加入 <code>--no-terminology</code>。它会覆盖 profile 术语配置，且不能与显式 <code>--terminology &lt;file&gt;</code> 同时使用。模式写入 <code>state.check_scope</code> 和 <code>scope.json</code>。该模式只关闭术语、专名和术语审计；不会关闭文件内一致性、Markup、数字等检查。</div>
 <div class="flow">
 <div class="step"><span class="n">1</span><span><b>初始化</b><small>读取输入和项目档案，确认段数、固定词数及资料加载情况</small></span></div>
 <div class="arrow">▼</div>
 <div class="step ask"><span class="n">2</span><span><b>确认受保护内容</b><small>只根据客户资料、用户确认或明确的 TM 匹配证据设置</small></span></div>
 <div class="arrow">▼</div>
-<div class="step"><span class="n">3</span><span><b>机器预检</b><small>检查空译文、变量、标签、数字、长度、格式、术语和项目规则</small></span></div>
+<div class="step"><span class="n">3</span><span><b>机器预检</b><small>两种模式都检查空译文、变量、标签、数字、长度、格式、一致性和项目规则；标准模式另查术语</small></span></div>
 <div class="arrow">▼</div>
 <div class="step"><span class="n">4</span><span><b>专项检查</b><small>子任务顶层只输出 <code>{id, issues}</code>；确认项写 <code>needs_confirmation: true</code> 和 <code>edit: null</code>；完整建议译文只由程序生成</small></span></div>
 <div class="arrow">▼</div>
-<div class="step"><span class="n">5</span><span><b>结构校验、合并与评分</b><small>四个必需模块必须覆盖全部段，脚本再生成建议译文</small></span></div>
+<div class="step"><span class="n">5</span><span><b>结构校验、合并与评分</b><small>按 <code>state.check_scope</code> 选择的四个必需模块必须覆盖全部段，脚本再生成建议译文</small></span></div>
 <div class="arrow">▼</div>
 <div class="step"><span class="n">6</span><span><b>报告与导出</b><small>生成标准 LQE 报告和建议稿；首轮结果不足时由 PM 决定是否继续</small></span></div>
 </div>
@@ -101,12 +102,14 @@ python3 "$SCRIPTS/lqe_chunk.py" split --state "$JOB/state.json" \
 只跑首轮。受保护内容必须保留，不修改用户原文件。
 检查子任务顶层只提交 {id, issues}；无法安全局部修改的项设置 needs_confirmation: true、edit: null；完整建议译文由程序生成。
 完成后给出段数、固定词数、分数、问题数、保护数，以及 *_lqe.xlsx 和 *_corrected.xlsx 的绝对路径；任何校验失败都要原样报告。</p>
+<p>不检查术语时，把提示词中的资料要求改为“不读取或使用术语表，并在初始化时使用 <code>--no-terminology</code>；按 <code>precheck_review</code>、accuracy、grammar、naturalness 四模块执行，仍检查一致性、Markup 和数字”。</p>
 <p>需要自动迭代时，单独增加：“本任务明确启用自动迭代，直到达到项目阈值或出现需要人工决定的问题。”</p>
 
 <h2>四、产出物</h2>
 <p>Excel 任务完成后，标准文件位于 <code>jobs/&lt;任务名&gt;/</code>：</p>
 <table>
 <tr><th width="220">文件</th><th>用途</th></tr>
+<tr><td><code>scope.json</code></td><td>记录术语是否启用及当前必需模块；内容与 <code>state.check_scope</code> 一致</td></tr>
 <tr><td><code>*_lqe.xlsx</code></td><td>分数、逐段问题、建议译文、处理方式和历史记录，供 PM 与审校检查</td></tr>
 <tr><td><code>*_corrected.xlsx</code></td><td>保留原工作簿结构，只把通过校验的建议修改写入译文列</td></tr>
 </table>
@@ -115,7 +118,8 @@ python3 "$SCRIPTS/lqe_chunk.py" split --state "$JOB/state.json" \
 <h2 id="acceptance">五、验收检查</h2>
 <table>
 <tr><th width="170">输入与计数</th><td>任务段数与有效输入一致；固定词数已记录，后续轮次不变化</td></tr>
-<tr><th>模块覆盖</th><td>四个必需模块覆盖全部分配 id；结构校验无缺失、重复或非法字段</td></tr>
+<tr><th>检查范围</th><td><code>scope.json</code> 与 <code>state.check_scope</code> 一致；标准模式为 terminology、accuracy、grammar、naturalness，无术语模式为 <code>precheck_review</code>、accuracy、grammar、naturalness</td></tr>
+<tr><th>模块覆盖</th><td>当前模式的四个必需模块覆盖全部分配 id；结构校验无缺失、重复或非法字段</td></tr>
 <tr><th>保护规则</th><td>受保护段的问题数和改动数均为 0，导出文本与原译一致</td></tr>
 <tr><th>修改安全</th><td>变量、标签、换行和受保护文本没有变化；需要人工确认的项没有自动写入</td></tr>
 <tr><th>交付文件</th><td><code>*_lqe.xlsx</code> 与 <code>*_corrected.xlsx</code> 均存在且可打开；工作表、空行、列顺序和格式保持</td></tr>
@@ -127,7 +131,7 @@ python3 "$SCRIPTS/lqe_chunk.py" split --state "$JOB/state.json" \
 <b>初始化找不到项目？</b>
 <p>确认语言轨写成 <code>&lt;game&gt;/&lt;source&gt;-&lt;target&gt;</code>，并检查该目录的 <code>profile.json</code>、必填语言字段和相对资源路径。</p>
 <b>检查模块无法合并？</b>
-<p>先运行 <code>validate-checks --job "$JOB"</code>。按报错补齐四个必需模块和全部 id，不要跳过失败继续导出。</p>
+<p>先运行 <code>validate-checks --job "$JOB"</code>。按 <code>state.check_scope</code> 和报错补齐当前四个必需模块及全部 id，不要跳过失败继续导出。</p>
 <b>某项不能安全修改？</b>
 <p>保留原译，在报告中标记“需要人工确认”。不要把多个合理方案中的任一个直接写入建议稿。</p>
 <b>运行中断？</b>
