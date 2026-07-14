@@ -109,6 +109,8 @@ def main():
 
     for sj in subs:
         state = read_json(sj / "state.json")
+        if state.get("input_format") == "sdlxliff":
+            sys.exit("[aggregate] SDLXLIFF jobs are not multi-sheet workbooks")
         results, seg_by_id = _validated_results(sj, state)
         tidx = _target_idx(state)
         seg_rows = {sid: int(seg.get("row_index", sid)) for sid, seg in seg_by_id.items()}

@@ -1073,13 +1073,18 @@ def cmd_apply_fixes(args):
     attempted = {sid: entry["corrected"] for sid, entry in attempted_entries.items()}
     corrections = {sid: text for sid, text in attempted.items() if sid not in protected_ids}
     protected_reasons = {
-        segment["id"]: segment.get("protected_reason") or "TM_100_MATCH"
+        segment["id"]: _protection_reason(segment, protected_ids)
+        for segment in state["segments"]
+    }
+    protection_evidence = {
+        segment["id"]: segment.get("protection_evidence")
         for segment in state["segments"]
     }
     protected_skipped = [
         {
             "id": sid,
             "reason": protected_reasons.get(sid, "TM_100_MATCH"),
+            "evidence": protection_evidence.get(sid),
             "attempted": text,
         }
         for sid, text in attempted.items()
@@ -1175,6 +1180,68 @@ def _s(cell, fill=None, font=None, align=None):
     if align: cell.alignment = align
 
 
+def _segment_filename(state: dict, segment: dict) -> str:
+    if state.get("input_format") == "sdlxliff":
+        metadata = segment.get("metadata") or {}
+        sdl_metadata = metadata.get("sdlxliff") or {}
+        file_original = _text(sdl_metadata.get("file_original"))
+        if file_original:
+            return file_original
+        source_ref = segment.get("source_ref") or {}
+        relative_path = _text(source_ref.get("relative_path"))
+        if relative_path:
+            return relative_path
+        return Path(state.get("input_path") or "").name
+    return Path(state.get("input_path") or "").stem
+
+
+def _report_source_table(state: dict) -> tuple[list[str], list[list[object]]]:
+    segments = state.get("segments") or []
+    if state.get("input_format") == "sdlxliff":
+        headers = ["来源文件", "TU ID", "SDL Segment ID", "原文", "译文"]
+        rows = []
+        for segment in segments:
+            source_ref = segment.get("source_ref") or {}
+            rows.append(
+                [
+                    _segment_filename(state, segment),
+                    source_ref.get("tu_id") or "",
+                    source_ref.get("sdl_segment_id") or "",
+                    segment.get("source", ""),
+                    segment.get("target", ""),
+                ]
+            )
+        return headers, rows
+
+    rows_raw = state.get("rows_raw") or []
+    if len(rows_raw) != len(segments):
+        raise ValueError(
+            "tabular report rows_raw/segments length mismatch: "
+            f"rows_raw={len(rows_raw)} segments={len(segments)}"
+        )
+    return list(state.get("headers") or []), [list(row) for row in rows_raw]
+
+
+def _protection_reason(segment: dict, protected_ids: set[int]) -> str:
+    if segment.get("id") not in protected_ids:
+        return ""
+    return _text(segment.get("protected_reason")) or "TM_100_MATCH"
+
+
+def _protection_evidence(segment: dict, protected_ids: set[int]) -> str:
+    reason = _protection_reason(segment, protected_ids)
+    if not reason:
+        return ""
+    evidence = segment.get("protection_evidence")
+    if evidence is None:
+        return reason
+    return json.dumps(
+        {"reason": reason, "evidence": evidence},
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+
+
 def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id="legacy"):
     scorecard_profile = load_scorecard_profile(scorecard_profile_id)
     categories = scorecard_category_order(scorecard_profile)
@@ -1227,7 +1294,7 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
                 elif cat in cat_counts:
                     cat_counts[cat][sev] = cat_counts[cat].get(sev, 0) + 1
                 detail_rows.append({
-                    "filename": Path(state["input_path"]).stem,
+                    "filename": _segment_filename(state, seg),
                     "seg_id":   seg["id"],
                     "source":   seg["source"],
                     "original": seg["target"],
@@ -1441,7 +1508,7 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
     for col, hdr in enumerate(
         ["File name","Segment #","Source text","原译",
          "建议译文","Error category","Error sub-category",
-         "Error severity","Iteration","Reviewer's comment","处理方式","TM Protected","TM Evidence"], start=1):
+         "Error severity","Iteration","Reviewer's comment","处理方式","Protected","Protection Evidence"], start=1):
         c = ws.cell(row=cur_row, column=col, value=hdr)
         _s(c, fill=_DARK_BLUE, font=_WHITE_FONT, align=_CENTER)
     cur_row += 1
@@ -1457,7 +1524,7 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
             (9, dr["iteration"]),(10, dr["comment"]),
             (11, dr["processing"]),
             (12, "Yes" if dr["seg_id"] in all_protected_ids else "No"),
-            (13, "TM_100_MATCH" if dr["seg_id"] in all_protected_ids else ""),
+            (13, _protection_evidence(seg_map[dr["seg_id"]], all_protected_ids)),
         ]:
             c = ws.cell(row=cur_row, column=col, value=val)
             _s(c, fill=row_fill, align=_LEFT_TOP if col not in (2, 8, 9, 11) else _CENTER)
@@ -1466,7 +1533,7 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
     for col_ltr, width in [
         ("A",22),("B",8),("C",35),("D",45),("E",45),
         ("F",14),("G",22),("H",10),("I",10),("J",45),
-        ("K",12),("L",12),
+        ("K",12),("L",12),("M",45),
     ]:
         ws.column_dimensions[col_ltr].width = width
 
@@ -1481,7 +1548,7 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
     _WRAP_TOP = Alignment(wrap_text=True, vertical="top")
 
     current_entries = {e["id"]: e for e in history[-1].get("errors", [])} if history else {}
-    report_headers = list(state["headers"])
+    report_headers, report_rows = _report_source_table(state)
     target_col = state.get("target_col", 1)
     try:
         target_index = int(target_col)
@@ -1490,13 +1557,14 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
     if 0 <= target_index < len(report_headers):
         report_headers[target_index] = "原译"
 
-    ws2_headers = report_headers + ["建议译文", "处理方式", "错误详情", "LQE_Iter", "TM Protected", "TM Evidence"]
+    ws2_headers = report_headers + ["建议译文", "处理方式", "错误详情", "LQE_Iter", "Protected", "Protection Evidence"]
     for ci, h in enumerate(ws2_headers, start=1):
         c = ws2.cell(row=1, column=ci, value=h)
         _s(c, fill=_DARK_BLUE, font=_WHITE_FONT, align=_CENTER)
     ws2.row_dimensions[1].height = 15.0
 
-    for ri, (raw_row, seg) in enumerate(zip(state["rows_raw"], segments), start=2):
+    for ri, seg in enumerate(segments, start=2):
+        raw_row = report_rows[ri - 2]
         is_protected = seg["id"] in all_protected_ids
         current_entry = current_entries.get(seg["id"])
         entry = current_entry if current_entry is not None else {
@@ -1519,7 +1587,7 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
             _fmt_errors(errs),
             seg.get("iter", 0),
             "Yes" if is_protected else "No",
-            seg.get("protected_reason") or ("TM_100_MATCH" if is_protected else ""),
+            _protection_evidence(seg, all_protected_ids),
         ]
         for ci, val in enumerate(row_data, start=1):
             c = ws2.cell(row=ri, column=ci, value=val)
@@ -1595,6 +1663,33 @@ def cmd_pre_check(args):
 
 # ── export ───────────────────────────────────────────────────────────────────
 
+def _export_sdlxliff_xlsx(
+    state_path: Path,
+    state: dict,
+    result_entries: dict,
+) -> Path:
+    headers, rows = _report_source_table(state)
+    workbook = openpyxl.Workbook()
+    worksheet = workbook.active
+    worksheet.title = "Corrected"
+    worksheet.append(headers)
+    for index, segment in enumerate(state.get("segments") or []):
+        source_row = rows[index]
+        entry = result_entries[segment["id"]]
+        protected = bool(segment.get("protected")) or (
+            _processing_label(entry) == "已保护，不修改"
+        )
+        corrected = entry.get("corrected")
+        output_row = list(source_row)
+        if not protected and corrected:
+            output_row[4] = corrected
+        worksheet.append(output_row)
+    out_path = state_path.parent / (_job_label(state_path) + "_corrected.xlsx")
+    workbook.save(out_path)
+    workbook.close()
+    return out_path
+
+
 def cmd_export(args):
     state_path = Path(args.state)
     state = read_json(state_path)
@@ -1631,19 +1726,6 @@ def cmd_export(args):
             seg["corrected"] = e.get("corrected")
             result_entries[e["id"]] = e
 
-    no_header = isinstance(state.get("source_col"), int) or (
-        isinstance(state.get("source_col"), str) and state["source_col"].isdigit()
-    )
-    try:
-        ti = int(state["target_col"])
-    except (ValueError, TypeError):
-        headers = state.get("headers", [])
-        ti = headers.index(state["target_col"]) if state["target_col"] in headers else None
-        if ti is None:
-            print(f"[export] cannot locate target column '{state['target_col']}'", file=sys.stderr)
-            sys.exit(1)
-
-    src_path = Path(state["input_path"])
     counts = {
         "建议修改": 0,
         "需要人工确认": 0,
@@ -1669,6 +1751,26 @@ def cmd_export(args):
             f"已保护 {counts['已保护']} → {out_path}"
         )
 
+    if state.get("input_format") == "sdlxliff":
+        for segment in segments:
+            counts[export_kind(segment)] += 1
+        out_path = _export_sdlxliff_xlsx(state_path, state, result_entries)
+        print_summary(out_path)
+        return
+
+    no_header = isinstance(state.get("source_col"), int) or (
+        isinstance(state.get("source_col"), str) and state["source_col"].isdigit()
+    )
+    try:
+        ti = int(state["target_col"])
+    except (ValueError, TypeError):
+        headers = state.get("headers", [])
+        ti = headers.index(state["target_col"]) if state["target_col"] in headers else None
+        if ti is None:
+            print(f"[export] cannot locate target column '{state['target_col']}'", file=sys.stderr)
+            sys.exit(1)
+
+    src_path = Path(state["input_path"])
     if src_path.suffix.lower() in (".csv", ".tsv"):
         delim = "\t" if src_path.suffix.lower() == ".tsv" else ","
         raw_rows = list(csv.reader(io.StringIO(src_path.read_bytes().decode("utf-8-sig")), delimiter=delim))

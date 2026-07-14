@@ -1604,5 +1604,208 @@ class SDLXLIFFIntegrationTests(unittest.TestCase):
         self.assertIn("CONTEXT: Menu | Spoken line", prompt)
 
 
+class SDLXLIFFOutputTests(unittest.TestCase):
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.root = Path(self.tempdir.name)
+        self.job = self.root / "job"
+        self.source = self.root / "source.sdlxliff"
+        shutil.copy2(FIXTURES / "multi_segment.sdlxliff", self.source)
+        self.input_files = [self.source]
+
+    def tearDown(self):
+        self.tempdir.cleanup()
+
+    def run_io(self, *args):
+        return subprocess.run(
+            [sys.executable, str(IO_SCRIPT), *map(str, args)],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+
+    @staticmethod
+    def sha256(path: Path) -> str:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    @staticmethod
+    def issue(*, edit=None):
+        return {
+            "category": "Grammar",
+            "severity": "Minor",
+            "comment": "Output fixture issue",
+            "needs_confirmation": False,
+            "edit": edit,
+        }
+
+    def read_job(self):
+        state_path = self.job / "state.json"
+        result = self.run_io("read", "--input", self.source, "--out", state_path)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return state_path
+
+    def finish_sdl_job(self):
+        state_path = self.read_job()
+        errors_path = self.job / "errors.json"
+        write_json(
+            errors_path,
+            [
+                {"id": 0, "errors": [self.issue()], "corrected": None},
+                {"id": 1, "errors": [], "corrected": None},
+                {"id": 2, "errors": [self.issue()], "corrected": None},
+            ],
+        )
+        result = self.run_io(
+            "write",
+            "--state",
+            state_path,
+            "--errors",
+            errors_path,
+            "--score",
+            "99",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return state_path, errors_path
+
+    def test_report_has_fixed_eleven_columns_and_per_file_names(self):
+        self.finish_sdl_job()
+        report = next(self.job.glob("*_lqe.xlsx"))
+        workbook = openpyxl.load_workbook(report, data_only=True)
+        try:
+            sheet = workbook["LQE Results"]
+            self.assertEqual(
+                [cell.value for cell in sheet[1]],
+                [
+                    "来源文件",
+                    "TU ID",
+                    "SDL Segment ID",
+                    "原文",
+                    "原译",
+                    "建议译文",
+                    "处理方式",
+                    "错误详情",
+                    "LQE_Iter",
+                    "Protected",
+                    "Protection Evidence",
+                ],
+            )
+            rows = list(sheet.iter_rows(min_row=2, values_only=True))
+            self.assertEqual([row[0] for row in rows], ["dialogs.xml", "dialogs.xml", "ui.xml"])
+            self.assertEqual(rows[1][9], "Yes")
+            self.assertIn("SOURCE_LOCKED", rows[1][10])
+            self.assertIn('"locked"', rows[1][10])
+            scorecard_values = [
+                cell.value for row in workbook["LQA Scorecard"] for cell in row
+            ]
+            self.assertIn("dialogs.xml", scorecard_values)
+            self.assertIn("ui.xml", scorecard_values)
+            self.assertIn("Protected", scorecard_values)
+            self.assertIn("Protection Evidence", scorecard_values)
+        finally:
+            workbook.close()
+
+    def test_report_source_table_rejects_misaligned_tabular_rows(self):
+        state = {
+            "input_format": "tabular",
+            "headers": ["Source", "Target"],
+            "rows_raw": [["one", "one"]],
+            "segments": [
+                {"id": 0, "source": "one", "target": "one"},
+                {"id": 1, "source": "two", "target": "two"},
+            ],
+        }
+
+        with self.assertRaisesRegex(ValueError, "rows_raw"):
+            lqe_io._report_source_table(state)
+
+    def test_segment_filename_uses_file_original_then_relative_path(self):
+        state = {"input_format": "sdlxliff"}
+        segment = {
+            "metadata": {"sdlxliff": {"file_original": "dialogs.xml"}},
+            "source_ref": {"relative_path": "nested/source.sdlxliff"},
+        }
+        self.assertEqual(lqe_io._segment_filename(state, segment), "dialogs.xml")
+        segment["metadata"]["sdlxliff"]["file_original"] = "  "
+        self.assertEqual(
+            lqe_io._segment_filename(state, segment), "nested/source.sdlxliff"
+        )
+
+    def test_export_creates_corrected_xlsx_without_touching_xml(self):
+        state_path = self.read_job()
+        errors_path = self.job / "errors.json"
+        write_json(
+            errors_path,
+            [
+                {"id": 0, "errors": [], "corrected": None},
+                {"id": 1, "errors": [], "corrected": None},
+                {
+                    "id": 2,
+                    "errors": [
+                        self.issue(
+                            edit={
+                                "from": "Start",
+                                "to": "Begin",
+                                "evidence": None,
+                            }
+                        )
+                    ],
+                    "corrected": "Begin",
+                },
+            ],
+        )
+        before = {path: self.sha256(path) for path in self.input_files}
+
+        result = self.run_io(
+            "export", "--state", state_path, "--errors", errors_path
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        output = next(self.job.glob("*_corrected.xlsx"))
+        workbook = openpyxl.load_workbook(output, data_only=True)
+        try:
+            self.assertEqual(
+                [cell.value for cell in workbook.active[1]],
+                ["来源文件", "TU ID", "SDL Segment ID", "原文", "译文"],
+            )
+            rows = list(workbook.active.iter_rows(min_row=2, values_only=True))
+            self.assertEqual(rows[1][4], "Second")
+            self.assertEqual(rows[2][4], "Begin")
+        finally:
+            workbook.close()
+        self.assertEqual(before, {path: self.sha256(path) for path in self.input_files})
+
+    def test_apply_fixes_preserves_source_locked_reason_and_evidence(self):
+        state_path = self.read_job()
+        before = read_json(state_path)["segments"][1]["protection_evidence"]
+        errors_path = self.job / "errors.json"
+        write_json(
+            errors_path,
+            [
+                {
+                    "id": 1,
+                    "errors": [
+                        self.issue(
+                            edit={
+                                "from": "Second",
+                                "to": "Changed",
+                                "evidence": None,
+                            }
+                        )
+                    ],
+                    "corrected": "Changed",
+                }
+            ],
+        )
+
+        result = self.run_io(
+            "apply-fixes", "--state", state_path, "--errors", errors_path
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        segment = read_json(state_path)["segments"][1]
+        self.assertEqual(segment["protected_reason"], "SOURCE_LOCKED")
+        self.assertEqual(segment["protection_evidence"], before)
+
+
 if __name__ == "__main__":
     unittest.main()

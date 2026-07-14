@@ -1126,6 +1126,28 @@ class CorrectedOwnershipPipelineTests(unittest.TestCase):
                 self.assertFalse((job / f"{name}_corrected.xlsx").exists())
                 self.assertFalse((job / f"{name}_lqe.xlsx").exists())
 
+    def test_aggregate_rejects_sdlxliff_child_state(self):
+        job = self.root / "sdl-parent"
+        child = job / "child"
+        write_json(
+            child / "state.json",
+            {
+                "input_format": "sdlxliff",
+                "input_path": str(self.root / "source.sdlxliff"),
+                "segments": [],
+            },
+        )
+        write_json(child / "errors.json", [])
+
+        result = self.run_aggregate(job)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "SDLXLIFF jobs are not multi-sheet workbooks", result.stderr
+        )
+        self.assertFalse((job / "sdl-parent_corrected.xlsx").exists())
+        self.assertFalse((job / "sdl-parent_lqe.xlsx").exists())
+
     def test_aggregate_preserves_complete_source_workbook(self):
         workbook = openpyxl.Workbook()
         sheet = workbook.active
