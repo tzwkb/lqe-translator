@@ -22,6 +22,11 @@ def _load_protected_file(path: str | None) -> set[int]:
         return ids
     data = read_json(path)
     if isinstance(data, dict):
+        if "candidate_ids" in data:
+            raise ValueError(
+                "candidate_ids are not a protection decision; "
+                "confirm them with lqe_io.py protect-segments first"
+            )
         data = data.get("protected_ids") or data.get("segments") or []
     for item in data:
         if isinstance(item, int):

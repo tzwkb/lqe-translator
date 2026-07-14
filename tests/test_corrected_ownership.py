@@ -2762,6 +2762,57 @@ class CorrectedOwnershipProjectTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["errors"], 0)
 
+    def test_tm_candidate_file_cannot_bypass_protection_decision(self):
+        state_path = self.root / "candidate-state.json"
+        errors_path = self.root / "candidate-errors.json"
+        candidates_path = self.root / "tm_candidates.json"
+        write_json(
+            state_path,
+            {
+                "wordcount": 10,
+                "segments": [
+                    {"id": 0, "source": "Source", "target": "Target"}
+                ],
+            },
+        )
+        write_json(
+            errors_path,
+            [
+                {
+                    "id": 0,
+                    "errors": [
+                        {
+                            "category": "Grammar",
+                            "severity": "Major",
+                            "comment": "must still count",
+                        }
+                    ],
+                    "corrected": None,
+                }
+            ],
+        )
+        write_json(candidates_path, {"candidate_ids": [0]})
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(CALC_SCRIPT),
+                "--state",
+                str(state_path),
+                "--errors",
+                str(errors_path),
+                "--protected-file",
+                str(candidates_path),
+                "--json",
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("candidate_ids", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
