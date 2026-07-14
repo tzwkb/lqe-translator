@@ -300,13 +300,28 @@ class NoTerminologyScopeTests(unittest.TestCase):
                 {"category": "Grammar", "severity": "Severe"},
                 "unsupported severity",
             ),
+            (
+                {"category": "Grammar", "severity": "Major", "comment": "  "},
+                "comment must be non-empty",
+            ),
+            (
+                {"category": "Grammar", "comment": "missing severity"},
+                "severity must be a string",
+            ),
         )
         for issue, message in cases:
             with self.subTest(message=message):
                 self.assertIn(message, scope_issue_problem(state, issue))
 
         self.assertIsNone(
-            scope_issue_problem(state, {"category": "Grammar", "comment": "Review"})
+            scope_issue_problem(
+                state,
+                {
+                    "category": "Grammar",
+                    "severity": "Major",
+                    "comment": "Review",
+                },
+            )
         )
         self.assertIsNone(scope_issue_problem({}, {"category": "Terminology"}))
 
@@ -314,7 +329,18 @@ class NoTerminologyScopeTests(unittest.TestCase):
         state = {"check_scope": build_check_scope(True)}
         validate_scope_entries(
             state,
-            [{"id": 0, "issues": [{"category": "Grammar"}]}],
+            [
+                {
+                    "id": 0,
+                    "issues": [
+                        {
+                            "category": "Grammar",
+                            "severity": "Major",
+                            "comment": "valid",
+                        }
+                    ],
+                }
+            ],
             issues_key="issues",
             label="check",
         )
@@ -1258,6 +1284,18 @@ class NoTerminologyModuleTests(unittest.TestCase):
         self.assertEqual(score["errors"], 1)
         self.assertEqual(score["score"], 0)
         self.assertEqual(score["status"], "FAIL")
+
+    def test_calc_rejects_blank_comment_before_scoring(self):
+        self.write_complete_no_term_errors(
+            category="Grammar",
+            comment="   ",
+            edit=None,
+        )
+
+        result = self.run_calc()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("comment must be non-empty", result.stderr)
 
 
 class NoTerminologyFinalizeTests(unittest.TestCase):

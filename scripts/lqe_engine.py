@@ -217,14 +217,8 @@ def scope_issue_problem(state: dict, issue: dict) -> str | None:
     category_key = str(category or "").strip().casefold()
     if category_key == "terminology":
         return "Terminology issue is disabled by check scope"
-    if category is not None and category not in VALID_CATEGORIES:
-        return f"unsupported category {category!r}"
-    severity = issue.get("severity")
-    if severity is not None and severity not in VALID_SEVERITIES:
-        return f"unsupported severity {severity!r}"
-    if str(issue.get("comment") or "").lstrip().casefold().startswith(
-        "term review:"
-    ):
+    comment = issue.get("comment")
+    if str(comment or "").lstrip().casefold().startswith("term review:"):
         return "TERM REVIEW evidence is disabled by check scope"
     edit = issue.get("edit")
     evidence = edit.get("evidence") if isinstance(edit, dict) else None
@@ -234,6 +228,19 @@ def scope_issue_problem(state: dict, issue: dict) -> str | None:
         and evidence_type.strip().casefold() == "confirmed_term"
     ):
         return "confirmed_term edit evidence is disabled by check scope"
+    if not isinstance(category, str):
+        return "category must be a string"
+    if category not in VALID_CATEGORIES:
+        return f"unsupported category {category!r}"
+    severity = issue.get("severity")
+    if not isinstance(severity, str):
+        return "severity must be a string"
+    if severity not in VALID_SEVERITIES:
+        return f"unsupported severity {severity!r}"
+    if not isinstance(comment, str):
+        return "comment must be a string"
+    if not comment.strip():
+        return "comment must be non-empty"
     return None
 
 
