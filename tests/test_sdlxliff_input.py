@@ -579,6 +579,75 @@ class SDLXLIFFParserTests(unittest.TestCase):
                     read_sdlxliff(fixture, options=SDLXLIFFOptions())
                 self.assertIn(fixture.name, str(caught.exception))
 
+    def test_parse_preflight_and_manifest_hash_share_one_byte_snapshot(self):
+        fixture = self.temp_fixture(
+            "snapshot.sdlxliff",
+            self.document(
+                '<trans-unit id="disk"><source>Disk</source><target>Disk target</target>'
+                '<sdl:seg-defs><sdl:seg id="1"/></sdl:seg-defs></trans-unit>'
+            ),
+        )
+        snapshot = self.document(
+            '<trans-unit id="snapshot"><source>Snapshot</source>'
+            '<target>Snapshot target</target>'
+            '<sdl:seg-defs><sdl:seg id="1"/></sdl:seg-defs></trans-unit>'
+        ).encode("utf-8")
+
+        with mock.patch.object(Path, "read_bytes", autospec=True, return_value=snapshot) as read:
+            result = read_sdlxliff(fixture, options=SDLXLIFFOptions())
+
+        self.assertEqual(read.call_count, 1)
+        self.assertEqual(result.segments[0]["source_plain"], "Snapshot")
+        self.assertEqual(
+            result.manifest["files"][0]["sha256"],
+            hashlib.sha256(snapshot).hexdigest(),
+        )
+
+    def test_dtd_preflight_uses_the_same_byte_snapshot_as_xml_parse(self):
+        fixture = self.temp_fixture(
+            "snapshot-dtd.sdlxliff",
+            self.document(
+                '<trans-unit id="safe"><source>Safe</source><target>Safe</target>'
+                '<sdl:seg-defs><sdl:seg id="1"/></sdl:seg-defs></trans-unit>'
+            ),
+        )
+        unsafe = (
+            '<!DOCTYPE xliff [<!ENTITY injected "unsafe">]>'
+            + self.document(
+                '<trans-unit id="unsafe"><source>&injected;</source><target>Unsafe</target>'
+                '<sdl:seg-defs><sdl:seg id="1"/></sdl:seg-defs></trans-unit>'
+            )
+        ).encode("utf-8")
+
+        with mock.patch.object(Path, "read_bytes", autospec=True, return_value=unsafe) as read:
+            with self.assertRaisesRegex(SDLXLIFFImportError, "DOCTYPE|entity"):
+                read_sdlxliff(fixture, options=SDLXLIFFOptions())
+
+        self.assertEqual(read.call_count, 1)
+
+    def test_namespace_rebinding_keeps_every_declared_uri_in_manifest(self):
+        fixture = self.temp_fixture(
+            "namespace-rebinding.sdlxliff",
+            f'<xliff version="1.2" xmlns="{XLIFF_NS}" xmlns:sdl="{SDL_NS}" '
+            'xmlns:v="urn:vendor:first"><file original="anonymous.xml"><body>'
+            '<trans-unit id="tu"><source>A<v:meta xmlns:v="urn:vendor:second">B</v:meta>'
+            '</source><target>C</target><sdl:seg-defs><sdl:seg id="1"/>'
+            '</sdl:seg-defs></trans-unit></body></file></xliff>',
+        )
+
+        result = read_sdlxliff(fixture, options=SDLXLIFFOptions())
+        manifest_file = result.manifest["files"][0]
+        declarations = {
+            (item["prefix"], item["uri"])
+            for item in manifest_file["namespace_declarations"]
+        }
+
+        self.assertEqual(manifest_file["namespaces"]["v"], "urn:vendor:first")
+        self.assertIn(("v", "urn:vendor:first"), declarations)
+        self.assertIn(("v", "urn:vendor:second"), declarations)
+        self.assertIn("urn:vendor:first", result.manifest["extension_namespaces"])
+        self.assertIn("urn:vendor:second", result.manifest["extension_namespaces"])
+
     def test_duplicate_business_key_duplicate_mid_and_unbounded_seg_defs_fail(self):
         duplicate_key = self.temp_fixture(
             "duplicate-key.sdlxliff",
@@ -614,6 +683,97 @@ class SDLXLIFFParserTests(unittest.TestCase):
             with self.subTest(fixture=fixture.name):
                 with self.assertRaisesRegex(SDLXLIFFImportError, message):
                     read_sdlxliff(fixture, options=SDLXLIFFOptions())
+
+    def test_duplicate_direct_body_and_seg_defs_fail(self):
+        duplicate_body = self.temp_fixture(
+            "duplicate-body.sdlxliff",
+            f'<xliff version="1.2" xmlns="{XLIFF_NS}" xmlns:sdl="{SDL_NS}">'
+            '<file original="anonymous.xml"><body/><body/></file></xliff>',
+        )
+        duplicate_seg_defs = self.temp_fixture(
+            "duplicate-seg-defs.sdlxliff",
+            self.document(
+                '<trans-unit id="tu"><source>A</source><target>B</target>'
+                '<sdl:seg-defs><sdl:seg id="1"/></sdl:seg-defs>'
+                '<sdl:seg-defs><sdl:seg id="2" locked="true"/></sdl:seg-defs>'
+                '</trans-unit>'
+            ),
+        )
+
+        for fixture, message in (
+            (duplicate_body, "multiple direct body"),
+            (duplicate_seg_defs, "multiple direct sdl:seg-defs"),
+        ):
+            with self.subTest(fixture=fixture.name):
+                with self.assertRaisesRegex(SDLXLIFFImportError, message):
+                    read_sdlxliff(fixture, options=SDLXLIFFOptions())
+
+    def test_vendor_wrappers_cannot_hide_structural_elements(self):
+        valid_tu = (
+            '<trans-unit id="valid"><source>A</source><target>B</target>'
+            '<sdl:seg-defs><sdl:seg id="1"/></sdl:seg-defs></trans-unit>'
+        )
+        cases = {
+            "hidden-file.sdlxliff": (
+                f'<xliff version="1.2" xmlns="{XLIFF_NS}" xmlns:sdl="{SDL_NS}" '
+                'xmlns:v="urn:vendor:hidden"><v:wrapper><file original="hidden">'
+                f'<body>{valid_tu}</body></file></v:wrapper><file original="direct">'
+                f'<body>{valid_tu}</body></file></xliff>'
+            ),
+            "hidden-body.sdlxliff": (
+                f'<xliff version="1.2" xmlns="{XLIFF_NS}" xmlns:sdl="{SDL_NS}" '
+                'xmlns:v="urn:vendor:hidden"><file original="direct">'
+                f'<body>{valid_tu}</body><v:wrapper><body>{valid_tu}</body>'
+                '</v:wrapper></file></xliff>'
+            ),
+            "hidden-tu.sdlxliff": (
+                f'<xliff version="1.2" xmlns="{XLIFF_NS}" xmlns:sdl="{SDL_NS}" '
+                'xmlns:v="urn:vendor:hidden"><file original="direct"><body>'
+                f'{valid_tu}<v:wrapper>{valid_tu}</v:wrapper>'
+                '</body></file></xliff>'
+            ),
+            "hidden-seg-defs.sdlxliff": (
+                f'<xliff version="1.2" xmlns="{XLIFF_NS}" xmlns:sdl="{SDL_NS}" '
+                'xmlns:v="urn:vendor:hidden"><file original="direct"><body>'
+                '<trans-unit id="tu"><source>A</source><target>B</target>'
+                '<sdl:seg-defs><sdl:seg id="1"/></sdl:seg-defs>'
+                '<v:wrapper><sdl:seg-defs><sdl:seg id="1" locked="true"/>'
+                '</sdl:seg-defs></v:wrapper></trans-unit></body></file></xliff>'
+            ),
+        }
+
+        for name, content in cases.items():
+            with self.subTest(name=name):
+                fixture = self.temp_fixture(name, content)
+                with self.assertRaisesRegex(
+                    SDLXLIFFImportError, "urn:vendor:hidden"
+                ) as caught:
+                    read_sdlxliff(fixture, options=SDLXLIFFOptions())
+                self.assertIn(name, str(caught.exception))
+
+    def test_segmented_source_with_empty_target_keeps_empty_target_per_mid(self):
+        fixture = self.temp_fixture(
+            "segmented-empty-target.sdlxliff",
+            self.document(
+                '<trans-unit id="tu"><seg-source>'
+                '<mrk mtype="seg" mid="1">A</mrk>'
+                '<mrk mtype="seg" mid="2">B</mrk>'
+                '</seg-source><target/><sdl:seg-defs>'
+                '<sdl:seg id="1"/><sdl:seg id="2"/>'
+                '</sdl:seg-defs></trans-unit>'
+            ),
+        )
+
+        result = read_sdlxliff(fixture, options=SDLXLIFFOptions())
+
+        self.assertEqual(
+            [segment["source_ref"]["sdl_segment_id"] for segment in result.segments],
+            ["1", "2"],
+        )
+        self.assertEqual([segment["target"] for segment in result.segments], ["", ""])
+        self.assertEqual(
+            [segment["target_plain"] for segment in result.segments], ["", ""]
+        )
 
     def test_segmented_content_requires_matching_seg_definitions(self):
         fixture = self.temp_fixture(

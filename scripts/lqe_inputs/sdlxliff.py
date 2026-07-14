@@ -5,6 +5,7 @@ from decimal import Decimal, InvalidOperation
 from fnmatch import fnmatchcase
 import hashlib
 from html import escape
+from io import BytesIO
 import math
 from pathlib import Path
 import re
@@ -548,7 +549,7 @@ def _fail(message: str, context: str) -> None:
     raise SDLXLIFFImportError(f"{context}: {message}")
 
 
-def _reject_dtd_and_entities(path: Path, relative_path: str) -> None:
+def _reject_dtd_and_entities(data: bytes, relative_path: str) -> None:
     parser = expat.ParserCreate()
 
     def reject(*_args) -> None:
@@ -560,10 +561,7 @@ def _reject_dtd_and_entities(path: Path, relative_path: str) -> None:
     parser.StartDoctypeDeclHandler = reject
     parser.EntityDeclHandler = reject
     try:
-        with path.open("rb") as handle:
-            while chunk := handle.read(64 * 1024):
-                parser.Parse(chunk, False)
-        parser.Parse(b"", True)
+        parser.Parse(data, True)
     except expat.ExpatError as exc:
         raise SDLXLIFFImportError(
             f"{relative_path}: line {exc.lineno}, column {exc.offset}: "
@@ -571,15 +569,21 @@ def _reject_dtd_and_entities(path: Path, relative_path: str) -> None:
         ) from exc
 
 
-def _parse_xml(path: Path, relative_path: str) -> tuple[ET.Element, dict[str, str]]:
-    _reject_dtd_and_entities(path, relative_path)
+def _parse_xml(
+    data: bytes,
+    relative_path: str,
+) -> tuple[ET.Element, dict[str, str], list[tuple[str, str]]]:
+    _reject_dtd_and_entities(data, relative_path)
     namespace_map: dict[str, str] = {}
+    namespace_declarations: list[tuple[str, str]] = []
     try:
-        parser = ET.iterparse(path, events=("start-ns", "end"))
+        parser = ET.iterparse(BytesIO(data), events=("start-ns", "end"))
         for event, value in parser:
             if event == "start-ns":
                 prefix, uri = value
-                namespace_map.setdefault(prefix or "", uri)
+                normalized_prefix = prefix or ""
+                namespace_map.setdefault(normalized_prefix, uri)
+                namespace_declarations.append((normalized_prefix, uri))
         root = parser.root
     except ET.ParseError as exc:
         line, column = getattr(exc, "position", (None, None))
@@ -591,9 +595,9 @@ def _parse_xml(path: Path, relative_path: str) -> tuple[ET.Element, dict[str, st
         ) from exc
     if root.tag != _X + "xliff" or root.get("version") != "1.2":
         _fail("expected XLIFF 1.2 root namespace and version", relative_path)
-    if SDL_NS not in namespace_map.values():
+    if SDL_NS not in {uri for _, uri in namespace_declarations}:
         _fail(f"supported SDL namespace {SDL_NS!r} is required", relative_path)
-    return root, namespace_map
+    return root, namespace_map, namespace_declarations
 
 
 def _selected_files(path: Path) -> tuple[list[tuple[Path, str]], list[str]]:
@@ -654,10 +658,13 @@ def _comment_definitions(
     return definitions
 
 
-def _segment_definitions(tu: ET.Element) -> list[ET.Element]:
-    container = tu.find(_SDL + "seg-defs")
-    if container is None:
+def _segment_definitions(tu: ET.Element, context: str) -> list[ET.Element]:
+    containers = [child for child in tu if child.tag == _SDL + "seg-defs"]
+    if len(containers) > 1:
+        _fail("multiple direct sdl:seg-defs elements", context)
+    if not containers:
         return []
+    container = containers[0]
     return [child for child in container if child.tag == _SDL + "seg"]
 
 
@@ -776,19 +783,25 @@ def _metadata(
 
 def _has_boundary_descendant(element: ET.Element) -> bool:
     boundary_tags = {
+        _X + "file",
+        _X + "body",
         _X + "trans-unit",
         _X + "source",
         _X + "seg-source",
         _X + "target",
         _X + "mrk",
+        _SDL + "seg-defs",
     }
     return any(descendant.tag in boundary_tags for descendant in element.iter())
 
 
-def _validate_tu_structure(tu: ET.Element, context: str) -> None:
-    direct_boundaries = {_X + "source", _X + "seg-source", _X + "target"}
-    for child in tu:
-        if child.tag in direct_boundaries:
+def _validate_structural_children(
+    parent: ET.Element,
+    allowed_direct: set[str],
+    context: str,
+) -> None:
+    for child in parent:
+        if child.tag in allowed_direct:
             continue
         if _has_boundary_descendant(child):
             namespace, _ = _split_qname(child.tag)
@@ -798,12 +811,23 @@ def _validate_tu_structure(tu: ET.Element, context: str) -> None:
             )
 
 
+def _validate_tu_structure(tu: ET.Element, context: str) -> None:
+    _validate_structural_children(
+        tu,
+        {_X + "source", _X + "seg-source", _X + "target", _SDL + "seg-defs"},
+        context,
+    )
+
+
 def _validate_mixed_boundaries(element: ET.Element, context: str) -> None:
     nested_structural = {
+        _X + "file",
+        _X + "body",
         _X + "trans-unit",
         _X + "source",
         _X + "seg-source",
         _X + "target",
+        _SDL + "seg-defs",
     }
     for descendant in element.iter():
         if descendant is element:
@@ -911,6 +935,18 @@ def _single_direct_child(
     return elements[0] if elements else None
 
 
+def _single_direct_tag(
+    parent: ET.Element,
+    tag: str,
+    name: str,
+    context: str,
+) -> ET.Element | None:
+    elements = [child for child in parent if child.tag == tag]
+    if len(elements) > 1:
+        _fail(f"multiple direct {name} elements", context)
+    return elements[0] if elements else None
+
+
 def _is_blank_container(element: ET.Element | None) -> bool:
     return element is None or (
         len(element) == 0 and not (element.text or "").strip()
@@ -934,7 +970,7 @@ def _pair_tu(
     seg_source = _single_direct_child(tu, "seg-source", context)
     source_element = _single_direct_child(tu, "source", context)
     target_element = _single_direct_child(tu, "target", context)
-    seg_defs = _segment_definitions(tu)
+    seg_defs = _segment_definitions(tu, context)
 
     if seg_source is not None:
         if (
@@ -962,7 +998,7 @@ def _pair_tu(
         source_markers = _segmentation_markers(seg_source, context)
         source_by_mid = _markers_by_mid(source_markers, context)
         target_by_mid: dict[str, ET.Element] = {}
-        if target_element is not None:
+        if target_element is not None and not _is_blank_container(target_element):
             target_markers = _segmentation_markers(target_element, context)
             target_by_mid = _markers_by_mid(target_markers, context)
             if set(target_by_mid) != set(source_by_mid):
@@ -1141,11 +1177,15 @@ def read_sdlxliff(
     locked_segment_count = 0
 
     for input_path, relative_path in selected:
-        root, namespace_map = _parse_xml(input_path, relative_path)
+        input_bytes = input_path.read_bytes()
+        root, namespace_map, namespace_declarations = _parse_xml(
+            input_bytes, relative_path
+        )
+        _validate_structural_children(root, {_X + "file"}, relative_path)
         root_comments = _comment_definitions(root, exclude_file_descendants=True)
         extension_namespaces.update(
             uri
-            for uri in namespace_map.values()
+            for _, uri in namespace_declarations
             if uri not in {XLIFF_NS, SDL_NS, XML_NS}
         )
         input_language_declarations: list[dict[str, str | None]] = []
@@ -1156,6 +1196,7 @@ def read_sdlxliff(
 
         for file_index, file_element in enumerate(file_elements):
             file_context = _context(relative_path, file_index=file_index)
+            _validate_structural_children(file_element, {_X + "body"}, file_context)
             file_original = _local_attribute(file_element, "original")
             source_language = _local_attribute(file_element, "source-language")
             target_language = _local_attribute(file_element, "target-language")
@@ -1166,7 +1207,9 @@ def read_sdlxliff(
             declared_languages.append(declaration)
             input_language_declarations.append(declaration)
             comments = {**root_comments, **_comment_definitions(file_element)}
-            body = file_element.find(_X + "body")
+            body = _single_direct_tag(
+                file_element, _X + "body", "body", file_context
+            )
             if body is None:
                 _fail("XLIFF file is missing body", file_context)
             seen_business_keys: set[
@@ -1364,8 +1407,12 @@ def read_sdlxliff(
         manifest_files.append(
             {
                 "relative_path": relative_path,
-                "sha256": hashlib.sha256(input_path.read_bytes()).hexdigest(),
+                "sha256": hashlib.sha256(input_bytes).hexdigest(),
                 "namespaces": dict(sorted(namespace_map.items())),
+                "namespace_declarations": [
+                    {"prefix": prefix, "uri": uri}
+                    for prefix, uri in namespace_declarations
+                ],
                 "languages": input_language_declarations,
                 "internal_file": internal_summary,
             }
