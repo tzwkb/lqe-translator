@@ -188,6 +188,25 @@ class SDLXLIFFParserTests(unittest.TestCase):
             ],
         )
 
+    def test_rows_raw_uses_empty_strings_for_missing_business_ids(self):
+        result = read_sdlxliff(RECURSIVE_FIXTURES, options=SDLXLIFFOptions())
+        missing_id_indexes = [
+            index
+            for index, segment in enumerate(result.segments)
+            if segment["source_ref"]["tu_id"] is None
+            or segment["source_ref"]["sdl_segment_id"] is None
+        ]
+
+        self.assertTrue(missing_id_indexes)
+        self.assertTrue(
+            all(isinstance(cell, str) for row in result.rows_raw for cell in row)
+        )
+        for index in missing_id_indexes:
+            source_ref = result.segments[index]["source_ref"]
+            row = result.rows_raw[index]
+            self.assertEqual(row[1], source_ref["tu_id"] or "")
+            self.assertEqual(row[2], source_ref["sdl_segment_id"] or "")
+
     def test_reads_status_comment_modifier_empty_target_and_tm_metadata(self):
         result = read_sdlxliff(RECURSIVE_FIXTURES, options=SDLXLIFFOptions())
         by_tu = {
@@ -392,6 +411,62 @@ class SDLXLIFFParserTests(unittest.TestCase):
 
         with self.assertRaisesRegex(SDLXLIFFImportError, "seg-def"):
             read_sdlxliff(fixture, options=SDLXLIFFOptions())
+
+    def test_tu_extension_cannot_hide_a_second_structural_boundary(self):
+        fixture = self.temp_fixture(
+            "hidden-tu-boundary.sdlxliff",
+            f'<xliff version="1.2" xmlns="{XLIFF_NS}" xmlns:sdl="{SDL_NS}" '
+            'xmlns:v="urn:vendor:ambiguous"><file original="anonymous.xml"><body>'
+            '<trans-unit id="outer"><source>A</source><target>B</target>'
+            '<v:wrapper><source>Hidden</source></v:wrapper>'
+            '<sdl:seg-defs><sdl:seg id="1"/></sdl:seg-defs>'
+            "</trans-unit></body></file></xliff>",
+        )
+
+        with self.assertRaisesRegex(
+            SDLXLIFFImportError, "urn:vendor:ambiguous"
+        ) as caught:
+            read_sdlxliff(fixture, options=SDLXLIFFOptions())
+        self.assertIn("hidden-tu-boundary.sdlxliff", str(caught.exception))
+        self.assertIn("TU 'outer'", str(caught.exception))
+
+    def test_vendor_inline_cannot_hide_nested_segmentation_boundary(self):
+        fixture = self.temp_fixture(
+            "nested-segment-boundary.sdlxliff",
+            f'<xliff version="1.2" xmlns="{XLIFF_NS}" xmlns:sdl="{SDL_NS}" '
+            'xmlns:v="urn:vendor:inline"><file original="anonymous.xml"><body>'
+            '<trans-unit id="outer"><seg-source><mrk mtype="seg" mid="1">'
+            'A<v:inline><mrk mtype="seg" mid="hidden">B</mrk></v:inline>'
+            '</mrk></seg-source><target><mrk mtype="seg" mid="1">C</mrk></target>'
+            '<sdl:seg-defs><sdl:seg id="1"/></sdl:seg-defs>'
+            "</trans-unit></body></file></xliff>",
+        )
+
+        with self.assertRaisesRegex(SDLXLIFFImportError, "nested.*segmentation") as caught:
+            read_sdlxliff(fixture, options=SDLXLIFFOptions())
+        self.assertIn("nested-segment-boundary.sdlxliff", str(caught.exception))
+        self.assertIn("TU 'outer'", str(caught.exception))
+
+    def test_nested_vendor_metadata_is_preserved_once_outside_mixed_content(self):
+        fixture = self.temp_fixture(
+            "nested-metadata.sdlxliff",
+            f'<xliff version="1.2" xmlns="{XLIFF_NS}" xmlns:sdl="{SDL_NS}" '
+            'xmlns:v="urn:vendor:metadata"><file original="anonymous.xml"><body>'
+            '<trans-unit id="tu"><source>A<v:inline>Visible</v:inline></source>'
+            '<target>B</target><sdl:seg-defs><sdl:seg id="1"><sdl:values>'
+            '<v:note code="anonymous"><v:item>Nested anonymous metadata</v:item></v:note>'
+            '</sdl:values></sdl:seg></sdl:seg-defs></trans-unit>'
+            "</body></file></xliff>",
+        )
+
+        result = read_sdlxliff(fixture, options=SDLXLIFFOptions())
+        extension_xml = result.segments[0]["metadata"]["sdlxliff"]["extension_xml"]
+
+        self.assertEqual(len(extension_xml), 1)
+        self.assertIn("urn:vendor:metadata", extension_xml[0])
+        self.assertEqual(extension_xml[0].count("Nested anonymous metadata"), 1)
+        self.assertNotIn("v:inline", extension_xml[0])
+        self.assertIn("v:inline", result.segments[0]["source"])
 
     def test_structural_unknown_extension_fails_instead_of_guessing_boundaries(self):
         fixture = self.temp_fixture(

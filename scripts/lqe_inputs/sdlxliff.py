@@ -428,6 +428,38 @@ def _has_boundary_descendant(element: ET.Element) -> bool:
     return any(descendant.tag in boundary_tags for descendant in element.iter())
 
 
+def _validate_tu_structure(tu: ET.Element, context: str) -> None:
+    direct_boundaries = {_X + "source", _X + "seg-source", _X + "target"}
+    for child in tu:
+        if child.tag in direct_boundaries:
+            continue
+        if _has_boundary_descendant(child):
+            namespace, _ = _split_qname(child.tag)
+            _fail(
+                f"unsupported structural extension namespace {namespace or '<none>'}",
+                context,
+            )
+
+
+def _validate_mixed_boundaries(element: ET.Element, context: str) -> None:
+    nested_structural = {
+        _X + "trans-unit",
+        _X + "source",
+        _X + "seg-source",
+        _X + "target",
+    }
+    for descendant in element.iter():
+        if descendant is element:
+            continue
+        if (
+            descendant.tag == _X + "mrk"
+            and _local_attribute(descendant, "mtype") == "seg"
+        ):
+            _fail("nested segmentation boundary in mixed content", context)
+        if descendant.tag in nested_structural:
+            _fail(f"nested structural boundary {descendant.tag!r}", context)
+
+
 def _iter_trans_units(body: ET.Element, context: str):
     for child in body:
         if child.tag == _X + "trans-unit":
@@ -466,6 +498,7 @@ def _segmentation_markers(container: ET.Element, context: str) -> list[ET.Elemen
 def _markers_by_mid(markers: list[ET.Element], context: str) -> dict[str, ET.Element]:
     by_mid: dict[str, ET.Element] = {}
     for marker in markers:
+        _validate_mixed_boundaries(marker, context)
         mid = _local_attribute(marker, "mid")
         if not mid:
             _fail("segmentation mrk is missing mid", context)
@@ -536,16 +569,9 @@ def _pair_tu(
 
     if source_element is None:
         _fail("trans-unit is missing source or seg-source", context)
-    if any(
-        element.tag == _X + "mrk" and _local_attribute(element, "mtype") == "seg"
-        for element in source_element.iter()
-    ):
-        _fail("segmentation mrk requires seg-source", context)
-    if target_element is not None and any(
-        element.tag == _X + "mrk" and _local_attribute(element, "mtype") == "seg"
-        for element in target_element.iter()
-    ):
-        _fail("target segmentation mrk has no seg-source boundary", context)
+    _validate_mixed_boundaries(source_element, context)
+    if target_element is not None:
+        _validate_mixed_boundaries(target_element, context)
     if len(seg_defs) > 1:
         _fail("multiple seg-def entries have no segmentation boundaries", context)
     seg_def = seg_defs[0] if seg_defs else None
@@ -563,11 +589,20 @@ def _pair_tu(
 
 
 def _tu_extensions(tu: ET.Element, namespace_map: dict[str, str]) -> list[str]:
-    values = []
-    for child in tu:
-        namespace, _ = _split_qname(child.tag)
-        if namespace not in {XLIFF_NS, SDL_NS}:
-            values.append(_serialize_full(child, namespace_map))
+    values: list[str] = []
+    mixed_roots = {_X + "source", _X + "seg-source", _X + "target"}
+
+    def collect(parent: ET.Element) -> None:
+        for child in parent:
+            if parent is tu and child.tag in mixed_roots:
+                continue
+            namespace, _ = _split_qname(child.tag)
+            if namespace not in {XLIFF_NS, SDL_NS}:
+                values.append(_serialize_full(child, namespace_map))
+                continue
+            collect(child)
+
+    collect(tu)
     return values
 
 
@@ -635,6 +670,7 @@ def read_sdlxliff(
                     tu_index=tu_index,
                     element=tu,
                 )
+                _validate_tu_structure(tu, tu_context)
                 pairs = _pair_tu(tu, namespace_map=namespace_map, context=tu_context)
                 extension_xml = _tu_extensions(tu, namespace_map)
                 for segment_index, (source, target, sdl_segment_id, seg_def) in enumerate(pairs):
@@ -688,8 +724,8 @@ def read_sdlxliff(
                     rows_raw.append(
                         [
                             relative_path,
-                            tu_id,
-                            sdl_segment_id,
+                            tu_id or "",
+                            sdl_segment_id or "",
                             source.display,
                             target.display,
                         ]
