@@ -323,6 +323,31 @@ def _module_issue_problem(state: dict, module: str, issue: dict) -> str | None:
     return None
 
 
+def _precheck_provenance_problem(
+    original_issues: list[dict], reviewed_issues: list[dict]
+) -> str | None:
+    used: set[int] = set()
+    for reviewed in reviewed_issues:
+        match = None
+        for index, original in enumerate(original_issues):
+            if index in used:
+                continue
+            if original.get("category") != reviewed.get("category"):
+                continue
+            reviewed_edit = reviewed.get("edit")
+            if reviewed_edit is not None and reviewed_edit != original.get("edit"):
+                continue
+            match = index
+            break
+        if match is None:
+            return (
+                "precheck provenance mismatch for category "
+                f"{reviewed.get('category')!r}"
+            )
+        used.add(match)
+    return None
+
+
 def _check_modules(
     job: Path,
 ) -> tuple[dict, list[str], tuple[str, ...], tuple[str, ...]]:
@@ -342,6 +367,14 @@ def _check_modules(
         try:
             base = load(base_path)
             ids = [segment["id"] for segment in base["segments"]]
+            precheck_by_id = {
+                segment["id"]: (
+                    segment.get("precheck")
+                    if isinstance(segment.get("precheck"), list)
+                    else []
+                )
+                for segment in base["segments"]
+            }
         except Exception as error:
             problems.append(f"{base_path.name}: invalid chunk ({error})")
             continue
@@ -378,6 +411,16 @@ def _check_modules(
                     f"{path.name}: unexpected ids {sorted(unexpected)[:10]}"
                 )
             for entry in entries:
+                if module == "precheck_review":
+                    provenance_problem = _precheck_provenance_problem(
+                        precheck_by_id.get(entry["id"], []),
+                        entry["issues"],
+                    )
+                    if provenance_problem:
+                        problems.append(
+                            f"{path.name}: {provenance_problem} "
+                            f"for id {entry['id']}"
+                        )
                 for issue in entry["issues"]:
                     problem = _module_issue_problem(state, module, issue)
                     if problem:

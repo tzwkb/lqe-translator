@@ -740,6 +740,126 @@ class NoTerminologyModuleTests(unittest.TestCase):
         self.assertIn("precheck_review cannot own", result.stderr)
         self.assertFalse((self.chunks / "chunk_00.out.json").exists())
 
+    def test_precheck_review_rejects_issue_when_chunk_precheck_is_empty(self):
+        self.make_no_term_chunk_job()
+        self.write_modules(
+            ("precheck_review", "accuracy", "grammar", "naturalness")
+        )
+        write_json(
+            self.chunks / "chunk_00.precheck_review.json",
+            [
+                {
+                    "id": 0,
+                    "issues": [
+                        {
+                            "category": "Markup",
+                            "severity": "Major",
+                            "comment": "invented issue",
+                            "needs_confirmation": True,
+                            "edit": None,
+                        }
+                    ],
+                }
+            ],
+        )
+
+        for command in ("validate-checks", "merge-checks"):
+            with self.subTest(command=command):
+                result = self.run_chunk(command, "--job", self.job)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("precheck provenance", result.stderr)
+        self.assertFalse((self.chunks / "chunk_00.out.json").exists())
+
+    def test_precheck_review_can_refine_existing_issue_without_new_edit(self):
+        self.make_no_term_chunk_job()
+        chunk_path = self.chunks / "chunk_00.json"
+        chunk = read_json(chunk_path)
+        chunk["segments"][0]["precheck"] = [
+            {
+                "category": "Markup",
+                "severity": "Minor",
+                "comment": "machine finding",
+                "needs_confirmation": True,
+                "edit": None,
+            }
+        ]
+        write_json(chunk_path, chunk)
+        self.write_modules(
+            ("precheck_review", "accuracy", "grammar", "naturalness")
+        )
+        write_json(
+            self.chunks / "chunk_00.precheck_review.json",
+            [
+                {
+                    "id": 0,
+                    "issues": [
+                        {
+                            "category": "Markup",
+                            "severity": "Major",
+                            "comment": "confirmed and clarified",
+                            "needs_confirmation": False,
+                            "edit": None,
+                        }
+                    ],
+                }
+            ],
+        )
+
+        result = self.run_chunk("validate-checks", "--job", self.job)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        result = self.run_chunk("merge-checks", "--job", self.job)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        output = read_json(self.chunks / "chunk_00.out.json")
+        self.assertEqual(output[0]["issues"][0]["comment"], "confirmed and clarified")
+
+    def test_precheck_review_rejects_changed_edit_and_duplicate_claim(self):
+        self.make_no_term_chunk_job()
+        chunk_path = self.chunks / "chunk_00.json"
+        chunk = read_json(chunk_path)
+        chunk["segments"][0]["precheck"] = [
+            {
+                "category": "Locale convention",
+                "severity": "Minor",
+                "comment": "machine finding",
+                "needs_confirmation": False,
+                "edit": {"from": "A", "to": "B", "evidence": None},
+            }
+        ]
+        write_json(chunk_path, chunk)
+        self.write_modules(
+            ("precheck_review", "accuracy", "grammar", "naturalness")
+        )
+        cases = {
+            "changed-edit": [
+                {
+                    "category": "Locale convention",
+                    "severity": "Minor",
+                    "comment": "changed correction",
+                    "needs_confirmation": False,
+                    "edit": {"from": "A", "to": "C", "evidence": None},
+                }
+            ],
+            "duplicate-claim": [
+                {
+                    "category": "Locale convention",
+                    "severity": "Minor",
+                    "comment": comment,
+                    "needs_confirmation": True,
+                    "edit": None,
+                }
+                for comment in ("first", "second")
+            ],
+        }
+        for name, issues in cases.items():
+            with self.subTest(name=name):
+                write_json(
+                    self.chunks / "chunk_00.precheck_review.json",
+                    [{"id": 0, "issues": issues}],
+                )
+                result = self.run_chunk("validate-checks", "--job", self.job)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("precheck provenance", result.stderr)
+
     def test_legacy_state_still_requires_standard_four_modules(self):
         self.make_legacy_chunk_job()
         self.write_modules(("accuracy", "grammar", "naturalness"))
