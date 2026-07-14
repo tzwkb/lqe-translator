@@ -104,6 +104,23 @@ class PlainLanguageTests(unittest.TestCase):
             (ROOT / "docs/superpowers/specs/2026-07-12-lqe-pending-adjudication-design.md").exists()
         )
 
+    def test_sdlxliff_boundaries_are_plain_and_visible(self):
+        requirements = {
+            "SKILL.md": ("未知厂商扩展", "第一版不回写 SDLXLIFF XML"),
+            "README.md": (
+                "Unknown vendor extensions",
+                "does not write back to SDLXLIFF XML",
+            ),
+            "README_ZH.md": ("未知厂商扩展", "第一版不回写 SDLXLIFF XML"),
+            "PM_GUIDE.html": ("未知厂商扩展", "第一版不回写 SDLXLIFF XML"),
+            "projects/README.md": ("未知厂商扩展", "第一版不回写 SDLXLIFF XML"),
+        }
+        for path, phrases in requirements.items():
+            content = (ROOT / path).read_text(encoding="utf-8")
+            for phrase in phrases:
+                with self.subTest(path=path, phrase=phrase):
+                    self.assertIn(phrase, content)
+
 
 if __name__ == "__main__":
     unittest.main()

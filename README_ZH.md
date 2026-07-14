@@ -17,6 +17,7 @@
 - 模型只提交 `issues` 和安全的局部 `edit`；Python 校验后生成内部完整文本。
 - `confirmed: true` 表示该译法已经确认，可在证据唯一时安全修改；`protected: true` 表示不可修改。
 - 受保护段不修改、不计分。
+- SDLXLIFF 1.2 可直接读取单文件或递归目录，不需要先转换为工作簿。
 - Excel 标准交付文件为 `<任务名>_lqe.xlsx` 和 `<任务名>_corrected.xlsx`。
 
 ## 目录结构
@@ -50,6 +51,8 @@ lqe-translator/
 └── jobs/<任务名>/
     ├── state.json
     ├── scope.json
+    ├── source_manifest.json       # SDLXLIFF 任务
+    ├── tm_candidates.json         # SDLXLIFF 任务
     ├── confirmed_rules.md
     ├── errors_precheck.json
     ├── errors.json
@@ -103,6 +106,18 @@ python3 "$SCRIPTS/lqe_io.py" read \
 
 解析后的模式写入 `state.check_scope`，并同步生成 `$JOB/scope.json`。无术语模式只关闭术语、专名和术语审计；不会关闭文件内一致性、Markup、数字等检查。
 
+SDLXLIFF 可传单个 `.sdlxliff` 文件或目录。`--input-format` 可取 `auto`、`tabular`、`sdlxliff`；单文件和只含 SDLXLIFF 的目录可自动识别，混合格式目录必须显式指定。SDLXLIFF 直接读取句段，不使用 `--source-col` 或 `--target-col`：
+
+```bash
+python3 "$SCRIPTS/lqe_io.py" read \
+  --project "<game>/<source>-<target>" \
+  --input "<文件或目录>" \
+  --input-format sdlxliff \
+  --out "$JOB/state.json"
+```
+
+第一版只支持带 SDL namespace 的 XLIFF 1.2/SDLXLIFF 1.2；XLIFF 2.0 明确失败。未知厂商扩展若不影响句段边界会保留并记录，若造成 source、target 或 `mid` 配对歧义则失败。内容类型与排除只由 profile 显式规则决定，不根据 CC、FF、文件名或目录名推断。
+
 以下可见合同精确定义两种解析后 scope：
 
 <pre data-lqe-scope-contract>
@@ -148,6 +163,24 @@ python3 "$SCRIPTS/lqe_io.py" protect-segments \
 ```
 
 脚本不会猜测匹配列或匹配值。
+
+SDLXLIFF 中明确 locked 的段始终以 `SOURCE_LOCKED` 保护。默认策略 `candidate-only` 只把同时满足 `origin=tm`、`percent=100`、`text-match=SourceAndTarget` 的段写入 `tm_candidates.json`，不会自动保护。确认后可将该文件交给 `protect-segments`，也可在 profile 使用 `protect-exact-source-and-target`，或用 CLI `--protect-exact-tm` 显式启用严格自动保护；只有 100% 数值不够。locked 与严格 TM 同时命中时，主原因仍为 `SOURCE_LOCKED`，两类证据分别保留。
+
+profile 可增加可审计的 SDLXLIFF 规则：
+
+```json
+{
+  "sdlxliff": {
+    "tm_protection": "candidate-only",
+    "content_type_rules": [
+      {"id": "dialog", "glob": "**/dialog*.sdlxliff", "content_type": "剧情/对话"}
+    ],
+    "exclude_rules": [
+      {"id": "rejected", "field": "confirmation", "equals": "Rejected", "reason": "Client excluded"}
+    ]
+  }
+}
+```
 
 ### 3. 机器预检
 
@@ -256,7 +289,7 @@ python3 "$SCRIPTS/lqe_io.py" export \
   --errors "$JOB/errors.json"
 ```
 
-Excel 输入对应以下产物：
+表格输入对应以下产物：
 
 | 文件 | 用途 |
 |---|---|
@@ -264,6 +297,10 @@ Excel 输入对应以下产物：
 | `<任务名>_corrected.xlsx` | 保留原工作簿结构，仅把通过校验的建议修改写入目标列 |
 
 用户可见报告使用“建议修改、需要人工确认、保持原译、已保护”。`corrected` 仅用于内部数据和标准输出文件名。
+
+SDLXLIFF 的 `LQE Results` 固定为 11 列：来源文件、TU ID、SDL Segment ID、原文、原译、建议译文、处理方式、错误详情、LQE_Iter、Protected、Protection Evidence。`source_manifest.json` 保存输入 SHA-256、声明语言、扩展 namespace、规则命中、排除和 locked/TM 证据；`tm_candidates.json` 把严格候选与保护决定分开。corrected Excel 固定为 5 列：来源文件、TU ID、SDL Segment ID、原文、译文。
+
+第一版不回写 SDLXLIFF XML；`export` 只生成 `<任务名>_corrected.xlsx`，所有原始 XML 保持不变。
 
 ## 评分
 
@@ -288,12 +325,15 @@ python3 "$SCRIPTS/aggregate_sheets.py" \
 
 父任务保留工作表顺序、空行、公式、样式和合并单元格，只替换经过校验的目标单元格。
 
+该聚合命令只用于表格工作簿；SDLXLIFF 目录属于一个多文件任务，不是多工作表任务。
+
 ## 验证
 
 ```bash
 python3 -m unittest -v tests.test_correction_builder
 python3 -m unittest -v tests.test_corrected_ownership
 python3 -m unittest -v tests.test_no_terminology_mode
+python3 -m unittest -v tests.test_sdlxliff_input
 python3 -m unittest -v tests.test_documented_contract
 python3 -m unittest -v tests.test_plain_language
 python3 scripts/run_tests.py

@@ -17,6 +17,7 @@ Agent skill for game-localization LQE: deterministic pre-checks, focused AI chec
 - Models report `issues` and safe local `edit` operations. Python validates edits and builds the internal full-text result.
 - `confirmed: true` authorizes a unique terminology edit; `protected: true` means the content must not be changed.
 - Protected segments are neither changed nor scored.
+- SDLXLIFF 1.2 can be read from one file or a recursively scanned directory without an intermediate workbook.
 - Standard Excel deliverables are `<job>_lqe.xlsx` and `<job>_corrected.xlsx`.
 
 ## Directory structure
@@ -50,6 +51,8 @@ lqe-translator/
 └── jobs/<job>/
     ├── state.json
     ├── scope.json
+    ├── source_manifest.json       # SDLXLIFF jobs
+    ├── tm_candidates.json         # SDLXLIFF jobs
     ├── confirmed_rules.md
     ├── errors_precheck.json
     ├── errors.json
@@ -103,6 +106,18 @@ python3 "$SCRIPTS/lqe_io.py" read \
 
 The resolved mode is stored in `state.check_scope` and copied to `$JOB/scope.json`. No-terminology mode disables terminology, proper-name, and term-audit work; it does not disable file-wide consistency, Markup, or numeric checks.
 
+For SDLXLIFF, pass one `.sdlxliff` file or a directory. `--input-format` accepts `auto`, `tabular`, or `sdlxliff`; a single file and a directory containing only SDLXLIFF files are auto-detected, while a mixed directory requires the explicit format. SDLXLIFF input reads source and target segments directly, so it does not use `--source-col` or `--target-col`:
+
+```bash
+python3 "$SCRIPTS/lqe_io.py" read \
+  --project "<game>/<source>-<target>" \
+  --input "<file-or-directory>" \
+  --input-format sdlxliff \
+  --out "$JOB/state.json"
+```
+
+The first release supports XLIFF 1.2 with the SDL namespace. XLIFF 2.0 is rejected. Unknown vendor extensions are preserved and recorded when segment boundaries remain unambiguous; an extension that makes source, target, or `mid` pairing ambiguous causes the import to fail. Content type and exclusion behavior comes only from explicit profile rules, never from CC, FF, filenames, or directory names.
+
 The following visible contract defines both resolved scopes:
 
 <pre data-lqe-scope-contract>
@@ -148,6 +163,24 @@ python3 "$SCRIPTS/lqe_io.py" protect-segments \
 ```
 
 The script never guesses match columns or values.
+
+For SDLXLIFF, segments marked locked are always protected with reason `SOURCE_LOCKED`. By default, only segments satisfying all three conditions—`origin=tm`, `percent=100`, and `text-match=SourceAndTarget`—are written to `tm_candidates.json`; candidates are not protected automatically. Review them and pass that file to `protect-segments`, set profile policy `protect-exact-source-and-target`, or use `--protect-exact-tm` for an explicit strict decision. A plain 100% value is insufficient. If locked and exact-TM evidence coexist, `SOURCE_LOCKED` remains the effective reason and both evidence records are retained.
+
+An optional profile section defines auditable SDLXLIFF rules:
+
+```json
+{
+  "sdlxliff": {
+    "tm_protection": "candidate-only",
+    "content_type_rules": [
+      {"id": "dialog", "glob": "**/dialog*.sdlxliff", "content_type": "Dialogue"}
+    ],
+    "exclude_rules": [
+      {"id": "rejected", "field": "confirmation", "equals": "Rejected", "reason": "Client excluded"}
+    ]
+  }
+}
+```
 
 ### 3. Run the deterministic pre-check
 
@@ -258,7 +291,7 @@ python3 "$SCRIPTS/lqe_io.py" export \
   --errors "$JOB/errors.json"
 ```
 
-For an Excel input, outputs are:
+For a tabular input, outputs are:
 
 | File | Purpose |
 |---|---|
@@ -266,6 +299,10 @@ For an Excel input, outputs are:
 | `<job>_corrected.xlsx` | Original workbook structure with only validated suggested changes in the target column |
 
 User-facing reports label rows as suggested change, needs human confirmation, keep original, or protected. The word `corrected` is reserved for internal data and the standard output filename.
+
+For SDLXLIFF, `LQE Results` always uses these 11 columns: `来源文件`, `TU ID`, `SDL Segment ID`, `原文`, `原译`, `建议译文`, `处理方式`, `错误详情`, `LQE_Iter`, `Protected`, `Protection Evidence`. `source_manifest.json` stores input SHA-256 hashes, declared languages, extension namespaces, rule matches, exclusions, and locked/TM evidence. `tm_candidates.json` stores strict candidates separately from protected decisions. The corrected workbook always uses five columns: `来源文件`, `TU ID`, `SDL Segment ID`, `原文`, `译文`.
+
+The first release does not write back to SDLXLIFF XML. `export` creates `<job>_corrected.xlsx` and leaves every source XML file unchanged.
 
 ## Scoring
 
@@ -290,12 +327,15 @@ python3 "$SCRIPTS/aggregate_sheets.py" \
 
 The parent job preserves worksheet order, blank rows, formulas, styles, and merged cells while replacing only the target cells selected by validated edits.
 
+This aggregation command is for tabular workbooks only; an SDLXLIFF directory is one multi-file job, not a multi-sheet workbook.
+
 ## Verification
 
 ```bash
 python3 -m unittest -v tests.test_correction_builder
 python3 -m unittest -v tests.test_corrected_ownership
 python3 -m unittest -v tests.test_no_terminology_mode
+python3 -m unittest -v tests.test_sdlxliff_input
 python3 -m unittest -v tests.test_documented_contract
 python3 -m unittest -v tests.test_plain_language
 python3 scripts/run_tests.py

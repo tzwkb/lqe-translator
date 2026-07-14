@@ -28,11 +28,39 @@
   "checks": "checks.json",
   "confirmed_rules": "confirmed_rules.md",
   "threshold": 98,
-  "protected_term_statuses": []
+  "protected_term_statuses": [],
+  "sdlxliff": {
+    "tm_protection": "candidate-only",
+    "content_type_rules": [
+      {"id": "dialog", "glob": "**/dialog*.sdlxliff", "content_type": "剧情/对话"}
+    ],
+    "exclude_rules": [
+      {"id": "rejected", "field": "confirmation", "equals": "Rejected", "reason": "Client excluded"}
+    ]
+  }
 }
 ```
 
 `language_pair`、`source_lang`、`target_lang` 必填。相对路径以当前语言轨目录为基准。设置合并顺序为：内置默认 < 目标语言属性 < 项目 `checks.json` < 命令行参数。
+
+`sdlxliff.tm_protection` 可取 `candidate-only` 或 `protect-exact-source-and-target`；CLI `--protect-exact-tm` 优先。`content_type_rules` 按顺序匹配大小写敏感的相对路径 glob，第一个命中生效。`exclude_rules` 必须有唯一 `id` 和非空 `reason`，可选 glob，并在 `relative_path`、`file_original`、`confirmation`、`origin`、`locked`、`source`、`target` 上使用且只使用一个 `equals` 或 `regex`。不得用不稳定的 job 段号，也不得根据 CC、FF、文件名或目录名推断内容类型。
+
+## SDLXLIFF 输入
+
+单个 SDLXLIFF 1.2 文件或目录可直接初始化：
+
+```bash
+python3 scripts/lqe_io.py read \
+  --project <game>/<source>-<target> \
+  --input <SDLXLIFF 文件或目录> --input-format sdlxliff \
+  --out jobs/<任务名>/state.json
+```
+
+`--input-format` 可取 `auto`、`tabular`、`sdlxliff`。单文件和只含 SDLXLIFF 的目录可自动识别；混合格式目录必须显式指定 `sdlxliff`。目录递归读取并按相对路径排序；表格目录不支持。
+
+第一版只支持带 SDL namespace 的 XLIFF 1.2；XLIFF 2.0 明确失败。未知厂商扩展若不影响句段定位、文本边界和 `mid` 配对，会保留并写入 state/manifest；出现结构歧义时失败，不猜测。
+
+locked 段始终以 `SOURCE_LOCKED` 保护。默认 `candidate-only` 只把同时满足 `origin=tm`、`percent=100`、`text-match=SourceAndTarget` 的段写入 `tm_candidates.json`；候选只有在执行 `protect-segments` 后才成为当次任务的保护决定。profile 的 `protect-exact-source-and-target` 或 CLI `--protect-exact-tm` 是显式严格自动保护决定；单独的 100% 值不够。
 
 ## 运行时检查模式
 
@@ -96,6 +124,8 @@ python3 scripts/lqe_io.py read \
 ```text
 state.json
 scope.json
+source_manifest.json        # SDLXLIFF 任务
+tm_candidates.json          # SDLXLIFF 任务
 confirmed_rules.md
 errors_precheck.json
 errors.json
@@ -104,4 +134,8 @@ chunks/
 <任务名>_corrected.xlsx
 ```
 
-原始输入保持不变。`<任务名>_lqe.xlsx` 用于检查和评分记录；`<任务名>_corrected.xlsx` 保留原工作簿结构，只写入通过校验的建议修改。
+原始输入保持不变。`<任务名>_lqe.xlsx` 用于检查和评分记录；表格任务的 `<任务名>_corrected.xlsx` 保留原工作簿结构，只写入通过校验的建议修改。
+
+SDLXLIFF 的 `source_manifest.json` 记录输入文件 SHA-256、语言、未知扩展 namespace、规则命中、纳入/排除原因和 locked/TM 证据；`tm_candidates.json` 单独记录严格候选。其 `LQE Results` 固定为来源文件、TU ID、SDL Segment ID、原文、原译、建议译文、处理方式、错误详情、LQE_Iter、Protected、Protection Evidence；corrected Excel 固定为来源文件、TU ID、SDL Segment ID、原文、译文。
+
+第一版不回写 SDLXLIFF XML；只导出标准 `<任务名>_corrected.xlsx`，原始 XML 保持不变。

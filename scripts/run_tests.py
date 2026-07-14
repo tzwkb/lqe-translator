@@ -781,6 +781,7 @@ def t25():
             "tests.test_corrected_ownership",
             "tests.test_plain_language",
             "tests.test_no_terminology_mode",
+            "tests.test_sdlxliff_input",
             "tests.test_documented_contract",
             "tests.test_mastertb_module_contract",
         ],

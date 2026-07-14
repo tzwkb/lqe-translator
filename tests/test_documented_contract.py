@@ -132,9 +132,50 @@ class DocumentedContractTests(unittest.TestCase):
             argv = run_mock.call_args.args[0]
             self.assertEqual(argv[:4], [sys.executable, "-m", "unittest", "-v"])
             self.assertEqual(argv.count("tests.test_no_terminology_mode"), 1)
+            self.assertEqual(argv.count("tests.test_sdlxliff_input"), 1)
             self.assertEqual(run_mock.call_args.kwargs["cwd"], ROOT)
         finally:
             shutil.rmtree(runner.TMP, ignore_errors=True)
+
+    def test_skill_documents_sdlxliff_input_and_boundaries(self):
+        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        for phrase in (
+            "SDLXLIFF 1.2",
+            "--input-format sdlxliff",
+            "--protect-exact-tm",
+            "source_manifest.json",
+            "tm_candidates.json",
+            "SOURCE_LOCKED",
+            "XLIFF 2.0",
+            "第一版不回写 SDLXLIFF XML",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, skill)
+
+    def test_projects_readme_documents_sdlxliff_rules(self):
+        text = (ROOT / "projects/README.md").read_text(encoding="utf-8")
+        for phrase in (
+            '"sdlxliff"',
+            '"tm_protection"',
+            '"content_type_rules"',
+            '"exclude_rules"',
+            "candidate-only",
+            "protect-exact-source-and-target",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, text)
+
+    def test_sdlxliff_report_and_export_columns_are_documented(self):
+        expected_report = (
+            "来源文件、TU ID、SDL Segment ID、原文、原译、建议译文、"
+            "处理方式、错误详情、LQE_Iter、Protected、Protection Evidence"
+        )
+        expected_export = "来源文件、TU ID、SDL Segment ID、原文、译文"
+        for path in ("SKILL.md", "README_ZH.md", "PM_GUIDE.html"):
+            with self.subTest(path=path):
+                content = (ROOT / path).read_text(encoding="utf-8")
+                self.assertIn(expected_report, content)
+                self.assertIn(expected_export, content)
 
 
 if __name__ == "__main__":

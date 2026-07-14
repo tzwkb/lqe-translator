@@ -15,8 +15,8 @@ SCRIPTS=~/.codex/skills/lqe-translator/scripts
 
 需要：
 
-- Excel、CSV 或 TSV 路径。
-- 原文列和译文列。
+- Excel、CSV、TSV，或 SDLXLIFF 1.2 路径；SDLXLIFF 可传单文件或目录。
+- 表格输入的原文列和译文列；SDLXLIFF 从句段结构读取，不需要列名。
 - 项目语言轨，如 `nrc/zh-th`、`nrc/zh-en`、`wwm/zh-en`。
 - 是否启用自动迭代；默认只跑首轮。
 
@@ -48,7 +48,16 @@ projects/<game>/<source>-<target>/
   "confirmed_rules": "confirmed_rules.md",
   "wordcount_basis": "source-chars",
   "threshold": 98,
-  "protected_term_statuses": []
+  "protected_term_statuses": [],
+  "sdlxliff": {
+    "tm_protection": "candidate-only",
+    "content_type_rules": [
+      {"id": "dialog", "glob": "**/dialog*.sdlxliff", "content_type": "剧情/对话"}
+    ],
+    "exclude_rules": [
+      {"id": "rejected", "field": "confirmation", "equals": "Rejected", "reason": "Client excluded"}
+    ]
+  }
 }
 ```
 
@@ -70,6 +79,20 @@ python "$SCRIPTS/lqe_io.py" read \
   --target-col "<译文列>" \
   --out "jobs/<文件名>/state.json"
 ```
+
+SDLXLIFF 初始化：
+
+```bash
+python "$SCRIPTS/lqe_io.py" read \
+  --project "<game>/<source>-<target>" \
+  --input "<SDLXLIFF 文件或目录>" \
+  --input-format sdlxliff \
+  --out "jobs/<文件名>/state.json"
+```
+
+`--input-format` 可取 `auto`、`tabular`、`sdlxliff`，默认 `auto`。单个 `.sdlxliff` 或只含 SDLXLIFF 的目录可自动识别；混有表格文件的目录必须显式使用 `--input-format sdlxliff`，未选中的受支持文件会记录在来源清单。目录会递归读取并按相对路径排序。表格目录仍不支持。
+
+第一版只接受带 SDL namespace 的 XLIFF 1.2/SDLXLIFF 1.2；XLIFF 2.0 明确失败。未知厂商扩展若不影响句段定位、文本边界和 `mid` 配对，会保留证据并记录 namespace；存在结构歧义时失败，不猜测。内容类型与排除只能来自 profile 的显式 `sdlxliff.content_type_rules` 和 `sdlxliff.exclude_rules`，不得根据 CC、FF、文件名或目录名推断。
 
 任务明确要求“不检查术语”时，在同一条 `read` 命令加入 `--no-terminology`。该参数高于 profile 的术语配置，且不能与显式 `--terminology <file>` 同时使用。初始化会把解析后的模式写入 `state.check_scope`，并在 job 根目录生成内容相同的 `scope.json`。
 
@@ -142,6 +165,14 @@ python "$SCRIPTS/tm_index.py" tm-match \
 ```
 
 只有源文精确匹配且当前译文属于该源文的已收录译法时才保护。受保护段不修改、不扣分，报告和导出保留原译。
+
+SDLXLIFF 的保护规则单独处理：
+
+- SDL 明确 locked 的段初始化时自动保护为 `SOURCE_LOCKED`，不依赖 TM 策略。
+- 默认 `candidate-only` 只把同时满足 `origin=tm`、`percent=100`、`text-match=SourceAndTarget` 的段写入 `tm_candidates.json`，不会自动保护。
+- 确认候选后，可用上面的 `protect-segments` 命令把 `tm_candidates.json` 作为 `--protected-file`；或者在 profile 使用 `protect-exact-source-and-target`。
+- CLI `--protect-exact-tm` 等同于当次显式启用严格自动保护，并优先于 profile。普通 100% 值或缺少任一条件都不保护。
+- locked 与 TM 同时命中时，主原因仍为 `SOURCE_LOCKED`，两类证据分别保留。
 
 ## 5. 机器预检
 
@@ -323,6 +354,10 @@ python "$SCRIPTS/lqe_io.py" export \
 
 报告面向用户显示“建议修改、需要人工确认、保持原译、已保护”。`*_corrected.<ext>` 是标准交付文件名；其中 corrected 仅是内部机器字段和标准文件名的一部分。
 
+SDLXLIFF 的 `LQE Results` 固定为 11 列：来源文件、TU ID、SDL Segment ID、原文、原译、建议译文、处理方式、错误详情、LQE_Iter、Protected、Protection Evidence。其余 SDL 私有字段、文件 SHA-256、语言、扩展 namespace、规则命中、排除和保护证据写入 `source_manifest.json`。SDL corrected Excel 固定为 5 列：来源文件、TU ID、SDL Segment ID、原文、译文。
+
+第一版不回写 SDLXLIFF XML；`export` 只生成 `<任务名>_corrected.xlsx`，原始 XML 保持不变。
+
 ## 10. 多工作表
 
 每个工作表单独建立子 job，完成检查后聚合：
@@ -336,12 +371,16 @@ python "$SCRIPTS/aggregate_sheets.py" \
 
 聚合结果放在父 job 目录，保留原工作簿工作表、空行、列顺序和格式，只替换目标列。
 
+该聚合命令只用于表格工作簿；SDLXLIFF 目录是一个多文件 job，不建立多工作表子 job。
+
 ## 11. 文件结构
 
 ```text
 jobs/<文件名>/
 ├── state.json
 ├── scope.json
+├── source_manifest.json       # SDLXLIFF job
+├── tm_candidates.json         # SDLXLIFF job；默认只是候选
 ├── sg.txt
 ├── background.md
 ├── lang_notes.md
@@ -351,7 +390,7 @@ jobs/<文件名>/
 ├── errors.json
 ├── chunks/
 ├── <任务名>_lqe.xlsx
-└── <任务名>_corrected.<ext>
+└── <任务名>_corrected.<ext>   # SDLXLIFF job 固定为 .xlsx
 ```
 
 不要修改用户原始 Excel，也不要改写历史 `outputs`。任务产物只写入对应 job 目录。
@@ -362,6 +401,7 @@ jobs/<文件名>/
 python3 -m unittest -v tests.test_correction_builder
 python3 -m unittest -v tests.test_corrected_ownership
 python3 -m unittest -v tests.test_no_terminology_mode
+python3 -m unittest -v tests.test_sdlxliff_input
 python3 -m unittest -v tests.test_documented_contract
 python3 -m unittest -v tests.test_plain_language
 python3 scripts/run_tests.py
