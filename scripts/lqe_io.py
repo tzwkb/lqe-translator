@@ -1410,11 +1410,13 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
         _db_row(ri, height=15.0)
         ws.cell(row=ri, column=1, value=l1)
         ws.merge_cells(f"B{ri}:D{ri}")
-        c = ws.cell(row=ri, column=2, value=v1)
+        c = ws.cell(row=ri, column=2)
+        _set_excel_text(c, v1)
         c.fill = _DARK_BLUE; c.font = Font(color="FFFFFF")
         ws.cell(row=ri, column=5, value=l2)
         ws.merge_cells(f"F{ri}:H{ri}")
-        c = ws.cell(row=ri, column=6, value=v2)
+        c = ws.cell(row=ri, column=6)
+        _set_excel_text(c, v2)
         c.fill = _DARK_BLUE; c.font = Font(color="FFFFFF")
 
     ws.row_dimensions[8].height = 6
@@ -1555,7 +1557,8 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
             (12, "Yes" if dr["seg_id"] in all_protected_ids else "No"),
             (13, _protection_evidence(seg_map[dr["seg_id"]], all_protected_ids)),
         ]:
-            c = ws.cell(row=cur_row, column=col, value=val)
+            c = ws.cell(row=cur_row, column=col)
+            _set_excel_text(c, val)
             _s(c, fill=row_fill, align=_LEFT_TOP if col not in (2, 8, 9, 11) else _CENTER)
         cur_row += 1
 
@@ -1594,7 +1597,8 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
 
     ws2_headers = report_headers + ["建议译文", "处理方式", "错误详情", "LQE_Iter", "Protected", "Protection Evidence"]
     for ci, h in enumerate(ws2_headers, start=1):
-        c = ws2.cell(row=1, column=ci, value=h)
+        c = ws2.cell(row=1, column=ci)
+        _set_excel_text(c, h)
         _s(c, fill=_DARK_BLUE, font=_WHITE_FONT, align=_CENTER)
     ws2.row_dimensions[1].height = 15.0
 
@@ -1625,7 +1629,8 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
             _protection_evidence(seg, all_protected_ids),
         ]
         for ci, val in enumerate(row_data, start=1):
-            c = ws2.cell(row=ri, column=ci, value=val)
+            c = ws2.cell(row=ri, column=ci)
+            _set_excel_text(c, val)
             c.alignment = _WRAP_TOP
             if row_fill:
                 c.fill = row_fill

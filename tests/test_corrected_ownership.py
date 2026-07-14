@@ -1780,6 +1780,88 @@ class CorrectedOwnershipOutputTests(unittest.TestCase):
         finally:
             workbook.close()
 
+    def test_lqe_report_keeps_formula_like_external_text_literal(self):
+        output = self.root / "literal_report_lqe.xlsx"
+        state = {
+            "input_path": str(self.root / "=INPUT.xlsx"),
+            "headers": ["来源相对路径", "原文", "译文"],
+            "rows_raw": [["=FILE()", "=SOURCE()", "=TARGET()"]],
+            "segments": [
+                {
+                    "id": 0,
+                    "source": "=SOURCE()",
+                    "target": "=TARGET()",
+                }
+            ],
+            "wordcount": 1,
+        }
+        history = [
+            {
+                "iteration": 0,
+                "errors": [
+                    {
+                        "id": 0,
+                        "errors": [
+                            check_issue(comment="=COMMENT()")
+                        ],
+                        "corrected": "=CORRECTED()",
+                    }
+                ],
+            }
+        ]
+
+        call_quietly(lqe_io._build_xlsx, state, history, 99, 98, output)
+
+        workbook = openpyxl.load_workbook(output, data_only=False)
+        try:
+            scorecard = workbook["LQA Scorecard"]
+            header_row = next(
+                row
+                for row in range(1, scorecard.max_row + 1)
+                if scorecard.cell(row=row, column=1).value == "File name"
+            )
+            detail = scorecard[header_row + 1]
+            self.assertEqual(
+                [detail[index].value for index in (0, 2, 3, 4, 9)],
+                [
+                    "=FILE()",
+                    "=SOURCE()",
+                    "=TARGET()",
+                    "=CORRECTED()",
+                    "=COMMENT()",
+                ],
+            )
+            self.assertEqual(
+                [detail[index].data_type for index in (0, 2, 3, 4, 9)],
+                ["s"] * 5,
+            )
+            result_row = workbook["LQE Results"][2]
+            self.assertEqual(
+                [result_row[index].value for index in (0, 1, 2, 3)],
+                ["=FILE()", "=SOURCE()", "=TARGET()", "=CORRECTED()"],
+            )
+            self.assertEqual(
+                [result_row[index].data_type for index in (0, 1, 2, 3)],
+                ["s"] * 4,
+            )
+        finally:
+            workbook.close()
+        workbook = openpyxl.load_workbook(output, data_only=True)
+        try:
+            scorecard = workbook["LQA Scorecard"]
+            header_row = next(
+                row
+                for row in range(1, scorecard.max_row + 1)
+                if scorecard.cell(row=row, column=1).value == "File name"
+            )
+            self.assertEqual(scorecard.cell(header_row + 1, 3).value, "=SOURCE()")
+            self.assertEqual(
+                workbook["LQE Results"].cell(row=2, column=4).value,
+                "=CORRECTED()",
+            )
+        finally:
+            workbook.close()
+
     def test_processing_label_uses_only_errors_and_corrected(self):
         processing_label = getattr(lqe_io, "_processing_label", None)
         self.assertIsNotNone(processing_label)
