@@ -1,5 +1,10 @@
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
+from fnmatch import fnmatchcase
+import hashlib
 from html import escape
+import math
 from pathlib import Path
 import re
 from xml.etree import ElementTree as ET
@@ -15,6 +20,22 @@ _INLINE_NAMES = {"g", "x", "bx", "ex", "ph", "bpt", "ept", "it", "sub", "mrk"}
 _NATIVE_CODE_NAMES = {"bpt", "ept", "it", "ph"}
 _TABULAR_SUFFIXES = {".csv", ".tsv", ".xlsx", ".xlsm"}
 _TRUE_VALUES = {"1", "true", "yes"}
+_TM_POLICIES = {"candidate-only", "protect-exact-source-and-target"}
+_OPTION_KEYS = {"tm_protection", "content_type_rules", "exclude_rules"}
+_CONTENT_RULE_KEYS = {"id", "glob", "content_type"}
+_EXCLUDE_RULE_KEYS = {"id", "field", "equals", "regex", "reason", "glob"}
+_EXCLUDE_FIELDS = {
+    "relative_path",
+    "file_original",
+    "confirmation",
+    "origin",
+    "locked",
+    "source",
+    "target",
+}
+_RESERVED_RULE_IDS = {"blank-both-sides"}
+_MANIFEST_SCHEMA = "lqe.sdlxliff.import-manifest"
+_MANIFEST_VERSION = 1
 
 
 class SDLXLIFFImportError(ValueError):
@@ -46,6 +67,271 @@ class SDLXLIFFImportResult:
     input_paths: list[str]
     manifest: dict
     tm_candidates: dict
+
+
+def _nonempty_string(value: object, location: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise SDLXLIFFImportError(f"{location} must be a non-empty string")
+    return value
+
+
+def _validate_glob(value: object, location: str) -> str:
+    pattern = _nonempty_string(value, location)
+    if "\x00" in pattern or "\\" in pattern or pattern.startswith("/"):
+        raise SDLXLIFFImportError(f"{location} is not a valid POSIX relative glob")
+    parts = pattern.split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        raise SDLXLIFFImportError(f"{location} is not a valid POSIX relative glob")
+    for part in parts:
+        index = 0
+        while index < len(part):
+            if part[index] == "]":
+                raise SDLXLIFFImportError(f"{location} contains a malformed glob")
+            if part[index] != "[":
+                index += 1
+                continue
+            end = part.find("]", index + 1)
+            if end < 0 or end == index + 1 or (
+                part[index + 1] in {"!", "^"} and end == index + 2
+            ):
+                raise SDLXLIFFImportError(f"{location} contains a malformed glob")
+            index = end + 1
+    return pattern
+
+
+def _rule_sequence(value: object, location: str) -> Sequence:
+    if not isinstance(value, (list, tuple)):
+        raise SDLXLIFFImportError(f"{location} must be an array")
+    return value
+
+
+def _rule_mapping(value: object, location: str) -> Mapping:
+    if not isinstance(value, Mapping):
+        raise SDLXLIFFImportError(f"{location} rule must be an object")
+    return value
+
+
+def validate_options(
+    raw: object,
+    *,
+    cli_protect_exact_tm: bool = False,
+) -> SDLXLIFFOptions:
+    if raw is None:
+        raw = {}
+    if not isinstance(raw, Mapping):
+        raise SDLXLIFFImportError("SDLXLIFF options must be an object")
+    if not isinstance(cli_protect_exact_tm, bool):
+        raise SDLXLIFFImportError("cli_protect_exact_tm must be a boolean")
+    unknown = sorted(set(raw) - _OPTION_KEYS)
+    if unknown:
+        raise SDLXLIFFImportError(f"unknown SDLXLIFF option: {unknown[0]}")
+
+    policy = raw.get("tm_protection", "candidate-only")
+    if not isinstance(policy, str) or policy not in _TM_POLICIES:
+        raise SDLXLIFFImportError(f"unsupported tm_protection: {policy!r}")
+
+    seen_ids: set[str] = set()
+    content_rules: list[dict] = []
+    for index, value in enumerate(
+        _rule_sequence(raw.get("content_type_rules", ()), "content_type_rules")
+    ):
+        location = f"content_type_rules[{index}]"
+        rule = _rule_mapping(value, location)
+        unknown = sorted(set(rule) - _CONTENT_RULE_KEYS)
+        missing = sorted(_CONTENT_RULE_KEYS - set(rule))
+        if unknown:
+            raise SDLXLIFFImportError(f"{location} has unknown key {unknown[0]!r}")
+        if missing:
+            raise SDLXLIFFImportError(f"{location} is missing {missing[0]!r}")
+        rule_id = _nonempty_string(rule["id"], f"{location}.id")
+        if rule_id in _RESERVED_RULE_IDS:
+            raise SDLXLIFFImportError(f"reserved rule id {rule_id!r}")
+        if rule_id in seen_ids:
+            raise SDLXLIFFImportError(f"duplicate rule id {rule_id!r}")
+        seen_ids.add(rule_id)
+        content_rules.append(
+            {
+                "id": rule_id,
+                "glob": _validate_glob(rule["glob"], f"{location}.glob"),
+                "content_type": _nonempty_string(
+                    rule["content_type"], f"{location}.content_type"
+                ),
+            }
+        )
+
+    exclude_rules: list[dict] = []
+    for index, value in enumerate(
+        _rule_sequence(raw.get("exclude_rules", ()), "exclude_rules")
+    ):
+        location = f"exclude_rules[{index}]"
+        rule = _rule_mapping(value, location)
+        unknown = sorted(set(rule) - _EXCLUDE_RULE_KEYS)
+        if unknown:
+            raise SDLXLIFFImportError(f"{location} has unknown key {unknown[0]!r}")
+        required = {"id", "field", "reason"}
+        missing = sorted(required - set(rule))
+        if missing:
+            raise SDLXLIFFImportError(f"{location} is missing {missing[0]!r}")
+        rule_id = _nonempty_string(rule["id"], f"{location}.id")
+        if rule_id in _RESERVED_RULE_IDS:
+            raise SDLXLIFFImportError(f"reserved rule id {rule_id!r}")
+        if rule_id in seen_ids:
+            raise SDLXLIFFImportError(f"duplicate rule id {rule_id!r}")
+        seen_ids.add(rule_id)
+        field = _nonempty_string(rule["field"], f"{location}.field")
+        if field not in _EXCLUDE_FIELDS:
+            raise SDLXLIFFImportError(f"unsupported exclude field {field!r}")
+        matcher_keys = [key for key in ("equals", "regex") if key in rule]
+        if len(matcher_keys) != 1:
+            raise SDLXLIFFImportError(
+                f"{location} must contain exactly one of equals or regex"
+            )
+        matcher_key = matcher_keys[0]
+        matcher_value = rule[matcher_key]
+        if matcher_key == "equals":
+            if not isinstance(matcher_value, (str, int, float, bool, type(None))):
+                raise SDLXLIFFImportError(f"{location}.equals must be a scalar")
+            if isinstance(matcher_value, float) and not math.isfinite(matcher_value):
+                raise SDLXLIFFImportError(f"{location}.equals must be finite")
+        else:
+            if not isinstance(matcher_value, str):
+                raise SDLXLIFFImportError(f"{location}.regex must be a string")
+            try:
+                re.compile(matcher_value)
+            except re.error as exc:
+                raise SDLXLIFFImportError(
+                    f"{location}.regex is invalid: {exc}"
+                ) from exc
+        normalized = {
+            "id": rule_id,
+            "field": field,
+            matcher_key: matcher_value,
+            "reason": _nonempty_string(rule["reason"], f"{location}.reason"),
+        }
+        if "glob" in rule:
+            normalized["glob"] = _validate_glob(rule["glob"], f"{location}.glob")
+        exclude_rules.append(normalized)
+
+    if cli_protect_exact_tm:
+        policy = "protect-exact-source-and-target"
+    return SDLXLIFFOptions(
+        tm_protection=policy,
+        content_type_rules=tuple(content_rules),
+        exclude_rules=tuple(exclude_rules),
+    )
+
+
+def _glob_matches(relative_path: str, pattern: str) -> bool:
+    path_parts = tuple(part for part in relative_path.split("/") if part not in {"", "."})
+    pattern_parts = tuple(pattern.split("/"))
+
+    def match(pattern_index: int, path_index: int) -> bool:
+        if pattern_index == len(pattern_parts):
+            return path_index == len(path_parts)
+        current = pattern_parts[pattern_index]
+        if current == "**":
+            return any(
+                match(pattern_index + 1, candidate)
+                for candidate in range(path_index, len(path_parts) + 1)
+            )
+        return (
+            path_index < len(path_parts)
+            and fnmatchcase(path_parts[path_index], current)
+            and match(pattern_index + 1, path_index + 1)
+        )
+
+    return match(0, 0)
+
+
+def match_content_type(
+    relative_path: str,
+    rules: tuple[dict, ...],
+) -> tuple[str | None, str | None]:
+    for rule in rules:
+        if _glob_matches(relative_path, rule["glob"]):
+            return rule["content_type"], rule["id"]
+    return None, None
+
+
+def _regex_value(value: object) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def match_exclusions(candidate: dict, rules: tuple[dict, ...]) -> list[dict]:
+    matches: list[dict] = []
+    for rule in rules:
+        relative_path = candidate.get("relative_path")
+        if "glob" in rule and (
+            not isinstance(relative_path, str)
+            or not _glob_matches(relative_path, rule["glob"])
+        ):
+            continue
+        actual = candidate.get(rule["field"])
+        if "equals" in rule:
+            matched = actual == rule["equals"]
+            operator = "equals"
+            expected = rule["equals"]
+        else:
+            text = _regex_value(actual)
+            matched = text is not None and re.search(rule["regex"], text) is not None
+            operator = "regex"
+            expected = rule["regex"]
+        if matched:
+            matches.append(
+                {
+                    "id": rule["id"],
+                    "reason": rule["reason"],
+                    "field": rule["field"],
+                    "operator": operator,
+                    "expected": expected,
+                    "actual": actual,
+                }
+            )
+    return matches
+
+
+def _tm_evidence(metadata: dict) -> dict:
+    origin = metadata.get("origin")
+    percent = metadata.get("match_percent", metadata.get("percent"))
+    text_match = metadata.get("text_match", metadata.get("text-match"))
+    origin_is_tm = isinstance(origin, str) and origin.strip().casefold() == "tm"
+    text_match_is_source_and_target = (
+        isinstance(text_match, str)
+        and text_match.strip().casefold() == "sourceandtarget"
+    )
+    percent_is_100 = False
+    if not isinstance(percent, bool) and percent is not None:
+        try:
+            parsed = Decimal(str(percent).strip())
+            percent_is_100 = parsed.is_finite() and parsed == Decimal("100")
+        except (InvalidOperation, ValueError):
+            pass
+    return {
+        "origin": origin,
+        "match_percent": percent,
+        "text_match": text_match,
+        "origin_is_tm": origin_is_tm,
+        "percent_is_100": percent_is_100,
+        "text_match_is_source_and_target": text_match_is_source_and_target,
+    }
+
+
+def is_exact_tm(metadata: dict) -> bool:
+    if not isinstance(metadata, dict):
+        return False
+    evidence = _tm_evidence(metadata)
+    return all(
+        evidence[key]
+        for key in (
+            "origin_is_tm",
+            "percent_is_100",
+            "text_match_is_source_and_target",
+        )
+    )
 
 
 def _split_qname(value: str) -> tuple[str | None, str]:
@@ -643,12 +929,26 @@ def read_sdlxliff(
 ) -> SDLXLIFFImportResult:
     if not isinstance(options, SDLXLIFFOptions):
         raise SDLXLIFFImportError("options must be SDLXLIFFOptions")
+    options = validate_options(
+        {
+            "tm_protection": options.tm_protection,
+            "content_type_rules": options.content_type_rules,
+            "exclude_rules": options.exclude_rules,
+        }
+    )
     selected, unselected = _selected_files(Path(path))
     segments: list[dict] = []
     rows_raw: list[list[str]] = []
     manifest_files: list[dict] = []
     declared_languages: list[dict[str, str | None]] = []
     extension_namespaces: set[str] = set()
+    content_type_matches: list[dict] = []
+    excluded: list[dict] = []
+    protection_evidence: list[dict] = []
+    tm_candidate_ids: list[int] = []
+    tm_candidate_segments: list[dict] = []
+    parsed_segment_count = 0
+    locked_segment_count = 0
 
     for input_path, relative_path in selected:
         root, namespace_map = _parse_xml(input_path, relative_path)
@@ -692,6 +992,7 @@ def read_sdlxliff(
                 _validate_tu_structure(tu, tu_context)
                 pairs = _pair_tu(tu, namespace_map=namespace_map, context=tu_context)
                 for segment_index, (source, target, sdl_segment_id, seg_def) in enumerate(pairs):
+                    parsed_segment_count += 1
                     business_key = (tu_id, sdl_segment_id)
                     if (tu_id is not None or sdl_segment_id is not None) and business_key in seen_business_keys:
                         segment_context = _context(
@@ -717,7 +1018,6 @@ def read_sdlxliff(
                         "sdl_segment_id": sdl_segment_id,
                         "segment_index": segment_index,
                     }
-                    segment_id = len(segments)
                     metadata = _metadata(
                         file_original=file_original,
                         source_language=source_language,
@@ -728,6 +1028,97 @@ def read_sdlxliff(
                         target=target,
                         extension_xml=_tu_extensions(tu, seg_def, namespace_map),
                     )
+                    content_type, content_type_rule_id = match_content_type(
+                        relative_path, options.content_type_rules
+                    )
+                    rule_candidate = {
+                        "relative_path": relative_path,
+                        "file_original": file_original,
+                        "confirmation": metadata["confirmation"],
+                        "origin": metadata["origin"],
+                        "locked": metadata["locked"],
+                        "source": source.display,
+                        "target": target.display,
+                    }
+                    exclusion_matches = match_exclusions(
+                        rule_candidate, options.exclude_rules
+                    )
+                    if not source.display.strip() and not target.display.strip():
+                        exclusion_matches.append(
+                            {
+                                "id": "blank-both-sides",
+                                "reason": "Source and target are both blank",
+                                "field": "source,target",
+                                "operator": "built-in",
+                                "expected": "blank",
+                                "actual": {
+                                    "source": source.display,
+                                    "target": target.display,
+                                },
+                            }
+                        )
+
+                    tm_evidence = _tm_evidence(metadata)
+                    exact_tm = is_exact_tm(metadata)
+                    locked = bool(metadata["locked"])
+                    if locked:
+                        locked_segment_count += 1
+                    strict_tm = (
+                        options.tm_protection
+                        == "protect-exact-source-and-target"
+                    )
+                    included = not exclusion_matches
+                    segment_id = len(segments) if included else None
+                    effective_reason = None
+                    if included:
+                        if locked:
+                            effective_reason = "SOURCE_LOCKED"
+                        elif exact_tm and strict_tm:
+                            effective_reason = "TM_100_MATCH"
+                    evidence = {
+                        "locked": {
+                            "matched": locked,
+                            "reason": "SOURCE_LOCKED" if locked else None,
+                        },
+                        "tm": {
+                            "exact_match": exact_tm,
+                            "candidate": exact_tm and included,
+                            "protected_by_policy": exact_tm and strict_tm and included,
+                            "conditions": tm_evidence,
+                        },
+                        "effective_reason": effective_reason,
+                    }
+                    protection_evidence.append(
+                        {
+                            "segment_id": segment_id,
+                            "source_ref": dict(source_ref),
+                            "included": included,
+                            **evidence,
+                        }
+                    )
+                    if content_type_rule_id is not None:
+                        content_type_matches.append(
+                            {
+                                "segment_id": segment_id,
+                                "source_ref": dict(source_ref),
+                                "rule_id": content_type_rule_id,
+                                "content_type": content_type,
+                                "included": included,
+                            }
+                        )
+                    if exclusion_matches:
+                        excluded.append(
+                            {
+                                "source_ref": dict(source_ref),
+                                "rule_ids": [match["id"] for match in exclusion_matches],
+                                "reasons": [match["reason"] for match in exclusion_matches],
+                                "matches": exclusion_matches,
+                                "content_type": content_type,
+                                "content_type_rule_id": content_type_rule_id,
+                            }
+                        )
+                        continue
+
                     segment = {
                         "id": segment_id,
                         "source_ref": source_ref,
@@ -736,8 +1127,23 @@ def read_sdlxliff(
                         "source_plain": source.plain,
                         "target_plain": target.plain,
                         "corrected": None,
+                        "content_type": content_type,
+                        "content_type_rule_id": content_type_rule_id,
+                        "protection_evidence": evidence,
                         "metadata": {"sdlxliff": metadata},
                     }
+                    if effective_reason is not None:
+                        segment["protected"] = True
+                        segment["protected_reason"] = effective_reason
+                    if exact_tm:
+                        tm_candidate_ids.append(segment_id)
+                        tm_candidate_segments.append(
+                            {
+                                "segment_id": segment_id,
+                                "source_ref": dict(source_ref),
+                                "evidence": tm_evidence,
+                            }
+                        )
                     segments.append(segment)
                     rows_raw.append(
                         [
@@ -752,6 +1158,7 @@ def read_sdlxliff(
         manifest_files.append(
             {
                 "relative_path": relative_path,
+                "sha256": hashlib.sha256(input_path.read_bytes()).hexdigest(),
                 "namespaces": dict(sorted(namespace_map.items())),
                 "languages": input_language_declarations,
                 "internal_file": internal_summary,
@@ -774,11 +1181,55 @@ def read_sdlxliff(
         ),
         "",
     )
+    exclude_rule_matches = [
+        {
+            "source_ref": item["source_ref"],
+            "rule_ids": [
+                rule_id
+                for rule_id in item["rule_ids"]
+                if rule_id != "blank-both-sides"
+            ],
+        }
+        for item in excluded
+        if any(rule_id != "blank-both-sides" for rule_id in item["rule_ids"])
+    ]
     manifest = {
+        "schema": _MANIFEST_SCHEMA,
+        "version": _MANIFEST_VERSION,
+        "importer": {
+            "name": "sdlxliff",
+            "schema": _MANIFEST_SCHEMA,
+            "version": _MANIFEST_VERSION,
+        },
         "input_format": "sdlxliff",
         "files": manifest_files,
         "languages": declared_languages,
         "extension_namespaces": sorted(extension_namespaces),
+        "rules": {
+            "content_type": list(options.content_type_rules),
+            "exclusions": list(options.exclude_rules),
+        },
+        "rule_matches": {
+            "content_type": content_type_matches,
+            "exclusions": exclude_rule_matches,
+        },
+        "content_type_matches": content_type_matches,
+        "excluded": excluded,
+        "counts": {
+            "selected_files": len(selected),
+            "unselected_supported_files": len(unselected),
+            "parsed_segments": parsed_segment_count,
+            "included_segments": len(segments),
+            "excluded_segments": len(excluded),
+            "content_type_matches": len(content_type_matches),
+            "tm_candidates": len(tm_candidate_ids),
+            "locked_segments": locked_segment_count,
+            "protected_segments": sum(
+                1 for segment in segments if segment.get("protected")
+            ),
+        },
+        "tm_protection": options.tm_protection,
+        "protection_evidence": protection_evidence,
         "unselected_supported_files": unselected,
     }
     return SDLXLIFFImportResult(
@@ -789,5 +1240,8 @@ def read_sdlxliff(
         target_lang=target_lang,
         input_paths=[str(input_path.resolve()) for input_path, _ in selected],
         manifest=manifest,
-        tm_candidates={"candidate_ids": [], "segments": []},
+        tm_candidates={
+            "candidate_ids": tm_candidate_ids,
+            "segments": tm_candidate_segments,
+        },
     )

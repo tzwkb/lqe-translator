@@ -1,3 +1,4 @@
+import hashlib
 import json
 from pathlib import Path
 import shutil
@@ -19,8 +20,12 @@ from lqe_inputs.sdlxliff import (
     SDLXLIFFImportError,
     SDLXLIFFOptions,
     SerializedMixedContent,
+    is_exact_tm,
+    match_content_type,
+    match_exclusions,
     read_sdlxliff,
     serialize_mixed,
+    validate_options,
 )
 
 
@@ -219,8 +224,10 @@ class SDLXLIFFParserTests(unittest.TestCase):
         self.assertEqual(metadata["comment"], "Anonymous review note")
         self.assertEqual(metadata["last_modified_by"], "AnonymousUser")
         self.assertEqual(by_tu[("b.sdlxliff", "empty-target")]["target_plain"], "")
-        self.assertEqual(by_tu[("b.sdlxliff", "blank-both")]["source_plain"], "")
-        self.assertEqual(by_tu[("b.sdlxliff", "blank-both")]["target_plain"], "")
+        self.assertNotIn(("b.sdlxliff", "blank-both"), by_tu)
+        self.assertEqual(
+            result.manifest["excluded"][0]["source_ref"]["tu_id"], "blank-both"
+        )
         self.assertEqual(
             by_tu[("b.sdlxliff", "tm-negative-origin")]["metadata"]["sdlxliff"]["origin"],
             "machine",
@@ -543,6 +550,389 @@ class SDLXLIFFParserTests(unittest.TestCase):
 
         with self.assertRaisesRegex(SDLXLIFFImportError, "urn:vendor:ambiguous"):
             read_sdlxliff(fixture, options=SDLXLIFFOptions())
+
+
+class SDLXLIFFRuleTests(unittest.TestCase):
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.root = Path(self.tempdir.name)
+
+    def tearDown(self):
+        self.tempdir.cleanup()
+
+    def temp_fixture(self, relative_path: str, body: str) -> Path:
+        path = self.root / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            f'<xliff version="1.2" xmlns="{XLIFF_NS}" xmlns:sdl="{SDL_NS}">'
+            '<file original="anonymous.xml" source-language="zh-CN" target-language="en-US">'
+            f"<body>{body}</body></file></xliff>",
+            encoding="utf-8",
+        )
+        return path
+
+    def copy_fixture(self, source: Path, relative_path: str) -> Path:
+        target = self.root / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+        return target
+
+    def test_profile_rules_are_strict_and_auditable(self):
+        self.temp_fixture(
+            "story/dialog_main.sdlxliff",
+            '<trans-unit id="keep"><source>甲</source><target>Alpha</target>'
+            '<sdl:seg-defs><sdl:seg id="1" conf="Translated"/></sdl:seg-defs>'
+            '</trans-unit><trans-unit id="drop"><source>乙</source><target>Beta</target>'
+            '<sdl:seg-defs><sdl:seg id="2" conf="Rejected"/></sdl:seg-defs></trans-unit>',
+        )
+        options = validate_options(
+            {
+                "tm_protection": "candidate-only",
+                "content_type_rules": [
+                    {
+                        "id": "dialog",
+                        "glob": "**/dialog*.sdlxliff",
+                        "content_type": "剧情/对话",
+                    }
+                ],
+                "exclude_rules": [
+                    {
+                        "id": "rejected",
+                        "field": "confirmation",
+                        "equals": "Rejected",
+                        "reason": "Client excluded",
+                    }
+                ],
+            }
+        )
+
+        result = read_sdlxliff(self.root, options=options)
+
+        self.assertEqual([segment["id"] for segment in result.segments], [0])
+        self.assertEqual(result.segments[0]["content_type"], "剧情/对话")
+        self.assertEqual(result.segments[0]["content_type_rule_id"], "dialog")
+        self.assertEqual(result.manifest["excluded"][0]["rule_ids"], ["rejected"])
+        self.assertEqual(result.manifest["excluded"][0]["reasons"], ["Client excluded"])
+        self.assertEqual(result.manifest["counts"]["included_segments"], 1)
+        self.assertEqual(result.manifest["counts"]["excluded_segments"], 1)
+
+    def test_options_schema_rejects_unknown_invalid_and_ambiguous_rules(self):
+        cases = (
+            ([], "object"),
+            ({"unknown": True}, "unknown"),
+            ({"tm_protection": "always"}, "tm_protection"),
+            ({"tm_protection": []}, "tm_protection"),
+            ({"content_type_rules": {}}, "content_type_rules"),
+            ({"content_type_rules": ["not-an-object"]}, "object"),
+            (
+                {"content_type_rules": [{"id": " ", "glob": "*.sdlxliff", "content_type": "UI"}]},
+                "id",
+            ),
+            (
+                {"content_type_rules": [{"id": "x", "glob": "*.sdlxliff", "content_type": "UI", "extra": True}]},
+                "extra",
+            ),
+            (
+                {"content_type_rules": [{"id": "x", "glob": "[bad", "content_type": "UI"}]},
+                "glob",
+            ),
+            (
+                {"content_type_rules": [{"id": "x", "glob": "*.sdlxliff", "content_type": ""}]},
+                "content_type",
+            ),
+            (
+                {"exclude_rules": [{"id": "bad", "field": "segment.id", "equals": 1, "reason": "unstable"}]},
+                "segment.id",
+            ),
+            (
+                {"exclude_rules": [{"id": "x", "field": "source", "reason": "missing matcher"}]},
+                "exactly one",
+            ),
+            (
+                {"exclude_rules": [{"id": "x", "field": "source", "equals": "A", "regex": "A", "reason": "two"}]},
+                "exactly one",
+            ),
+            (
+                {"exclude_rules": [{"id": "x", "field": "source", "regex": "(", "reason": "bad regex"}]},
+                "regex",
+            ),
+            (
+                {"exclude_rules": [{"id": "x", "field": "source", "equals": "A", "reason": " "}]},
+                "reason",
+            ),
+            (
+                {"exclude_rules": [{"id": "x", "field": "source", "equals": float("nan"), "reason": "non-finite"}]},
+                "equals",
+            ),
+            (
+                {"exclude_rules": [{"id": "x", "field": "source", "equals": float("inf"), "reason": "non-finite"}]},
+                "equals",
+            ),
+            (
+                {
+                    "content_type_rules": [{"id": "same", "glob": "*.sdlxliff", "content_type": "UI"}],
+                    "exclude_rules": [{"id": "same", "field": "source", "equals": "A", "reason": "duplicate"}],
+                },
+                "same",
+            ),
+            (
+                {"exclude_rules": [{"id": "blank-both-sides", "field": "source", "equals": "", "reason": "collision"}]},
+                "blank-both-sides",
+            ),
+        )
+        for raw, message in cases:
+            with self.subTest(raw=raw):
+                with self.assertRaisesRegex(SDLXLIFFImportError, message):
+                    validate_options(raw)
+
+    def test_cli_exact_tm_flag_overrides_profile_policy(self):
+        options = validate_options(
+            {"tm_protection": "candidate-only"}, cli_protect_exact_tm=True
+        )
+
+        self.assertEqual(options.tm_protection, "protect-exact-source-and-target")
+
+    def test_rule_matchers_are_ordered_case_sensitive_and_complete(self):
+        content_rules = validate_options(
+            {
+                "content_type_rules": [
+                    {"id": "first", "glob": "**/dialog*.sdlxliff", "content_type": "Dialogue"},
+                    {"id": "second", "glob": "**/*.sdlxliff", "content_type": "Fallback"},
+                ]
+            }
+        ).content_type_rules
+        self.assertEqual(
+            match_content_type("story/dialog_main.sdlxliff", content_rules),
+            ("Dialogue", "first"),
+        )
+        self.assertEqual(
+            match_content_type("dialog_root.sdlxliff", content_rules),
+            ("Dialogue", "first"),
+        )
+        self.assertEqual(
+            match_content_type("story/Dialog_main.sdlxliff", content_rules),
+            ("Fallback", "second"),
+        )
+
+        exclusion_rules = validate_options(
+            {
+                "exclude_rules": [
+                    {"id": "locked", "field": "locked", "equals": True, "reason": "Locked"},
+                    {"id": "target", "field": "target", "regex": "^Skip", "glob": "**/*.sdlxliff", "reason": "Target"},
+                    {"id": "other", "field": "target", "equals": "Skip me", "glob": "other/**", "reason": "Other"},
+                ]
+            }
+        ).exclude_rules
+        matches = match_exclusions(
+            {
+                "relative_path": "story/dialog_main.sdlxliff",
+                "file_original": "dialog.xml",
+                "confirmation": "Translated",
+                "origin": None,
+                "locked": True,
+                "source": "甲",
+                "target": "Skip me",
+            },
+            exclusion_rules,
+        )
+        self.assertEqual([match["id"] for match in matches], ["locked", "target"])
+
+    def test_exact_tm_requires_all_three_case_insensitive_conditions(self):
+        self.assertTrue(
+            is_exact_tm(
+                {"origin": "TM", "match_percent": "100.0", "text_match": "sourceandtarget"}
+            )
+        )
+        for metadata in (
+            {"origin": "tm", "match_percent": "100"},
+            {"origin": "machine", "match_percent": "100", "text_match": "SourceAndTarget"},
+            {"origin": "tm", "match_percent": "99.999", "text_match": "SourceAndTarget"},
+            {"origin": "tm", "match_percent": "not-a-number", "text_match": "SourceAndTarget"},
+            {"origin": "tm", "match_percent": "100", "text_match": "Fuzzy"},
+        ):
+            with self.subTest(metadata=metadata):
+                self.assertFalse(is_exact_tm(metadata))
+
+    def test_tm_candidate_and_locked_protection_are_separate(self):
+        default = read_sdlxliff(
+            FIXTURES / "multi_segment.sdlxliff", options=SDLXLIFFOptions()
+        )
+        self.assertFalse(default.segments[0].get("protected", False))
+        self.assertEqual(default.tm_candidates["candidate_ids"], [0])
+        self.assertEqual(default.segments[1]["protected_reason"], "SOURCE_LOCKED")
+        self.assertNotIn("protected_ids", default.tm_candidates)
+
+        strict = read_sdlxliff(
+            FIXTURES / "multi_segment.sdlxliff",
+            options=SDLXLIFFOptions(
+                tm_protection="protect-exact-source-and-target"
+            ),
+        )
+        self.assertEqual(strict.segments[0]["protected_reason"], "TM_100_MATCH")
+        self.assertEqual(strict.segments[1]["protected_reason"], "SOURCE_LOCKED")
+
+        filtered_fixture = self.temp_fixture(
+            "filtered-candidate.sdlxliff",
+            '<trans-unit id="blank"><source/><target/>'
+            '<sdl:seg-defs><sdl:seg id="1"/></sdl:seg-defs></trans-unit>'
+            '<trans-unit id="candidate"><source>甲</source><target>Alpha</target>'
+            '<sdl:seg-defs><sdl:seg id="2" origin="tm" percent="100" '
+            'text-match="SourceAndTarget"/></sdl:seg-defs></trans-unit>',
+        )
+        filtered = read_sdlxliff(filtered_fixture, options=SDLXLIFFOptions())
+        self.assertEqual(filtered.tm_candidates["candidate_ids"], [0])
+        self.assertEqual(filtered.segments[0]["source_ref"]["tu_id"], "candidate")
+
+    def test_locked_wins_but_exact_tm_evidence_remains_candidate(self):
+        fixture = self.temp_fixture(
+            "both.sdlxliff",
+            '<trans-unit id="both"><source>甲</source><target>Alpha</target>'
+            '<sdl:seg-defs><sdl:seg id="1" locked="true" origin="tm" percent="100" '
+            'text-match="SourceAndTarget"/></sdl:seg-defs></trans-unit>',
+        )
+        result = read_sdlxliff(
+            fixture,
+            options=SDLXLIFFOptions(
+                tm_protection="protect-exact-source-and-target"
+            ),
+        )
+
+        self.assertEqual(result.segments[0]["protected_reason"], "SOURCE_LOCKED")
+        self.assertEqual(result.tm_candidates["candidate_ids"], [0])
+        evidence = result.manifest["protection_evidence"][0]
+        self.assertTrue(evidence["locked"]["matched"])
+        self.assertTrue(evidence["tm"]["candidate"])
+        self.assertTrue(evidence["tm"]["protected_by_policy"])
+        self.assertEqual(evidence["effective_reason"], "SOURCE_LOCKED")
+
+    def test_100_percent_alone_is_not_an_exact_tm_candidate(self):
+        fixture = self.temp_fixture(
+            "negative.sdlxliff",
+            '<trans-unit id="negative"><source>甲</source><target>Alpha</target>'
+            '<sdl:seg-defs><sdl:seg id="1" origin="machine" percent="100" '
+            'text-match="SourceAndTarget"/></sdl:seg-defs></trans-unit>',
+        )
+        result = read_sdlxliff(
+            fixture,
+            options=SDLXLIFFOptions(
+                tm_protection="protect-exact-source-and-target"
+            ),
+        )
+
+        self.assertEqual(result.tm_candidates["candidate_ids"], [])
+        self.assertFalse(any(segment.get("protected") for segment in result.segments))
+
+    def test_blank_both_is_excluded_but_single_blank_is_kept(self):
+        result = read_sdlxliff(RECURSIVE_FIXTURES, options=SDLXLIFFOptions())
+        by_tu = {segment["source_ref"]["tu_id"]: segment for segment in result.segments}
+
+        self.assertIn("empty-target", by_tu)
+        self.assertNotIn("blank-both", by_tu)
+        blank = next(
+            item
+            for item in result.manifest["excluded"]
+            if item["source_ref"]["tu_id"] == "blank-both"
+        )
+        self.assertEqual(blank["rule_ids"], ["blank-both-sides"])
+        self.assertEqual([segment["id"] for segment in result.segments], list(range(len(result.segments))))
+        self.assertEqual(len(result.rows_raw), len(result.segments))
+        self.assertEqual(
+            by_tu["tm-negative-origin"]["source_ref"]["tu_index"], 3
+        )
+
+    def test_inline_only_segment_is_not_treated_as_blank(self):
+        fixture = self.temp_fixture(
+            "inline-only.sdlxliff",
+            '<trans-unit id="inline"><source><ph id="source-placeholder"/></source>'
+            '<target><ph id="target-placeholder"/></target>'
+            '<sdl:seg-defs><sdl:seg id="1"/></sdl:seg-defs></trans-unit>',
+        )
+
+        result = read_sdlxliff(fixture, options=SDLXLIFFOptions())
+
+        self.assertEqual(len(result.segments), 1)
+        self.assertEqual(result.manifest["excluded"], [])
+
+    def test_exclusion_preserves_segment_extension_ownership(self):
+        options = validate_options(
+            {
+                "exclude_rules": [
+                    {
+                        "id": "drop-first",
+                        "field": "source",
+                        "equals": "甲",
+                        "reason": "Drop first segment",
+                    }
+                ]
+            }
+        )
+
+        result = read_sdlxliff(
+            FIXTURES / "segmented_extensions.sdlxliff", options=options
+        )
+
+        self.assertEqual(len(result.segments), 1)
+        extension_xml = "\n".join(
+            result.segments[0]["metadata"]["sdlxliff"]["extension_xml"]
+        )
+        self.assertIn("Shared anonymous metadata", extension_xml)
+        self.assertIn("Second segment metadata", extension_xml)
+        self.assertNotIn("First segment metadata", extension_xml)
+
+    def test_no_filename_or_directory_content_type_inference(self):
+        self.copy_fixture(
+            FIXTURES / "multi_segment.sdlxliff",
+            "CC/FF/dialogs.sdlxliff",
+        )
+
+        result = read_sdlxliff(self.root, options=SDLXLIFFOptions())
+
+        self.assertTrue(all(not segment.get("content_type") for segment in result.segments))
+        self.assertEqual(result.manifest["content_type_matches"], [])
+
+    def test_manifest_is_json_serializable_and_has_file_hashes(self):
+        selected = self.copy_fixture(
+            FIXTURES / "extensions.sdlxliff", "nested/extensions.sdlxliff"
+        )
+        (self.root / "notes.csv").write_text("source,target\n", encoding="utf-8")
+
+        result = read_sdlxliff(self.root, options=SDLXLIFFOptions())
+        encoded = json.dumps(
+            result.manifest, ensure_ascii=False, sort_keys=True, allow_nan=False
+        )
+        manifest_file = result.manifest["files"][0]
+
+        self.assertEqual(result.manifest["schema"], "lqe.sdlxliff.import-manifest")
+        self.assertEqual(result.manifest["version"], 1)
+        self.assertEqual(manifest_file["relative_path"], "nested/extensions.sdlxliff")
+        self.assertEqual(
+            manifest_file["sha256"], hashlib.sha256(selected.read_bytes()).hexdigest()
+        )
+        self.assertEqual(len(manifest_file["sha256"]), 64)
+        self.assertEqual(result.manifest["tm_protection"], "candidate-only")
+        self.assertEqual(result.manifest["unselected_supported_files"], ["notes.csv"])
+        self.assertIn("urn:vendor:test", result.manifest["extension_namespaces"])
+        self.assertNotIn("QUJDREVGR0g=", encoded)
+        self.assertEqual(manifest_file["internal_file"], {"present": True, "size": 12})
+        self.assertEqual(
+            result.manifest["counts"],
+            {
+                "selected_files": 1,
+                "unselected_supported_files": 1,
+                "parsed_segments": 1,
+                "included_segments": 1,
+                "excluded_segments": 0,
+                "content_type_matches": 0,
+                "tm_candidates": 0,
+                "locked_segments": 0,
+                "protected_segments": 0,
+            },
+        )
+        self.assertEqual(len(result.manifest["protection_evidence"]), 1)
+        evidence = result.manifest["protection_evidence"][0]
+        self.assertTrue(evidence["included"])
+        self.assertFalse(evidence["locked"]["matched"])
+        self.assertFalse(evidence["tm"]["candidate"])
 
 
 if __name__ == "__main__":
