@@ -308,7 +308,10 @@ def cmd_read(args):
     out_path = Path(args.out)
     job_dir = out_path.parent
     scope_path = job_dir / "scope.json"
-    if out_path.resolve() == scope_path.resolve():
+    if (
+        out_path.name.casefold() == "scope.json"
+        or out_path.resolve() == scope_path.resolve()
+    ):
         print(
             f"[ERROR] --out path conflicts with reserved scope artifact: {scope_path}",
             file=sys.stderr,

@@ -173,6 +173,34 @@ class NoTerminologyScopeTests(unittest.TestCase):
             {path.name for path in scope_path.parent.iterdir()}, {"scope.json"}
         )
 
+    def test_out_case_variant_cannot_replace_reserved_scope_artifact(self):
+        scope_path = self.state.parent / "scope.json"
+        scope_path.parent.mkdir(parents=True)
+        original = b'{"keep": "original"}\n'
+        scope_path.write_bytes(original)
+
+        result = self.run_io(
+            "read",
+            "--input",
+            self.source,
+            "--source-col",
+            "Source",
+            "--target-col",
+            "Target",
+            "--no-terminology",
+            "--out",
+            scope_path.with_name("SCOPE.JSON"),
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn(
+            "--out path conflicts with reserved scope artifact", result.stderr
+        )
+        self.assertEqual(scope_path.read_bytes(), original)
+        self.assertEqual(
+            {path.name for path in scope_path.parent.iterdir()}, {"scope.json"}
+        )
+
     def test_load_terms_cannot_bypass_disabled_scope(self):
         state = {
             "check_scope": build_check_scope(True),
