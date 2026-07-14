@@ -468,6 +468,67 @@ class SDLXLIFFParserTests(unittest.TestCase):
         self.assertNotIn("v:inline", extension_xml[0])
         self.assertIn("v:inline", result.segments[0]["source"])
 
+    def test_segment_extensions_keep_seg_def_ownership(self):
+        result = read_sdlxliff(
+            FIXTURES / "segmented_extensions.sdlxliff",
+            options=SDLXLIFFOptions(),
+        )
+        first = "\n".join(
+            result.segments[0]["metadata"]["sdlxliff"]["extension_xml"]
+        )
+        second = "\n".join(
+            result.segments[1]["metadata"]["sdlxliff"]["extension_xml"]
+        )
+
+        self.assertIn("Shared anonymous metadata", first)
+        self.assertIn("First segment metadata", first)
+        self.assertNotIn("Second segment metadata", first)
+        self.assertIn("Shared anonymous metadata", second)
+        self.assertIn("Second segment metadata", second)
+        self.assertNotIn("First segment metadata", second)
+
+    def test_direct_boundaries_are_unique_but_source_and_seg_source_can_coexist(self):
+        legal = self.temp_fixture(
+            "source-and-seg-source.sdlxliff",
+            self.document(
+                '<trans-unit id="legal"><source>Full source</source><seg-source>'
+                '<mrk mtype="seg" mid="1">Segment source</mrk></seg-source>'
+                '<target><mrk mtype="seg" mid="1">Target</mrk></target>'
+                '<sdl:seg-defs><sdl:seg id="1"/></sdl:seg-defs></trans-unit>'
+            ),
+        )
+        legal_result = read_sdlxliff(legal, options=SDLXLIFFOptions())
+        self.assertEqual(legal_result.segments[0]["source_plain"], "Segment source")
+
+        duplicate_nodes = {
+            "source": (
+                '<source>A</source><source>B</source><target>C</target>'
+                '<sdl:seg-defs><sdl:seg id="1"/></sdl:seg-defs>'
+            ),
+            "target": (
+                '<source>A</source><target>B</target><target>C</target>'
+                '<sdl:seg-defs><sdl:seg id="1"/></sdl:seg-defs>'
+            ),
+            "seg-source": (
+                '<seg-source><mrk mtype="seg" mid="1">A</mrk></seg-source>'
+                '<seg-source><mrk mtype="seg" mid="2">B</mrk></seg-source>'
+                '<target><mrk mtype="seg" mid="1">C</mrk></target>'
+                '<sdl:seg-defs><sdl:seg id="1"/></sdl:seg-defs>'
+            ),
+        }
+        for name, content in duplicate_nodes.items():
+            with self.subTest(name=name):
+                fixture = self.temp_fixture(
+                    f"duplicate-{name}.sdlxliff",
+                    self.document(f'<trans-unit id="duplicate">{content}</trans-unit>'),
+                )
+                with self.assertRaisesRegex(
+                    SDLXLIFFImportError, f"multiple direct {name}"
+                ) as caught:
+                    read_sdlxliff(fixture, options=SDLXLIFFOptions())
+                self.assertIn(fixture.name, str(caught.exception))
+                self.assertIn("TU 'duplicate'", str(caught.exception))
+
     def test_structural_unknown_extension_fails_instead_of_guessing_boundaries(self):
         fixture = self.temp_fixture(
             "ambiguous-extension.sdlxliff",

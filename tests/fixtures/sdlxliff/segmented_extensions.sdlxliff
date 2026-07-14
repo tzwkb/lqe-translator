@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2"
+       xmlns:sdl="http://sdl.com/FileTypes/SdlXliff/1.0"
+       xmlns:v="urn:vendor:segmented">
+  <file original="segmented.xml" source-language="zh-CN" target-language="en-US">
+    <body>
+      <trans-unit id="segmented-tu">
+        <seg-source><mrk mtype="seg" mid="1">甲</mrk><mrk mtype="seg" mid="2">乙</mrk></seg-source>
+        <target><mrk mtype="seg" mid="1">Alpha</mrk><mrk mtype="seg" mid="2">Beta</mrk></target>
+        <v:shared>Shared anonymous metadata</v:shared>
+        <sdl:seg-defs>
+          <sdl:seg id="1"><sdl:values><v:note>First segment metadata</v:note></sdl:values></sdl:seg>
+          <sdl:seg id="2"><sdl:values><v:note>Second segment metadata</v:note></sdl:values></sdl:seg>
+        </sdl:seg-defs>
+      </trans-unit>
+    </body>
+  </file>
+</xliff>

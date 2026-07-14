@@ -511,15 +511,26 @@ def _markers_by_mid(markers: list[ET.Element], context: str) -> dict[str, ET.Ele
 _EMPTY_MIXED = SerializedMixedContent("", "", "", ())
 
 
+def _single_direct_child(
+    tu: ET.Element,
+    local_name: str,
+    context: str,
+) -> ET.Element | None:
+    elements = [child for child in tu if child.tag == _X + local_name]
+    if len(elements) > 1:
+        _fail(f"multiple direct {local_name} elements", context)
+    return elements[0] if elements else None
+
+
 def _pair_tu(
     tu: ET.Element,
     *,
     namespace_map: dict[str, str],
     context: str,
 ) -> list[tuple[SerializedMixedContent, SerializedMixedContent, str | None, ET.Element | None]]:
-    seg_source = tu.find(_X + "seg-source")
-    source_element = tu.find(_X + "source")
-    target_element = tu.find(_X + "target")
+    seg_source = _single_direct_child(tu, "seg-source", context)
+    source_element = _single_direct_child(tu, "source", context)
+    target_element = _single_direct_child(tu, "target", context)
     seg_defs = _segment_definitions(tu)
 
     if seg_source is not None:
@@ -588,13 +599,21 @@ def _pair_tu(
     ]
 
 
-def _tu_extensions(tu: ET.Element, namespace_map: dict[str, str]) -> list[str]:
+def _tu_extensions(
+    tu: ET.Element,
+    seg_def: ET.Element | None,
+    namespace_map: dict[str, str],
+) -> list[str]:
     values: list[str] = []
     mixed_roots = {_X + "source", _X + "seg-source", _X + "target"}
 
     def collect(parent: ET.Element) -> None:
         for child in parent:
             if parent is tu and child.tag in mixed_roots:
+                continue
+            if child.tag == _SDL + "seg":
+                if child is seg_def:
+                    collect(child)
                 continue
             namespace, _ = _split_qname(child.tag)
             if namespace not in {XLIFF_NS, SDL_NS}:
@@ -672,7 +691,6 @@ def read_sdlxliff(
                 )
                 _validate_tu_structure(tu, tu_context)
                 pairs = _pair_tu(tu, namespace_map=namespace_map, context=tu_context)
-                extension_xml = _tu_extensions(tu, namespace_map)
                 for segment_index, (source, target, sdl_segment_id, seg_def) in enumerate(pairs):
                     business_key = (tu_id, sdl_segment_id)
                     if (tu_id is not None or sdl_segment_id is not None) and business_key in seen_business_keys:
@@ -708,7 +726,7 @@ def read_sdlxliff(
                         comments=comments,
                         source=source,
                         target=target,
-                        extension_xml=extension_xml,
+                        extension_xml=_tu_extensions(tu, seg_def, namespace_map),
                     )
                     segment = {
                         "id": segment_id,
