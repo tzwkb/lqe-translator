@@ -11,6 +11,7 @@ SCRIPTS = ROOT / "scripts"
 IO_SCRIPT = SCRIPTS / "lqe_io.py"
 CHUNK_SCRIPT = SCRIPTS / "lqe_chunk.py"
 BATCH_SCRIPT = SCRIPTS / "lqe_batch.py"
+CALC_SCRIPT = SCRIPTS / "lqe_calc.py"
 
 sys.path.insert(0, str(SCRIPTS))
 
@@ -546,6 +547,265 @@ class NoTerminologyPrecheckTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("scope conflict", result.stderr)
                 self.assertFalse((self.job / "errors.json").exists())
+
+
+class NoTerminologyModuleTests(unittest.TestCase):
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.root = Path(self.tempdir.name)
+        self.job = self.root / "job"
+        self.chunks = self.job / "chunks"
+        self.chunks.mkdir(parents=True)
+
+    def tearDown(self):
+        self.tempdir.cleanup()
+
+    def run_script(self, script, *args):
+        return subprocess.run(
+            [sys.executable, str(script), *map(str, args)],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+
+    def run_chunk(self, *args):
+        return self.run_script(CHUNK_SCRIPT, *args)
+
+    def run_calc(self):
+        return self.run_script(
+            CALC_SCRIPT,
+            "--state",
+            self.job / "state.json",
+            "--errors",
+            self.job / "errors.json",
+            "--json",
+        )
+
+    def make_chunk_job(self, *, no_terminology):
+        state = {
+            "wordcount": 1,
+            "segments": [{"id": 0, "source": "A", "target": "A"}],
+        }
+        if no_terminology:
+            state["check_scope"] = build_check_scope(True, "test")
+        write_json(self.job / "state.json", state)
+        write_json(
+            self.job / "errors_precheck.json", [{"id": 0, "issues": []}]
+        )
+        write_json(
+            self.chunks / "chunk_00.json",
+            {
+                "chunk_id": 0,
+                "segments": [
+                    {
+                        "id": 0,
+                        "source": "A",
+                        "target": "A",
+                        "kind": "name",
+                        "term_hits": [],
+                        "protected_texts": [],
+                    }
+                ],
+            },
+        )
+
+    def make_no_term_chunk_job(self):
+        self.make_chunk_job(no_terminology=True)
+
+    def make_legacy_chunk_job(self):
+        self.make_chunk_job(no_terminology=False)
+
+    def write_modules(self, modules):
+        for module in modules:
+            write_json(
+                self.chunks / f"chunk_00.{module}.json",
+                [{"id": 0, "issues": []}],
+            )
+
+    def write_complete_no_term_errors(self, *, category, comment, edit):
+        self.make_no_term_chunk_job()
+        write_json(
+            self.job / "errors.json",
+            [
+                {
+                    "id": 0,
+                    "errors": [
+                        {
+                            "category": category,
+                            "severity": "Minor",
+                            "comment": comment,
+                            "needs_confirmation": False,
+                            "edit": edit,
+                        }
+                    ],
+                    "corrected": None,
+                }
+            ],
+        )
+
+    def test_validate_requires_precheck_review_not_terminology(self):
+        self.make_no_term_chunk_job()
+        self.write_modules(
+            ("precheck_review", "accuracy", "grammar", "naturalness")
+        )
+
+        result = self.run_chunk("validate-checks", "--job", self.job)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_validate_fails_when_precheck_review_is_missing(self):
+        self.make_no_term_chunk_job()
+        self.write_modules(("accuracy", "grammar", "naturalness"))
+
+        result = self.run_chunk("validate-checks", "--job", self.job)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("precheck_review", result.stderr)
+
+    def test_validate_rejects_disabled_module_file(self):
+        self.make_no_term_chunk_job()
+        self.write_modules(
+            (
+                "precheck_review",
+                "accuracy",
+                "grammar",
+                "naturalness",
+                "terminology",
+            )
+        )
+
+        result = self.run_chunk("validate-checks", "--job", self.job)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("scope conflict", result.stderr)
+
+    def test_merge_checks_rejects_terminology_category(self):
+        self.make_no_term_chunk_job()
+        self.write_modules(
+            ("precheck_review", "accuracy", "grammar", "naturalness")
+        )
+        write_json(
+            self.chunks / "chunk_00.precheck_review.json",
+            [
+                {
+                    "id": 0,
+                    "issues": [
+                        {
+                            "category": "Terminology",
+                            "severity": "Major",
+                            "comment": "forbidden",
+                            "needs_confirmation": True,
+                            "edit": None,
+                        }
+                    ],
+                }
+            ],
+        )
+
+        result = self.run_chunk("merge-checks", "--job", self.job)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("scope conflict", result.stderr)
+        self.assertFalse((self.chunks / "chunk_00.out.json").exists())
+
+    def test_merge_checks_enforces_precheck_review_category_ownership(self):
+        self.make_no_term_chunk_job()
+        self.write_modules(
+            ("precheck_review", "accuracy", "grammar", "naturalness")
+        )
+        write_json(
+            self.chunks / "chunk_00.precheck_review.json",
+            [
+                {
+                    "id": 0,
+                    "issues": [
+                        {
+                            "category": "Grammar",
+                            "severity": "Minor",
+                            "comment": "wrong owner",
+                            "needs_confirmation": True,
+                            "edit": None,
+                        }
+                    ],
+                }
+            ],
+        )
+
+        result = self.run_chunk("merge-checks", "--job", self.job)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("precheck_review cannot own", result.stderr)
+        self.assertFalse((self.chunks / "chunk_00.out.json").exists())
+
+    def test_legacy_state_still_requires_standard_four_modules(self):
+        self.make_legacy_chunk_job()
+        self.write_modules(("accuracy", "grammar", "naturalness"))
+
+        result = self.run_chunk("validate-checks", "--job", self.job)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("terminology", result.stderr)
+
+    def test_merge_rejects_forbidden_module_issue_before_writing(self):
+        self.make_no_term_chunk_job()
+        write_json(
+            self.chunks / "chunk_00.out.json",
+            [
+                {
+                    "id": 0,
+                    "issues": [
+                        {
+                            "category": "Other",
+                            "severity": "Minor",
+                            "comment": "forbidden",
+                            "needs_confirmation": False,
+                            "edit": {
+                                "from": "A",
+                                "to": "B",
+                                "evidence": {
+                                    "type": "confirmed_term",
+                                    "source": "A",
+                                    "target": "B",
+                                },
+                            },
+                        }
+                    ],
+                }
+            ],
+        )
+        output = self.job / "errors.json"
+
+        result = self.run_chunk(
+            "merge",
+            "--state",
+            self.job / "state.json",
+            "--errors",
+            self.job / "errors_precheck.json",
+            "--outdir",
+            self.chunks,
+            "--out",
+            output,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("scope conflict", result.stderr)
+        self.assertFalse(output.exists())
+
+    def test_calc_rejects_forbidden_issue_before_scoring(self):
+        self.write_complete_no_term_errors(
+            category="Other",
+            comment="forbidden",
+            edit={
+                "from": "A",
+                "to": "B",
+                "evidence": {"type": "confirmed_term"},
+            },
+        )
+
+        result = self.run_calc()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("scope conflict", result.stderr)
 
 
 if __name__ == "__main__":

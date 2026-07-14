@@ -27,6 +27,7 @@ USER_FACING = [
 ]
 CHECK_MODULE_NAMES = (
     "common.md",
+    "precheck_review.md",
     "terminology.md",
     "accuracy.md",
     "grammar.md",

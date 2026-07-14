@@ -1,6 +1,6 @@
 # LQE 检查模块公共规范
 
-检查任务按术语、准确性、语法和自然度四个必需模块分开运行；`proper_names` 是可选模块，只用于术语表自检中的专名。每个模块只提交检查结果；最终译文由脚本根据已验证的局部修改生成。
+标准模式要求 `terminology`、`accuracy`、`grammar`、`naturalness` 四个模块；`proper_names` 是可选模块，只用于术语表自检中的专名。无术语模式要求 `precheck_review`、`accuracy`、`grammar`、`naturalness` 四个模块，并禁用术语相关模块。每个模块只提交检查结果；最终译文由脚本根据已验证的局部修改生成。
 
 ## 开始前读取
 
@@ -70,9 +70,10 @@ python3 "$SCRIPTS/lqe_chunk.py" ckpt-finalize \
 | 模块 | 负责类别 | 范围 |
 |---|---|---|
 | `terminology` | Terminology、Inconsistency、Company style 与机器预检复核 | 全部段 |
+| `precheck_review` | Markup、Length、Locale convention、Company style、Inconsistency、Other | 无术语模式下复核 chunk 中的非术语预检 |
 | `accuracy` | Mistranslation、Omission、Addition、Untranslated | 全部段 |
 | `grammar` | Grammar、Spelling、Punctuation | 全部段 |
 | `naturalness` | Audience appropriateness、Culture specific reference、Unidiomatic | 全部段 |
 | `proper_names` | 专名音译相关的 Mistranslation、Culture specific reference | 术语表自检中的 name 段 |
 
-所有必需模块都要输出全部 id。合并、去重、类别归属检查和最终译文生成由 `lqe_chunk.py` 完成。
+当前模式下的所有必需模块都要输出全部 id。合并、去重、类别归属检查和最终译文生成由 `lqe_chunk.py` 完成。

@@ -16,7 +16,16 @@ from pathlib import Path
 
 
 from lqe_corrections import build_segment_result, normalize_check_entries
-from lqe_engine import load_terms, read_json as load, terminology_enabled
+from lqe_engine import (
+    disabled_modules,
+    load_terms,
+    optional_modules,
+    read_json as load,
+    required_modules,
+    scope_issue_problem,
+    terminology_enabled,
+    validate_scope_entries,
+)
 from term_suggest import build_index as _tn_build, suggest as _tn_suggest
 
 
@@ -188,6 +197,9 @@ def cmd_merge(a):
     ids = [segment["id"] for segment in state_segments]
     protected_ids = {segment["id"] for segment in state_segments if segment.get("protected")}
     pre = normalize_check_entries(load(a.errors), label=Path(a.errors).name)
+    validate_scope_entries(
+        state, pre, issues_key="issues", label=Path(a.errors).name
+    )
     pre_by_id = {entry["id"]: entry["issues"] for entry in pre}
     outdir = Path(a.outdir)
 
@@ -200,7 +212,11 @@ def cmd_merge(a):
     merged = {}
     files = sorted(outdir.glob("chunk_*.out.json"))
     for f in files:
-        for entry in _normalize_module_output(load(f), f):
+        entries = _normalize_module_output(load(f), f)
+        validate_scope_entries(
+            state, entries, issues_key="issues", label=f.name
+        )
+        for entry in entries:
             merged[entry["id"]] = copy.deepcopy(entry["issues"])
 
     representative_by_id = {}
@@ -251,6 +267,7 @@ def cmd_merge(a):
         )
         out.append(build_segment_result(segment, issues))
 
+    validate_scope_entries(state, out, issues_key="errors", label=Path(a.out).name)
     Path(a.out).write_text(json.dumps(out, ensure_ascii=False, indent=1),
                            encoding="utf-8")
     cov = sum(1 for i in ids if i in merged)
@@ -262,10 +279,16 @@ def cmd_merge(a):
         sys.exit(2)
 
 
-_REQUIRED_MODULES = ("terminology", "accuracy", "grammar", "naturalness")
-_OPTIONAL_MODULES = ("proper_names",)
 _ACCURACY_OWNED = {"Mistranslation", "Omission", "Addition", "Untranslated"}
 _DETERMINISTIC_PRECHECK = {"Untranslated"}
+_PRECHECK_REVIEW_CATEGORIES = {
+    "Markup",
+    "Length",
+    "Locale convention",
+    "Company style",
+    "Inconsistency",
+    "Other",
+}
 
 
 def _chunk_idxs(outdir: Path):
@@ -278,12 +301,29 @@ def _normalize_module_output(arr, path):
     return normalize_check_entries(arr, label=Path(path).name)
 
 
-def _check_modules(outdir: Path):
+def _module_issue_problem(state: dict, module: str, issue: dict) -> str | None:
+    problem = scope_issue_problem(state, issue)
+    if problem:
+        return problem
+    category = issue.get("category")
+    if module == "precheck_review" and category not in _PRECHECK_REVIEW_CATEGORIES:
+        return f"precheck_review cannot own category {category!r}"
+    return None
+
+
+def _check_modules(
+    job: Path,
+) -> tuple[dict, list[str], tuple[str, ...], tuple[str, ...]]:
+    state = load(job / "state.json")
+    outdir = job / "chunks"
+    required = required_modules(state)
+    optional = optional_modules(state)
+    disabled = disabled_modules(state)
     chunks = {}
     problems = []
     idxs = _chunk_idxs(outdir)
     if not idxs:
-        return chunks, ["no chunks found"]
+        return chunks, ["no chunks found"], required, optional
 
     for ci in idxs:
         base_path = outdir / f"chunk_{ci:02d}.json"
@@ -296,10 +336,16 @@ def _check_modules(outdir: Path):
 
         expected = set(ids)
         module_entries = {}
-        for module in _REQUIRED_MODULES + _OPTIONAL_MODULES:
+        for module in disabled:
+            path = outdir / f"chunk_{ci:02d}.{module}.json"
+            if path.exists():
+                problems.append(
+                    f"{path.name}: scope conflict: module {module!r} is disabled"
+                )
+        for module in required + optional:
             path = outdir / f"chunk_{ci:02d}.{module}.json"
             if not path.exists():
-                if module in _REQUIRED_MODULES:
+                if module in required:
                     problems.append(f"{path.name}: MISSING")
                 continue
             try:
@@ -311,7 +357,7 @@ def _check_modules(outdir: Path):
             actual = {entry["id"] for entry in entries}
             missing = expected - actual
             unexpected = actual - expected
-            if module in _REQUIRED_MODULES and missing:
+            if module in required and missing:
                 problems.append(
                     f"{path.name}: missing ids {sorted(missing)[:10]}"
                 )
@@ -319,9 +365,14 @@ def _check_modules(outdir: Path):
                 problems.append(
                     f"{path.name}: unexpected ids {sorted(unexpected)[:10]}"
                 )
+            for entry in entries:
+                for issue in entry["issues"]:
+                    problem = _module_issue_problem(state, module, issue)
+                    if problem:
+                        problems.append(f"{path.name}: scope conflict: {problem}")
             module_entries[module] = entries
         chunks[ci] = (ids, module_entries)
-    return chunks, problems
+    return chunks, problems, required, optional
 
 
 def _exit_check_problems(command: str, problems: list[str]):
@@ -343,8 +394,9 @@ def _issue_key(issue):
 
 
 def cmd_merge_checks(a):
-    outdir = Path(a.job) / "chunks"
-    chunks, problems = _check_modules(outdir)
+    job = Path(a.job)
+    outdir = job / "chunks"
+    chunks, problems, required, optional = _check_modules(job)
     _exit_check_problems("merge-checks", problems)
 
     total = 0
@@ -357,7 +409,7 @@ def cmd_merge_checks(a):
         for segment_id in ids:
             seen = set()
             issues = []
-            for module in _REQUIRED_MODULES + _OPTIONAL_MODULES:
+            for module in required + optional:
                 for issue in entries_by_module.get(module, {}).get(segment_id, []):
                     category = issue.get("category")
                     if category in _ACCURACY_OWNED and module != "accuracy":
@@ -376,8 +428,7 @@ def cmd_merge_checks(a):
 
 
 def cmd_validate_checks(a):
-    outdir = Path(a.job) / "chunks"
-    chunks, problems = _check_modules(outdir)
+    chunks, problems, _, _ = _check_modules(Path(a.job))
     _exit_check_problems("validate-checks", problems)
     print(f"[validate-checks] OK: {len(chunks)} chunks")
 

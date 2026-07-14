@@ -8,6 +8,7 @@ from lqe_engine import (
     read_json,
     apply_severity, load_scorecard_profile, normalize_category_for_profile,
     scorecard_category_weight, scorecard_severity_points,
+    validate_scope_entries,
 )
 
 
@@ -60,6 +61,9 @@ def main():
 
     state  = read_json(args.state)
     errors = read_json(args.errors)
+    validate_scope_entries(
+        state, errors, issues_key="errors", label=Path(args.errors).name
+    )
     protected = _parse_protected_ids(args.protected_ids)
     protected.update(_load_protected_file(args.protected_file))
     protected.update(s["id"] for s in state.get("segments", []) if s.get("protected"))
