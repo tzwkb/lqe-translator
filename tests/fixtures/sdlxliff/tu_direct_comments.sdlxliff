@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2"
+       xmlns:sdl="http://sdl.com/FileTypes/SdlXliff/1.0">
+  <sdl:doc-info>
+    <sdl:cmt-defs>
+      <sdl:cmt-def id="tu-note">Root fallback note</sdl:cmt-def>
+    </sdl:cmt-defs>
+  </sdl:doc-info>
+  <file original="comments-a.xml" source-language="zh-CN" target-language="en-US">
+    <header>
+      <sdl:cmt-defs>
+        <sdl:cmt-def id="tu-note">TU direct note</sdl:cmt-def>
+        <sdl:cmt-def id="first-note">First segment note</sdl:cmt-def>
+      </sdl:cmt-defs>
+    </header>
+    <body>
+      <trans-unit id="direct-comments">
+        <seg-source><mrk mtype="seg" mid="1">甲</mrk><mrk mtype="seg" mid="2">乙</mrk></seg-source>
+        <target><mrk mtype="seg" mid="1">Alpha</mrk><mrk mtype="seg" mid="2">Beta</mrk></target>
+        <sdl:cmt id="tu-note"/>
+        <sdl:seg-defs>
+          <sdl:seg id="1" comments="first-note"/>
+          <sdl:seg id="2"/>
+        </sdl:seg-defs>
+      </trans-unit>
+      <trans-unit id="unknown-comment">
+        <source>丙</source>
+        <target>Gamma</target>
+        <sdl:cmt id="missing-note"/>
+        <sdl:seg-defs><sdl:seg id="3"/></sdl:seg-defs>
+      </trans-unit>
+    </body>
+  </file>
+  <file original="comments-b.xml" source-language="zh-CN" target-language="en-US">
+    <header>
+      <sdl:cmt-defs>
+        <sdl:cmt-def id="tu-note">Second file note</sdl:cmt-def>
+      </sdl:cmt-defs>
+    </header>
+    <body>
+      <trans-unit id="file-scoped-comment">
+        <source>丁</source>
+        <target>Delta</target>
+        <sdl:cmt id="tu-note"/>
+        <sdl:seg-defs><sdl:seg id="4"/></sdl:seg-defs>
+      </trans-unit>
+    </body>
+  </file>
+  <file original="comments-c.xml" source-language="zh-CN" target-language="en-US">
+    <body>
+      <trans-unit id="root-scoped-comment">
+        <source>戊</source>
+        <target>Epsilon</target>
+        <sdl:cmt id="tu-note"/>
+        <sdl:seg-defs><sdl:seg id="5"/></sdl:seg-defs>
+      </trans-unit>
+    </body>
+  </file>
+</xliff>

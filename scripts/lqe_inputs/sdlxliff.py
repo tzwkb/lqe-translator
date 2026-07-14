@@ -1,4 +1,5 @@
 from collections.abc import Mapping, Sequence
+from copy import deepcopy
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from fnmatch import fnmatchcase
@@ -8,6 +9,7 @@ import math
 from pathlib import Path
 import re
 from xml.etree import ElementTree as ET
+from xml.parsers import expat
 
 
 XLIFF_NS = "urn:oasis:names:tc:xliff:document:1.2"
@@ -546,7 +548,31 @@ def _fail(message: str, context: str) -> None:
     raise SDLXLIFFImportError(f"{context}: {message}")
 
 
+def _reject_dtd_and_entities(path: Path, relative_path: str) -> None:
+    parser = expat.ParserCreate()
+
+    def reject(*_args) -> None:
+        raise SDLXLIFFImportError(
+            f"{relative_path}: line {parser.CurrentLineNumber}: "
+            "DOCTYPE/entity declarations are not allowed"
+        )
+
+    parser.StartDoctypeDeclHandler = reject
+    parser.EntityDeclHandler = reject
+    try:
+        with path.open("rb") as handle:
+            while chunk := handle.read(64 * 1024):
+                parser.Parse(chunk, False)
+        parser.Parse(b"", True)
+    except expat.ExpatError as exc:
+        raise SDLXLIFFImportError(
+            f"{relative_path}: line {exc.lineno}, column {exc.offset}: "
+            f"invalid XML: {exc}"
+        ) from exc
+
+
 def _parse_xml(path: Path, relative_path: str) -> tuple[ET.Element, dict[str, str]]:
+    _reject_dtd_and_entities(path, relative_path)
     namespace_map: dict[str, str] = {}
     try:
         parser = ET.iterparse(path, events=("start-ns", "end"))
@@ -599,21 +625,32 @@ def _local_attribute(element: ET.Element, name: str) -> str | None:
     if name in element.attrib:
         return element.attrib[name]
     for attr_name, value in element.attrib.items():
-        if _split_qname(attr_name)[1] == name:
+        namespace, local = _split_qname(attr_name)
+        if namespace == SDL_NS and local == name:
             return value
     return None
 
 
-def _comment_definitions(file_element: ET.Element) -> dict[str, str]:
+def _comment_definitions(
+    scope: ET.Element,
+    *,
+    exclude_file_descendants: bool = False,
+) -> dict[str, str]:
     definitions: dict[str, str] = {}
-    for element in file_element.iter():
-        namespace, local = _split_qname(element.tag)
-        if namespace != SDL_NS or local not in {"cmt-def", "comment-def"}:
-            continue
-        comment_id = _local_attribute(element, "id")
-        text = "".join(element.itertext()).strip()
-        if comment_id and text:
-            definitions[comment_id] = text
+
+    def collect(parent: ET.Element) -> None:
+        for element in parent:
+            if exclude_file_descendants and element.tag == _X + "file":
+                continue
+            namespace, local = _split_qname(element.tag)
+            if namespace == SDL_NS and local in {"cmt-def", "comment-def"}:
+                comment_id = _local_attribute(element, "id")
+                text = "".join(element.itertext()).strip()
+                if comment_id and text:
+                    definitions[comment_id] = text
+            collect(element)
+
+    collect(scope)
     return definitions
 
 
@@ -631,7 +668,8 @@ def _last_modified_by(seg_def: ET.Element | None) -> str | None:
     if direct:
         return direct
     for element in seg_def.iter():
-        if _split_qname(element.tag)[1] != "value":
+        namespace, local = _split_qname(element.tag)
+        if namespace != SDL_NS or local != "value":
             continue
         if _local_attribute(element, "key") == "last_modified_by":
             value = "".join(element.itertext()).strip()
@@ -642,31 +680,61 @@ def _last_modified_by(seg_def: ET.Element | None) -> str | None:
 def _segment_comment(
     seg_def: ET.Element | None,
     definitions: dict[str, str],
+    inherited: Sequence[str] = (),
 ) -> str | None:
-    if seg_def is None:
-        return None
     references: list[str] = []
-    for name in ("comments", "comment", "comment-id", "cmt-id"):
-        value = _local_attribute(seg_def, name)
-        if value:
-            references.extend(part for part in re.split(r"[,;\s]+", value) if part)
     inline: list[str] = []
-    for element in seg_def.iter():
-        if element is seg_def:
-            continue
-        local = _split_qname(element.tag)[1]
-        if local not in {"cmt", "comment"}:
-            continue
-        reference = _local_attribute(element, "id") or _local_attribute(element, "ref")
-        if reference:
-            references.append(reference)
-        else:
-            value = "".join(element.itertext()).strip()
+    if seg_def is not None:
+        for name in ("comments", "comment", "comment-id", "cmt-id"):
+            value = _local_attribute(seg_def, name)
             if value:
-                inline.append(value)
-    resolved = [definitions[reference] for reference in references if reference in definitions]
-    values = resolved + inline
+                references.extend(
+                    part for part in re.split(r"[,;\s]+", value) if part
+                )
+        for element in seg_def.iter():
+            if element is seg_def:
+                continue
+            namespace, local = _split_qname(element.tag)
+            if namespace != SDL_NS or local not in {"cmt", "comment"}:
+                continue
+            reference = _local_attribute(element, "id") or _local_attribute(
+                element, "ref"
+            )
+            if reference:
+                references.append(reference)
+            else:
+                value = "".join(element.itertext()).strip()
+                if value:
+                    inline.append(value)
+    resolved = [
+        definitions[reference]
+        for reference in references
+        if reference in definitions
+    ]
+    values = list(inherited) + resolved + inline
     return "\n".join(dict.fromkeys(values)) or None
+
+
+def _tu_direct_comments(
+    tu: ET.Element,
+    definitions: dict[str, str],
+) -> list[str]:
+    values: list[str] = []
+    for element in tu:
+        namespace, local = _split_qname(element.tag)
+        if namespace != SDL_NS or local not in {"cmt", "comment"}:
+            continue
+        reference = _local_attribute(element, "id") or _local_attribute(
+            element, "ref"
+        )
+        if reference:
+            if reference in definitions:
+                values.append(definitions[reference])
+            continue
+        inline = "".join(element.itertext()).strip()
+        if inline:
+            values.append(inline)
+    return list(dict.fromkeys(values))
 
 
 def _metadata(
@@ -679,6 +747,8 @@ def _metadata(
     source: SerializedMixedContent,
     target: SerializedMixedContent,
     extension_xml: list[str],
+    extension_attributes: list[dict[str, str]],
+    inherited_comments: Sequence[str],
 ) -> dict:
     return {
         "file_original": file_original,
@@ -694,12 +764,13 @@ def _metadata(
             else False
         ),
         "last_modified_by": _last_modified_by(seg_def),
-        "comment": _segment_comment(seg_def, comments),
+        "comment": _segment_comment(seg_def, comments, inherited_comments),
         "source_raw_xml": source.raw_xml,
         "target_raw_xml": target.raw_xml,
         "source_tag_signature": source.tag_signature,
         "target_tag_signature": target.tag_signature,
         "extension_xml": list(extension_xml),
+        "extension_attributes": list(extension_attributes),
     }
 
 
@@ -762,20 +833,52 @@ def _iter_trans_units(body: ET.Element, context: str):
             )
 
 
+def _wrapped_marker(
+    marker: ET.Element,
+    wrappers: tuple[ET.Element, ...],
+) -> ET.Element:
+    if not wrappers:
+        return marker
+    synthetic = ET.Element(marker.tag, dict(marker.attrib))
+    parent = synthetic
+    for wrapper in wrappers:
+        child = ET.Element(wrapper.tag, dict(wrapper.attrib))
+        parent.append(child)
+        parent = child
+    parent.text = marker.text
+    for child in marker:
+        parent.append(deepcopy(child))
+    return synthetic
+
+
 def _segmentation_markers(container: ET.Element, context: str) -> list[ET.Element]:
-    if container.text and container.text.strip():
-        _fail("text outside segmentation mrk boundaries", context)
     markers: list[ET.Element] = []
-    for child in container:
-        if child.tag != _X + "mrk" or _local_attribute(child, "mtype") != "seg":
-            namespace, _ = _split_qname(child.tag)
-            _fail(
-                f"unsupported structural extension {child.tag!r} ({namespace or '<none>'})",
-                context,
-            )
-        markers.append(child)
-        if child.tail and child.tail.strip():
+
+    def collect(parent: ET.Element, wrappers: tuple[ET.Element, ...]) -> None:
+        if parent.text and parent.text.strip():
             _fail("text outside segmentation mrk boundaries", context)
+        for child in parent:
+            if (
+                child.tag == _X + "mrk"
+                and _local_attribute(child, "mtype") == "seg"
+            ):
+                markers.append(_wrapped_marker(child, wrappers))
+            elif child.tag == _X + "g":
+                before = len(markers)
+                collect(child, wrappers + (child,))
+                if len(markers) == before:
+                    _fail("g wrapper contains no segmentation mrk", context)
+            else:
+                namespace, _ = _split_qname(child.tag)
+                _fail(
+                    "unsupported structural extension "
+                    f"{child.tag!r} ({namespace or '<none>'})",
+                    context,
+                )
+            if child.tail and child.tail.strip():
+                _fail("text outside segmentation mrk boundaries", context)
+
+    collect(container, ())
     if not markers:
         _fail("segmented content requires top-level mrk mtype='seg'", context)
     return markers
@@ -808,18 +911,54 @@ def _single_direct_child(
     return elements[0] if elements else None
 
 
+def _is_blank_container(element: ET.Element | None) -> bool:
+    return element is None or (
+        len(element) == 0 and not (element.text or "").strip()
+    )
+
+
 def _pair_tu(
     tu: ET.Element,
     *,
     namespace_map: dict[str, str],
     context: str,
-) -> list[tuple[SerializedMixedContent, SerializedMixedContent, str | None, ET.Element | None]]:
+) -> list[
+    tuple[
+        SerializedMixedContent,
+        SerializedMixedContent,
+        str | None,
+        ET.Element | None,
+        tuple[ET.Element, ...],
+    ]
+]:
     seg_source = _single_direct_child(tu, "seg-source", context)
     source_element = _single_direct_child(tu, "source", context)
     target_element = _single_direct_child(tu, "target", context)
     seg_defs = _segment_definitions(tu)
 
     if seg_source is not None:
+        if (
+            not seg_defs
+            and source_element is not None
+            and _is_blank_container(source_element)
+            and _is_blank_container(seg_source)
+            and _is_blank_container(target_element)
+        ):
+            return [
+                (
+                    serialize_mixed(source_element, namespace_map),
+                    serialize_mixed(target_element, namespace_map)
+                    if target_element is not None
+                    else _EMPTY_MIXED,
+                    None,
+                    None,
+                    tuple(
+                        element
+                        for element in (source_element, seg_source, target_element)
+                        if element is not None
+                    ),
+                )
+            ]
         source_markers = _segmentation_markers(seg_source, context)
         source_by_mid = _markers_by_mid(source_markers, context)
         target_by_mid: dict[str, ET.Element] = {}
@@ -860,6 +999,16 @@ def _pair_tu(
                     else _EMPTY_MIXED,
                     mid,
                     defs_by_id.get(mid),
+                    tuple(
+                        element
+                        for element in (
+                            seg_source,
+                            source_marker,
+                            target_element,
+                            target_marker,
+                        )
+                        if element is not None
+                    ),
                 )
             )
         return pairs
@@ -881,6 +1030,11 @@ def _pair_tu(
             else _EMPTY_MIXED,
             seg_id,
             seg_def,
+            tuple(
+                element
+                for element in (source_element, target_element)
+                if element is not None
+            ),
         )
     ]
 
@@ -908,6 +1062,42 @@ def _tu_extensions(
             collect(child)
 
     collect(tu)
+    return values
+
+
+def _tu_extension_attributes(
+    tu: ET.Element,
+    seg_def: ET.Element | None,
+    boundary_elements: tuple[ET.Element, ...],
+) -> list[dict[str, str]]:
+    values: list[dict[str, str]] = []
+    recorded_elements: set[int] = set()
+    mixed_roots = {_X + "source", _X + "seg-source", _X + "target"}
+
+    def record(element: ET.Element) -> None:
+        if id(element) in recorded_elements:
+            return
+        recorded_elements.add(id(element))
+        for name, value in sorted(element.attrib.items()):
+            namespace, _ = _split_qname(name)
+            if namespace not in {None, XLIFF_NS, SDL_NS, XML_NS}:
+                values.append(
+                    {"element": element.tag, "name": name, "value": str(value)}
+                )
+
+    def collect(element: ET.Element) -> None:
+        record(element)
+        for child in element:
+            if element is tu and child.tag in mixed_roots:
+                record(child)
+                continue
+            if child.tag == _SDL + "seg" and child is not seg_def:
+                continue
+            collect(child)
+
+    collect(tu)
+    for element in boundary_elements:
+        record(element)
     return values
 
 
@@ -952,6 +1142,7 @@ def read_sdlxliff(
 
     for input_path, relative_path in selected:
         root, namespace_map = _parse_xml(input_path, relative_path)
+        root_comments = _comment_definitions(root, exclude_file_descendants=True)
         extension_namespaces.update(
             uri
             for uri in namespace_map.values()
@@ -974,11 +1165,13 @@ def read_sdlxliff(
             }
             declared_languages.append(declaration)
             input_language_declarations.append(declaration)
-            comments = _comment_definitions(file_element)
+            comments = {**root_comments, **_comment_definitions(file_element)}
             body = file_element.find(_X + "body")
             if body is None:
                 _fail("XLIFF file is missing body", file_context)
-            seen_business_keys: set[tuple[str | None, str | None]] = set()
+            seen_business_keys: set[
+                tuple[tuple[str, str | int], str | None]
+            ] = set()
 
             for tu_index, tu in enumerate(_iter_trans_units(body, file_context)):
                 tu_id = _local_attribute(tu, "id") or None
@@ -990,11 +1183,21 @@ def read_sdlxliff(
                     element=tu,
                 )
                 _validate_tu_structure(tu, tu_context)
+                inherited_comments = _tu_direct_comments(tu, comments)
                 pairs = _pair_tu(tu, namespace_map=namespace_map, context=tu_context)
-                for segment_index, (source, target, sdl_segment_id, seg_def) in enumerate(pairs):
+                for segment_index, (
+                    source,
+                    target,
+                    sdl_segment_id,
+                    seg_def,
+                    boundary_elements,
+                ) in enumerate(pairs):
                     parsed_segment_count += 1
-                    business_key = (tu_id, sdl_segment_id)
-                    if (tu_id is not None or sdl_segment_id is not None) and business_key in seen_business_keys:
+                    tu_owner: tuple[str, str | int] = (
+                        ("id", tu_id) if tu_id is not None else ("index", tu_index)
+                    )
+                    business_key = (tu_owner, sdl_segment_id)
+                    if business_key in seen_business_keys:
                         segment_context = _context(
                             relative_path,
                             file_index=file_index,
@@ -1007,8 +1210,7 @@ def read_sdlxliff(
                             f"duplicate TU/segment business key {business_key!r}",
                             segment_context,
                         )
-                    if tu_id is not None or sdl_segment_id is not None:
-                        seen_business_keys.add(business_key)
+                    seen_business_keys.add(business_key)
 
                     source_ref = {
                         "relative_path": relative_path,
@@ -1027,6 +1229,10 @@ def read_sdlxliff(
                         source=source,
                         target=target,
                         extension_xml=_tu_extensions(tu, seg_def, namespace_map),
+                        extension_attributes=_tu_extension_attributes(
+                            tu, seg_def, boundary_elements
+                        ),
+                        inherited_comments=inherited_comments,
                     )
                     content_type, content_type_rule_id = match_content_type(
                         relative_path, options.content_type_rules

@@ -213,6 +213,45 @@ class SDLXLIFFParserTests(unittest.TestCase):
             ],
         )
 
+    def test_missing_tu_ids_use_document_order_for_duplicate_ownership(self):
+        fixture = FIXTURES / "missing_tu_ids.sdlxliff"
+        try:
+            first = read_sdlxliff(fixture, options=SDLXLIFFOptions())
+            second = read_sdlxliff(fixture, options=SDLXLIFFOptions())
+        except SDLXLIFFImportError as exc:
+            self.fail(f"missing TU IDs must use document-order ownership: {exc}")
+
+        self.assertEqual(
+            [segment["source_plain"] for segment in first.segments], ["甲", "乙"]
+        )
+        refs = [segment["source_ref"] for segment in first.segments]
+        self.assertEqual(refs, [segment["source_ref"] for segment in second.segments])
+        self.assertEqual([ref["tu_id"] for ref in refs], [None, None])
+        self.assertEqual([ref["tu_index"] for ref in refs], [0, 1])
+        self.assertEqual(len(refs), len({tuple(ref.values()) for ref in refs}))
+
+    def test_missing_tu_id_fallback_is_owned_by_each_input_file(self):
+        fixture = FIXTURES / "missing_tu_ids.sdlxliff"
+        inputs = self.root / "missing-tu-id-directory"
+        (inputs / "nested").mkdir(parents=True)
+        shutil.copy2(fixture, inputs / "a.sdlxliff")
+        shutil.copy2(fixture, inputs / "nested" / "b.sdlxliff")
+
+        result = read_sdlxliff(inputs, options=SDLXLIFFOptions())
+
+        refs = [segment["source_ref"] for segment in result.segments]
+        self.assertEqual(
+            [ref["relative_path"] for ref in refs],
+            [
+                "a.sdlxliff",
+                "a.sdlxliff",
+                "nested/b.sdlxliff",
+                "nested/b.sdlxliff",
+            ],
+        )
+        self.assertEqual([ref["tu_index"] for ref in refs], [0, 1, 0, 1])
+        self.assertEqual(len(refs), len({tuple(ref.values()) for ref in refs}))
+
     def test_rows_raw_uses_empty_strings_for_missing_business_ids(self):
         result = read_sdlxliff(RECURSIVE_FIXTURES, options=SDLXLIFFOptions())
         missing_id_indexes = [
@@ -261,6 +300,35 @@ class SDLXLIFFParserTests(unittest.TestCase):
             "Fuzzy",
         )
 
+    def test_tu_direct_comment_references_are_strictly_scoped(self):
+        result = read_sdlxliff(
+            FIXTURES / "tu_direct_comments.sdlxliff",
+            options=SDLXLIFFOptions(),
+        )
+        comments = {
+            (
+                segment["source_ref"]["file_index"],
+                segment["source_ref"]["tu_id"],
+                segment["source_ref"]["sdl_segment_id"],
+            ): segment["metadata"]["sdlxliff"]["comment"]
+            for segment in result.segments
+        }
+
+        self.assertEqual(
+            comments[(0, "direct-comments", "1")],
+            "TU direct note\nFirst segment note",
+        )
+        self.assertEqual(
+            comments[(0, "direct-comments", "2")], "TU direct note"
+        )
+        self.assertIsNone(comments[(0, "unknown-comment", "3")])
+        self.assertEqual(
+            comments[(1, "file-scoped-comment", "4")], "Second file note"
+        )
+        self.assertEqual(
+            comments[(2, "root-scoped-comment", "5")], "Root fallback note"
+        )
+
     def test_missing_target_node_produces_an_empty_target(self):
         fixture = self.temp_fixture(
             "missing-target.sdlxliff",
@@ -274,6 +342,106 @@ class SDLXLIFFParserTests(unittest.TestCase):
 
         self.assertEqual(result.segments[0]["target"], "")
         self.assertEqual(result.segments[0]["target_plain"], "")
+
+    def test_empty_source_seg_source_and_target_are_excluded_as_blank(self):
+        fixture = self.temp_fixture(
+            "empty-seg-source.sdlxliff",
+            self.document(
+                '<trans-unit id="blank"><source/><seg-source/><target/>'
+                '</trans-unit><trans-unit id="keep"><source>甲</source>'
+                '<target>Alpha</target><sdl:seg-defs><sdl:seg id="1"/>'
+                '</sdl:seg-defs></trans-unit>'
+            ),
+        )
+
+        try:
+            result = read_sdlxliff(fixture, options=SDLXLIFFOptions())
+        except SDLXLIFFImportError as exc:
+            self.fail(f"unambiguous blank TU must reach blank exclusion: {exc}")
+
+        self.assertEqual(
+            [segment["source_ref"]["tu_id"] for segment in result.segments],
+            ["keep"],
+        )
+        self.assertEqual(result.manifest["counts"]["parsed_segments"], 2)
+        self.assertEqual(result.manifest["counts"]["excluded_segments"], 1)
+        blank = result.manifest["excluded"][0]
+        self.assertEqual(blank["source_ref"]["tu_id"], "blank")
+        self.assertEqual(blank["rule_ids"], ["blank-both-sides"])
+
+    def test_unknown_namespaced_attributes_are_evidence_not_sdl_semantics(self):
+        result = read_sdlxliff(
+            FIXTURES / "unknown_namespaced_attributes.sdlxliff",
+            options=SDLXLIFFOptions(
+                tm_protection="protect-exact-source-and-target"
+            ),
+        )
+
+        segment, sdl_control = result.segments
+        metadata = segment["metadata"]["sdlxliff"]
+        self.assertFalse(segment.get("protected", False))
+        self.assertEqual(result.tm_candidates["candidate_ids"], [sdl_control["id"]])
+        self.assertEqual(sdl_control["protected_reason"], "SOURCE_LOCKED")
+        self.assertEqual(
+            sdl_control["metadata"]["sdlxliff"]["origin"], "tm"
+        )
+        self.assertEqual(
+            sdl_control["metadata"]["sdlxliff"]["comment"], "SDL control note"
+        )
+        self.assertEqual(
+            sdl_control["metadata"]["sdlxliff"]["last_modified_by"], "SDLUser"
+        )
+        self.assertIsNone(metadata["origin"])
+        self.assertIsNone(metadata["match_percent"])
+        self.assertIsNone(metadata["text_match"])
+        self.assertFalse(metadata["locked"])
+        self.assertIsNone(metadata["comment"])
+        self.assertIsNone(metadata["last_modified_by"])
+        self.assertIn(
+            "urn:vendor:attributes", "\n".join(metadata["extension_xml"])
+        )
+        evidence = {
+            (item["element"], item["name"], item["value"])
+            for item in metadata["extension_attributes"]
+        }
+        vendor_attribute_names = {
+            name
+            for _, name, _ in evidence
+            if name.startswith("{urn:vendor:attributes}")
+        }
+        self.assertTrue(
+            {
+                "{urn:vendor:attributes}locked",
+                "{urn:vendor:attributes}origin",
+                "{urn:vendor:attributes}percent",
+                "{urn:vendor:attributes}match-percent",
+                "{urn:vendor:attributes}text-match",
+                "{urn:vendor:attributes}source-meta",
+                "{urn:vendor:attributes}target-meta",
+            }.issubset(vendor_attribute_names)
+        )
+        self.assertIn(
+            (
+                XLIFF_QNAME + "trans-unit",
+                "{urn:vendor:attributes}locked",
+                "true",
+            ),
+            evidence,
+        )
+        self.assertIn(
+            (
+                "{" + SDL_NS + "}seg",
+                "{urn:vendor:attributes}match-percent",
+                "100",
+            ),
+            evidence,
+        )
+        self.assertIn(
+            "urn:vendor:attributes", result.manifest["extension_namespaces"]
+        )
+        self.assertEqual(
+            sdl_control["metadata"]["sdlxliff"]["extension_attributes"], []
+        )
 
     def test_mixed_content_preserves_tags_tails_whitespace_and_extensions(self):
         result = read_sdlxliff(
@@ -389,6 +557,28 @@ class SDLXLIFFParserTests(unittest.TestCase):
                     read_sdlxliff(fixture, options=SDLXLIFFOptions())
                 self.assertIn(fixture.name, str(caught.exception))
 
+    def test_doctype_entities_are_rejected_for_utf8_and_utf16(self):
+        for encoding in ("utf-8", "utf-16"):
+            with self.subTest(encoding=encoding):
+                fixture = self.root / f"doctype-{encoding}.sdlxliff"
+                document = (
+                    f'<?xml version="1.0" encoding="{encoding}"?>\n'
+                    '<!DOCTYPE xliff [<!ENTITY injected "Expanded vendor text">]>\n'
+                    f'<xliff version="1.2" xmlns="{XLIFF_NS}" xmlns:sdl="{SDL_NS}">'
+                    '<file original="anonymous.xml" source-language="zh-CN" '
+                    'target-language="en-US"><body><trans-unit id="tu">'
+                    '<source>&injected;</source><target>Target</target>'
+                    '<sdl:seg-defs><sdl:seg id="1"/></sdl:seg-defs>'
+                    '</trans-unit></body></file></xliff>'
+                )
+                fixture.write_bytes(document.encode(encoding))
+
+                with self.assertRaisesRegex(
+                    SDLXLIFFImportError, "DOCTYPE|entity"
+                ) as caught:
+                    read_sdlxliff(fixture, options=SDLXLIFFOptions())
+                self.assertIn(fixture.name, str(caught.exception))
+
     def test_duplicate_business_key_duplicate_mid_and_unbounded_seg_defs_fail(self):
         duplicate_key = self.temp_fixture(
             "duplicate-key.sdlxliff",
@@ -437,6 +627,81 @@ class SDLXLIFFParserTests(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(SDLXLIFFImportError, "seg-def"):
+            read_sdlxliff(fixture, options=SDLXLIFFOptions())
+
+    def test_xliff_g_wrappers_preserve_segments_inline_tags_and_ownership(self):
+        fixture = FIXTURES / "g_wrapped_segments.sdlxliff"
+        try:
+            result = read_sdlxliff(fixture, options=SDLXLIFFOptions())
+        except SDLXLIFFImportError as exc:
+            self.fail(f"XLIFF g-wrapped segmentation must be supported: {exc}")
+
+        first, second = result.segments
+        self.assertEqual(
+            [first["source_ref"]["sdl_segment_id"], second["source_ref"]["sdl_segment_id"]],
+            ["1", "2"],
+        )
+        self.assertEqual(first["source_plain"], "甲尾")
+        self.assertEqual(second["source_plain"], "乙")
+        self.assertEqual(
+            first["source"],
+            '<g id="outer"><g id="inner">甲<x id="x1"/>尾</g></g>',
+        )
+        self.assertEqual(
+            first["metadata"]["sdlxliff"]["source_tag_signature"],
+            (
+                (XLIFF_QNAME + "g", (("id", "outer"),)),
+                (XLIFF_QNAME + "g", (("id", "inner"),)),
+                (XLIFF_QNAME + "x", (("id", "x1"),)),
+            ),
+        )
+        self.assertEqual(
+            second["target"],
+            '<g id="outer"><g id="inner">Beta</g></g>',
+        )
+        first_extensions = "\n".join(
+            first["metadata"]["sdlxliff"]["extension_xml"]
+        )
+        second_extensions = "\n".join(
+            second["metadata"]["sdlxliff"]["extension_xml"]
+        )
+        self.assertIn("First wrapper segment", first_extensions)
+        self.assertNotIn("Second wrapper segment", first_extensions)
+        self.assertIn("Second wrapper segment", second_extensions)
+        self.assertNotIn("First wrapper segment", second_extensions)
+        first_attributes = {
+            (item["name"], item["value"])
+            for item in first["metadata"]["sdlxliff"]["extension_attributes"]
+        }
+        second_attributes = {
+            (item["name"], item["value"])
+            for item in second["metadata"]["sdlxliff"]["extension_attributes"]
+        }
+        attribute_name = "{urn:vendor:g-wrapper}segment-meta"
+        self.assertEqual(
+            {value for name, value in first_attributes if name == attribute_name},
+            {"source-one", "target-one"},
+        )
+        self.assertEqual(
+            {value for name, value in second_attributes if name == attribute_name},
+            {"source-two", "target-two"},
+        )
+
+    def test_xliff_g_wrapper_rejects_text_outside_segment_boundaries(self):
+        fixture = self.temp_fixture(
+            "ambiguous-g-wrapper.sdlxliff",
+            self.document(
+                '<trans-unit id="g"><seg-source><g id="g1">Outside'
+                '<mrk mtype="seg" mid="1">A</mrk></g></seg-source>'
+                '<target><g id="g1"><mrk mtype="seg" mid="1">B</mrk>'
+                '</g></target><sdl:seg-defs><sdl:seg id="1"/>'
+                '</sdl:seg-defs></trans-unit>'
+            ),
+        )
+
+        with self.assertRaisesRegex(
+            SDLXLIFFImportError, "text outside segmentation"
+        ):
             read_sdlxliff(fixture, options=SDLXLIFFOptions())
 
     def test_tu_extension_cannot_hide_a_second_structural_boundary(self):
@@ -1129,6 +1394,28 @@ class SDLXLIFFIntegrationTests(unittest.TestCase):
         self.assertEqual(
             read_json(self.job / "scope.json"), state["check_scope"]
         )
+
+    def test_tu_direct_comment_populates_segment_context_note(self):
+        state_path = self.job / "state.json"
+        result = self.run_io(
+            "read",
+            "--input",
+            FIXTURES / "tu_direct_comments.sdlxliff",
+            "--out",
+            state_path,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state = read_json(state_path)
+        by_source = {segment["source_plain"]: segment for segment in state["segments"]}
+        self.assertEqual(
+            by_source["甲"]["context_note"],
+            "TU direct note\nFirst segment note",
+        )
+        self.assertEqual(by_source["乙"]["context_note"], "TU direct note")
+        self.assertIsNone(by_source["丙"]["context_note"])
+        self.assertEqual(by_source["丁"]["context_note"], "Second file note")
+        self.assertEqual(by_source["戊"]["context_note"], "Root fallback note")
 
     def test_language_and_structure_errors_are_atomic(self):
         mixed_language_dir = self.root / "mixed-language"

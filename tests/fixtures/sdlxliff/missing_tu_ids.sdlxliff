@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2"
+       xmlns:sdl="http://sdl.com/FileTypes/SdlXliff/1.0">
+  <file original="missing-tu-ids.xml" source-language="zh-CN" target-language="en-US">
+    <body>
+      <trans-unit>
+        <source>甲</source>
+        <target>Alpha</target>
+        <sdl:seg-defs><sdl:seg id="1"/></sdl:seg-defs>
+      </trans-unit>
+      <trans-unit>
+        <source>乙</source>
+        <target>Beta</target>
+        <sdl:seg-defs><sdl:seg id="1"/></sdl:seg-defs>
+      </trans-unit>
+    </body>
+  </file>
+</xliff>

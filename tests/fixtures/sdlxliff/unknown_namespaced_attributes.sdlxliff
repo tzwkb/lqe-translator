@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2"
+       xmlns:sdl="http://sdl.com/FileTypes/SdlXliff/1.0"
+       xmlns:v="urn:vendor:attributes">
+  <sdl:doc-info>
+    <sdl:cmt-defs>
+      <sdl:cmt-def id="vendor-note">Vendor element must not resolve</sdl:cmt-def>
+      <sdl:cmt-def id="sdl-note">SDL control note</sdl:cmt-def>
+    </sdl:cmt-defs>
+  </sdl:doc-info>
+  <file original="attributes.xml" source-language="zh-CN" target-language="en-US">
+    <body>
+      <trans-unit id="vendor-attrs" v:locked="true" v:origin="tm" v:match-percent="100">
+        <source v:source-meta="source-root">甲</source>
+        <target v:target-meta="target-root">Alpha</target>
+        <sdl:seg-defs>
+          <sdl:seg id="1" v:locked="true" v:origin="tm" v:percent="100"
+                   v:match-percent="100" v:text-match="SourceAndTarget">
+            <v:comment ref="vendor-note"/>
+            <v:value key="last_modified_by">VendorUser</v:value>
+          </sdl:seg>
+        </sdl:seg-defs>
+      </trans-unit>
+      <trans-unit id="sdl-attrs">
+        <source>乙</source>
+        <target>Beta</target>
+        <sdl:seg-defs>
+          <sdl:seg id="2" sdl:locked="true" sdl:origin="tm" sdl:percent="100"
+                   sdl:text-match="SourceAndTarget">
+            <sdl:comment ref="sdl-note"/>
+            <sdl:value key="last_modified_by">SDLUser</sdl:value>
+          </sdl:seg>
+        </sdl:seg-defs>
+      </trans-unit>
+    </body>
+  </file>
+</xliff>
