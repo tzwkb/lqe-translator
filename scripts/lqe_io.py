@@ -26,7 +26,7 @@ from lqe_engine import (
     read_json, RE_CJK as _RE_CJK, _source_lang, _target_lang, _load_lang, _LANG_DIR, _SKILL_ROOT,
     CATEGORY_ORDER as _ALL_CATS, CATEGORY_PARENT as _PARENT,
     VALID_CATEGORIES as _VALID_CATEGORIES, VALID_SEVERITIES as _VALID_SEVERITIES,
-    apply_severity, load_terms as _load_terms, group_terms as _group_terms,
+    apply_severity, build_check_scope, load_terms as _load_terms, group_terms as _group_terms,
     raw_points, weighted_points,
     load_scorecard_profile, normalize_category_for_profile, scorecard_category_order,
     scorecard_category_parent, scorecard_category_weight,
@@ -37,6 +37,14 @@ from lqe_corrections import (
     normalize_check_entries,
     verify_results,
 )
+
+
+def _write_json_atomic(path: Path, value: object) -> None:
+    staging = path.with_name(f".{path.name}.tmp")
+    staging.write_text(
+        json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    staging.replace(path)
 
 
 def _processing_label(entry: dict) -> str:
@@ -296,13 +304,17 @@ def _extract_text_type_marker(src, tgt=None, content_type=None):
 
 
 def cmd_read(args):
+    check_scope = build_check_scope(getattr(args, "no_terminology", False))
     prof = _load_project(args.project) if getattr(args, "project", None) else None
     if prof:
         _validate_project_profile(prof)
         if not args.style_guide and prof.get("style_guide"):
             args.style_guide = _project_path(prof, prof["style_guide"])
-        if not args.terminology and prof.get("terminology"):
-            args.terminology = _project_path(prof, prof["terminology"])
+        if prof.get("terminology"):
+            if not check_scope["terminology_enabled"]:
+                print("[lqe_io] profile terminology overridden by --no-terminology")
+            elif not args.terminology:
+                args.terminology = _project_path(prof, prof["terminology"])
         print(f"[lqe_io] project: {prof.get('name', '?')} ({prof.get('language_pair', '?')})")
 
     no_header = getattr(args, "no_header", False)
@@ -526,6 +538,7 @@ def cmd_read(args):
         "rows_raw": rows_raw,
         "text_type_markers": text_type_markers,
         "aipe_url": None,
+        "check_scope": check_scope,
         "project": prof.get("name", "") if prof else "",
         "language_pair": prof.get("language_pair", "") if prof else (
             f"{source_lang}-{lang}" if source_lang and lang else ""
@@ -546,7 +559,8 @@ def cmd_read(args):
         "iteration": 0,
         "segments": segments,
     }
-    out_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    _write_json_atomic(job_dir / "scope.json", check_scope)
+    _write_json_atomic(out_path, state)
     print(f"[lqe_io] {len(segments)} segments → {args.out}  wordcount={state['wordcount']}")
 
 # ── lookup-terms ──────────────────────────────────────────────────────────────
@@ -1326,7 +1340,10 @@ def main():
     r.add_argument("--target-col", required=True, dest="target_col", help="列名或列索引（0-based，配合 --no-header）")
     r.add_argument("--no-header", action="store_true", dest="no_header", help="文件无表头行，source-col/target-col 为整数索引")
     r.add_argument("--group-col", default=None, dest="group_col", help="成组文本（对联/题目）的组标识列名或索引；同组段落 Step 2 合并评估")
-    r.add_argument("--terminology", default=None, help="术语表文件路径（.csv/.tsv/.json/.xlsx）")
+    terminology = r.add_mutually_exclusive_group()
+    terminology.add_argument("--terminology", default=None, help="术语表文件路径（.csv/.tsv/.json/.xlsx）")
+    terminology.add_argument("--no-terminology", action="store_true", dest="no_terminology",
+                             help="禁用术语、专名和术语审计检查")
     r.add_argument("--style-guide", default=None, dest="style_guide", help="风格指南文件路径（.txt/.md/.docx/.xlsx）")
     r.add_argument("--target-lang", default=None, dest="target_lang",
                    help="目标语言代码（en/th/zh 等）；挂载 target_languages/<code>/ 目标语言属性。项目 profile 必须显式写 target_lang")

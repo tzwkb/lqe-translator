@@ -150,11 +150,103 @@ def weighted_points(cat: str, counts: dict, scorecard_profile: dict | None = Non
     return scorecard_category_weight(cat, scorecard_profile) * raw_points(counts, scorecard_profile, severity_points)
 
 
+STANDARD_REQUIRED_MODULES = ("terminology", "accuracy", "grammar", "naturalness")
+NO_TERMINOLOGY_REQUIRED_MODULES = ("precheck_review", "accuracy", "grammar", "naturalness")
+OPTIONAL_MODULES = ("proper_names",)
+TERMINOLOGY_MODULES = ("terminology", "proper_names", "term_audit")
+
+
+def build_check_scope(no_terminology: bool, source: str = "runtime") -> dict:
+    if no_terminology:
+        return {
+            "mode": "no-terminology",
+            "terminology_enabled": False,
+            "enabled_modules": list(NO_TERMINOLOGY_REQUIRED_MODULES),
+            "disabled_modules": list(TERMINOLOGY_MODULES),
+            "source": source,
+        }
+    return {
+        "mode": "standard",
+        "terminology_enabled": True,
+        "enabled_modules": list(STANDARD_REQUIRED_MODULES),
+        "disabled_modules": [],
+        "source": source,
+    }
+
+
+def get_check_scope(state: dict) -> dict:
+    if not isinstance(state, dict):
+        raise ValueError("state must be an object")
+    raw = state.get("check_scope")
+    if raw is None:
+        return build_check_scope(False, "legacy-default")
+    if not isinstance(raw, dict):
+        raise ValueError("check_scope must be an object")
+    mode = raw.get("mode")
+    if mode not in {"standard", "no-terminology"}:
+        raise ValueError(f"unsupported check_scope mode: {mode!r}")
+    resolved = build_check_scope(mode == "no-terminology", raw.get("source") or "state")
+    for key in ("terminology_enabled", "enabled_modules", "disabled_modules"):
+        if key in raw and raw[key] != resolved[key]:
+            raise ValueError(f"check_scope {key} conflicts with mode {mode}")
+    return resolved
+
+
+def required_modules(state: dict) -> tuple[str, ...]:
+    return tuple(get_check_scope(state)["enabled_modules"])
+
+
+def optional_modules(state: dict) -> tuple[str, ...]:
+    return OPTIONAL_MODULES if get_check_scope(state)["mode"] == "standard" else ()
+
+
+def disabled_modules(state: dict) -> tuple[str, ...]:
+    return tuple(get_check_scope(state)["disabled_modules"])
+
+
+def terminology_enabled(state: dict) -> bool:
+    return bool(get_check_scope(state)["terminology_enabled"])
+
+
+def scope_issue_problem(state: dict, issue: dict) -> str | None:
+    if terminology_enabled(state):
+        return None
+    if not isinstance(issue, dict):
+        return "issue must be an object"
+    if issue.get("category") == "Terminology":
+        return "Terminology issue is disabled by check scope"
+    if str(issue.get("comment") or "").lstrip().startswith("TERM REVIEW:"):
+        return "TERM REVIEW evidence is disabled by check scope"
+    edit = issue.get("edit")
+    evidence = edit.get("evidence") if isinstance(edit, dict) else None
+    if isinstance(evidence, dict) and evidence.get("type") == "confirmed_term":
+        return "confirmed_term edit evidence is disabled by check scope"
+    return None
+
+
+def validate_scope_entries(
+    state: dict,
+    entries: list[dict],
+    *,
+    issues_key: str,
+    label: str,
+) -> None:
+    if issues_key not in {"issues", "errors"}:
+        raise ValueError(f"unsupported issues key: {issues_key!r}")
+    for entry in entries:
+        for issue in entry.get(issues_key, []):
+            problem = scope_issue_problem(state, issue)
+            if problem:
+                raise ValueError(f"{label}: scope conflict: {problem}")
+
+
 def read_json(path):
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
 def load_terms(state: dict) -> list[dict]:
+    if not terminology_enabled(state):
+        return []
     path = state.get("terms_path", "")
     if path and Path(path).exists():
         return json.loads(Path(path).read_text(encoding="utf-8"))
