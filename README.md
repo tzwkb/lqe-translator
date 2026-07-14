@@ -18,7 +18,7 @@ Agent skill for game-localization LQE: deterministic pre-checks, focused AI chec
 - `confirmed: true` authorizes a unique terminology edit; `protected: true` means the content must not be changed.
 - Protected segments are neither changed nor scored.
 - SDLXLIFF 1.2 can be read from one file or a recursively scanned directory without an intermediate workbook.
-- Standard Excel deliverables are `<job>_lqe.xlsx` and `<job>_corrected.xlsx`.
+- Standard deliverables are `<job>_lqe.xlsx` plus a format-specific corrected file: CSV/TSV keeps the source extension; XLSX and SDLXLIFF use `.xlsx`.
 
 ## Directory structure
 
@@ -58,7 +58,7 @@ lqe-translator/
     ├── errors.json
     ├── chunks/
     ├── <job>_lqe.xlsx
-    └── <job>_corrected.xlsx
+    └── <job>_corrected.<csv|tsv|xlsx>
 ```
 
 ## Setup
@@ -291,16 +291,15 @@ python3 "$SCRIPTS/lqe_io.py" export \
   --errors "$JOB/errors.json"
 ```
 
-For a tabular input, outputs are:
+Every input produces `<job>_lqe.xlsx` with the score, issues, suggested text, review handling, and history. The corrected output depends on the input format:
 
-| File | Purpose |
-|---|---|
-| `<job>_lqe.xlsx` | Score, issues, suggested text, review handling, and history |
-| `<job>_corrected.xlsx` | Original workbook structure with only validated suggested changes in the target column |
+- CSV/TSV inputs produce `<job>_corrected.csv` or `<job>_corrected.tsv` and preserve rows, columns, and the source extension.
+- XLSX input produces `<job>_corrected.xlsx` and preserves the workbook, worksheets, blank rows, column order, and formatting.
+- SDLXLIFF produces a new fixed five-column `<job>_corrected.xlsx`.
 
 User-facing reports label rows as suggested change, needs human confirmation, keep original, or protected. The word `corrected` is reserved for internal data and the standard output filename.
 
-For SDLXLIFF, `LQE Results` always uses these 11 columns: `来源文件`, `TU ID`, `SDL Segment ID`, `原文`, `原译`, `建议译文`, `处理方式`, `错误详情`, `LQE_Iter`, `Protected`, `Protection Evidence`. `source_manifest.json` stores input SHA-256 hashes, declared languages, extension namespaces, rule matches, exclusions, and locked/TM evidence. `tm_candidates.json` stores strict candidates separately from protected decisions. The corrected workbook always uses five columns: `来源文件`, `TU ID`, `SDL Segment ID`, `原文`, `译文`.
+For SDLXLIFF, `LQE Results` always uses these 11 columns: `来源文件`, `TU ID`, `SDL Segment ID`, `原文`, `原译`, `建议译文`, `处理方式`, `错误详情`, `LQE_Iter`, `Protected`, `Protection Evidence`. `source_manifest.json` stores input SHA-256 hashes, declared languages, extension namespaces, rule matches, exclusions, and locked/TM evidence. The new corrected workbook uses five columns: `来源文件`, `TU ID`, `SDL Segment ID`, `原文`, `译文`.
 
 The first release does not write back to SDLXLIFF XML. `export` creates `<job>_corrected.xlsx` and leaves every source XML file unchanged.
 

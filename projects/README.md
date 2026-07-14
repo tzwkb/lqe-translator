@@ -131,11 +131,15 @@ errors_precheck.json
 errors.json
 chunks/
 <任务名>_lqe.xlsx
-<任务名>_corrected.xlsx
+<任务名>_corrected.<csv|tsv|xlsx>
 ```
 
-原始输入保持不变。`<任务名>_lqe.xlsx` 用于检查和评分记录；表格任务的 `<任务名>_corrected.xlsx` 保留原工作簿结构，只写入通过校验的建议修改。
+原始输入保持不变。`<任务名>_lqe.xlsx` 用于检查和评分记录。corrected 输出按输入格式区分：
 
-SDLXLIFF 的 `source_manifest.json` 记录输入文件 SHA-256、语言、未知扩展 namespace、规则命中、纳入/排除原因和 locked/TM 证据；`tm_candidates.json` 单独记录严格候选。其 `LQE Results` 固定为来源文件、TU ID、SDL Segment ID、原文、原译、建议译文、处理方式、错误详情、LQE_Iter、Protected、Protection Evidence；corrected Excel 固定为来源文件、TU ID、SDL Segment ID、原文、译文。
+- CSV/TSV 输入输出 `<任务名>_corrected.csv` 或 `<任务名>_corrected.tsv`，保持原行列和输入扩展名。
+- XLSX 输入输出 `<任务名>_corrected.xlsx`，保持工作簿、工作表、空行、列顺序和格式。
+- SDLXLIFF 输出新建固定 5 列的 `<任务名>_corrected.xlsx`。
+
+SDLXLIFF 的 `source_manifest.json` 记录输入文件 SHA-256、语言、未知扩展 namespace、规则命中、纳入/排除原因和 locked/TM 证据；`tm_candidates.json` 单独记录严格候选。其 `LQE Results` 固定为来源文件、TU ID、SDL Segment ID、原文、原译、建议译文、处理方式、错误详情、LQE_Iter、Protected、Protection Evidence；新建的 corrected Excel 固定为来源文件、TU ID、SDL Segment ID、原文、译文。
 
 第一版不回写 SDLXLIFF XML；只导出标准 `<任务名>_corrected.xlsx`，原始 XML 保持不变。

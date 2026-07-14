@@ -120,7 +120,7 @@ class DocumentedContractTests(unittest.TestCase):
                 content = (ROOT / path).read_text(encoding="utf-8")
                 self.assertEqual(len(scope_contract_blocks(content)), 1)
 
-    def test_run_tests_t25_invokes_no_terminology_suite(self):
+    def test_run_tests_t25_invokes_required_regression_suites(self):
         runner = load_test_runner()
         try:
             completed = SimpleNamespace(returncode=0, stdout="", stderr="")
@@ -134,6 +134,14 @@ class DocumentedContractTests(unittest.TestCase):
             self.assertEqual(argv.count("tests.test_no_terminology_mode"), 1)
             self.assertEqual(argv.count("tests.test_sdlxliff_input"), 1)
             self.assertEqual(run_mock.call_args.kwargs["cwd"], ROOT)
+            self.assertIn(
+                "corrected ownership, SDLXLIFF, and no-terminology regression suites",
+                runner.__doc__,
+            )
+            self.assertEqual(
+                runner.PASS,
+                ["T25 corrected ownership + SDLXLIFF + no-terminology suites"],
+            )
         finally:
             shutil.rmtree(runner.TMP, ignore_errors=True)
 
@@ -177,15 +185,43 @@ class DocumentedContractTests(unittest.TestCase):
                 self.assertIn(expected_report, content)
                 self.assertIn(expected_export, content)
 
-    def test_pm_guide_separates_tabular_and_sdlxliff_delivery_checks(self):
-        self.assertIn(
-            "CSV/XLSX 表格任务：工作表、空行、列顺序和格式保持",
-            self.pm_guide,
-        )
-        self.assertIn(
-            "SDLXLIFF 任务：corrected Excel 为新建固定 5 列表",
-            self.pm_guide,
-        )
+    def test_user_documents_distinguish_corrected_output_shapes(self):
+        contracts = {
+            "README.md": (
+                "CSV/TSV inputs produce `<job>_corrected.csv` or "
+                "`<job>_corrected.tsv` and preserve rows, columns, and the "
+                "source extension.",
+                "XLSX input produces `<job>_corrected.xlsx` and preserves the "
+                "workbook, worksheets, blank rows, column order, and formatting.",
+                "SDLXLIFF produces a new fixed five-column "
+                "`<job>_corrected.xlsx`.",
+            ),
+            "README_ZH.md": (
+                "CSV/TSV 输入输出 `<任务名>_corrected.csv` 或 "
+                "`<任务名>_corrected.tsv`，保持原行列和输入扩展名。",
+                "XLSX 输入输出 `<任务名>_corrected.xlsx`，保持工作簿、"
+                "工作表、空行、列顺序和格式。",
+                "SDLXLIFF 输出新建固定 5 列的 `<任务名>_corrected.xlsx`。",
+            ),
+            "projects/README.md": (
+                "CSV/TSV 输入输出 `<任务名>_corrected.csv` 或 "
+                "`<任务名>_corrected.tsv`，保持原行列和输入扩展名。",
+                "XLSX 输入输出 `<任务名>_corrected.xlsx`，保持工作簿、"
+                "工作表、空行、列顺序和格式。",
+                "SDLXLIFF 输出新建固定 5 列的 `<任务名>_corrected.xlsx`。",
+            ),
+            "PM_GUIDE.html": (
+                "CSV/TSV：输出 *_corrected.csv/tsv，保持原行列和输入扩展名",
+                "XLSX：输出 *_corrected.xlsx，保持工作簿、工作表、空行、"
+                "列顺序和格式",
+                "SDLXLIFF：输出新建固定 5 列的 *_corrected.xlsx",
+            ),
+        }
+        for path, phrases in contracts.items():
+            content = (ROOT / path).read_text(encoding="utf-8")
+            for phrase in phrases:
+                with self.subTest(path=path, phrase=phrase):
+                    self.assertIn(phrase, content)
 
 
 if __name__ == "__main__":

@@ -18,7 +18,7 @@
 - `confirmed: true` 表示该译法已经确认，可在证据唯一时安全修改；`protected: true` 表示不可修改。
 - 受保护段不修改、不计分。
 - SDLXLIFF 1.2 可直接读取单文件或递归目录，不需要先转换为工作簿。
-- Excel 标准交付文件为 `<任务名>_lqe.xlsx` 和 `<任务名>_corrected.xlsx`。
+- 标准交付文件为 `<任务名>_lqe.xlsx` 和按输入格式确定扩展名的 corrected 文件：CSV/TSV 保持原扩展名，XLSX 与 SDLXLIFF 使用 `.xlsx`。
 
 ## 目录结构
 
@@ -58,7 +58,7 @@ lqe-translator/
     ├── errors.json
     ├── chunks/
     ├── <任务名>_lqe.xlsx
-    └── <任务名>_corrected.xlsx
+    └── <任务名>_corrected.<csv|tsv|xlsx>
 ```
 
 ## 安装与路径
@@ -289,16 +289,15 @@ python3 "$SCRIPTS/lqe_io.py" export \
   --errors "$JOB/errors.json"
 ```
 
-表格输入对应以下产物：
+所有输入都生成 `<任务名>_lqe.xlsx`，记录分数、问题、建议译文、处理方式和历史记录。corrected 输出按输入格式区分：
 
-| 文件 | 用途 |
-|---|---|
-| `<任务名>_lqe.xlsx` | 分数、问题、建议译文、处理方式和历史记录 |
-| `<任务名>_corrected.xlsx` | 保留原工作簿结构，仅把通过校验的建议修改写入目标列 |
+- CSV/TSV 输入输出 `<任务名>_corrected.csv` 或 `<任务名>_corrected.tsv`，保持原行列和输入扩展名。
+- XLSX 输入输出 `<任务名>_corrected.xlsx`，保持工作簿、工作表、空行、列顺序和格式。
+- SDLXLIFF 输出新建固定 5 列的 `<任务名>_corrected.xlsx`。
 
 用户可见报告使用“建议修改、需要人工确认、保持原译、已保护”。`corrected` 仅用于内部数据和标准输出文件名。
 
-SDLXLIFF 的 `LQE Results` 固定为 11 列：来源文件、TU ID、SDL Segment ID、原文、原译、建议译文、处理方式、错误详情、LQE_Iter、Protected、Protection Evidence。`source_manifest.json` 保存输入 SHA-256、声明语言、扩展 namespace、规则命中、排除和 locked/TM 证据；`tm_candidates.json` 把严格候选与保护决定分开。corrected Excel 固定为 5 列：来源文件、TU ID、SDL Segment ID、原文、译文。
+SDLXLIFF 的 `LQE Results` 固定为 11 列：来源文件、TU ID、SDL Segment ID、原文、原译、建议译文、处理方式、错误详情、LQE_Iter、Protected、Protection Evidence。`source_manifest.json` 保存输入 SHA-256、声明语言、扩展 namespace、规则命中、排除和 locked/TM 证据；`tm_candidates.json` 把严格候选与保护决定分开。新建的 corrected Excel 固定为 5 列：来源文件、TU ID、SDL Segment ID、原文、译文。
 
 第一版不回写 SDLXLIFF XML；`export` 只生成 `<任务名>_corrected.xlsx`，所有原始 XML 保持不变。
 

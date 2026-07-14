@@ -129,22 +129,23 @@ python3 "$SCRIPTS/lqe_chunk.py" split --state "$JOB/state.json" \
 先读取项目背景、confirmed_rules.md、风格指南、术语表和目标语言说明。
 只跑首轮。受保护内容必须保留，不修改用户原文件。
 检查子任务顶层只提交 {id, issues}；无法安全局部修改的项设置 needs_confirmation: true、edit: null；完整建议译文由程序生成。
-完成后给出段数、固定词数、分数、问题数、保护数，以及 *_lqe.xlsx 和 *_corrected.xlsx 的绝对路径；任何校验失败都要原样报告。</p>
+完成后给出段数、固定词数、分数、问题数、保护数，以及 *_lqe.xlsx 和对应 corrected 文件的绝对路径；任何校验失败都要原样报告。</p>
 <p>不检查术语时，把提示词中的资料要求改为“不读取或使用术语表，并在初始化时使用 <code>--no-terminology</code>；按 <code>precheck_review</code>、accuracy、grammar、naturalness 四模块执行，仍检查一致性、Markup 和数字”。</p>
 <p>输入为 SDLXLIFF 时，把原文列、译文列改为“输入格式：SDLXLIFF；路径可能是单文件或目录；初始化使用 <code>--input-format sdlxliff</code>；报告 <code>source_manifest.json</code> 和 <code>tm_candidates.json</code>”。</p>
 <p>需要自动迭代时，单独增加：“本任务明确启用自动迭代，直到达到项目阈值或出现需要人工决定的问题。”</p>
 
 <h2>四、产出物</h2>
-<p>Excel 任务完成后，标准文件位于 <code>jobs/&lt;任务名&gt;/</code>：</p>
+<p>任务完成后，标准文件位于 <code>jobs/&lt;任务名&gt;/</code>：</p>
 <table>
 <tr><th width="220">文件</th><th>用途</th></tr>
 <tr><td><code>scope.json</code></td><td>记录术语是否启用及当前必需模块；内容与 <code>state.check_scope</code> 一致</td></tr>
 <tr><td><code>source_manifest.json</code></td><td>SDLXLIFF 来源清单：文件 SHA-256、语言、扩展 namespace、规则命中、排除和保护证据</td></tr>
 <tr><td><code>tm_candidates.json</code></td><td>SDLXLIFF 严格 TM 候选；默认不等于已保护段</td></tr>
 <tr><td><code>*_lqe.xlsx</code></td><td>分数、逐段问题、建议译文、处理方式和历史记录，供 PM 与审校检查</td></tr>
-<tr><td><code>*_corrected.xlsx</code></td><td>表格任务保留原工作簿结构；SDLXLIFF 任务生成固定五列的标准 Excel</td></tr>
+<tr><td><code>*_corrected.csv/tsv/xlsx</code></td><td>扩展名和内容结构由输入格式决定</td></tr>
 </table>
 <p>报告中的处理方式只使用“建议修改、需要人工确认、保持原译、已保护”。原输入文件不会被覆盖。</p>
+<p>CSV/TSV：输出 *_corrected.csv/tsv，保持原行列和输入扩展名；XLSX：输出 *_corrected.xlsx，保持工作簿、工作表、空行、列顺序和格式；SDLXLIFF：输出新建固定 5 列的 *_corrected.xlsx。</p>
 <p>SDLXLIFF 报告固定为 11 列：来源文件、TU ID、SDL Segment ID、原文、原译、建议译文、处理方式、错误详情、LQE_Iter、Protected、Protection Evidence。SDL corrected Excel 固定为 5 列：来源文件、TU ID、SDL Segment ID、原文、译文。</p>
 <p>第一版不回写 SDLXLIFF XML；导出只新增 corrected Excel，原始 XML 保持不变。</p>
 
@@ -155,7 +156,7 @@ python3 "$SCRIPTS/lqe_chunk.py" split --state "$JOB/state.json" \
 <tr><th>模块覆盖</th><td>当前模式的四个必需模块覆盖全部分配 id；结构校验无缺失、重复或非法字段</td></tr>
 <tr><th>保护规则</th><td>受保护段的问题数和改动数均为 0，导出文本与原译一致</td></tr>
 <tr><th>修改安全</th><td>变量、标签、换行和受保护文本没有变化；需要人工确认的项没有自动写入</td></tr>
-<tr><th>交付文件</th><td><code>*_lqe.xlsx</code> 与 <code>*_corrected.xlsx</code> 均存在且可打开；CSV/XLSX 表格任务：工作表、空行、列顺序和格式保持；SDLXLIFF 任务：corrected Excel 为新建固定 5 列表</td></tr>
+<tr><th>交付文件</th><td><code>*_lqe.xlsx</code> 与对应 corrected 文件均存在且可打开；CSV/TSV：输出 *_corrected.csv/tsv，保持原行列和输入扩展名；XLSX：输出 *_corrected.xlsx，保持工作簿、工作表、空行、列顺序和格式；SDLXLIFF：输出新建固定 5 列的 *_corrected.xlsx</td></tr>
 <tr><th>结果说明</th><td>首轮数据与重试数据分开报告；未达到阈值时不描述为通过</td></tr>
 </table>
 

@@ -1,9 +1,9 @@
 """Self-contained regression suite for the LQE skill.
 
 Run:  python scripts/run_tests.py
-Covers: all 23 builtin pre-checks, language-attribute derivation, project
-profiles (method C), custom count_match, N4 repeat dedup in calc, wordcount
-chain + guard, and a smoke test for lqe_batch.
+Covers corrected ownership, SDLXLIFF, and no-terminology regression suites;
+all 23 builtin pre-checks; project profiles; counting, dedup, and wordcount
+guards; and a smoke test for lqe_batch.
 Fixtures are built in a temp dir; nothing is written into the repo.
 """
 import json
@@ -790,7 +790,11 @@ def t25():
         text=True,
     )
     output = (result.stdout + result.stderr).strip()
-    check("T25 corrected ownership suite", result.returncode == 0, output[-2000:])
+    check(
+        "T25 corrected ownership + SDLXLIFF + no-terminology suites",
+        result.returncode == 0,
+        output[-2000:],
+    )
 
 
 if __name__ == "__main__":
