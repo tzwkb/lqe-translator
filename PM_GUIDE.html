@@ -77,6 +77,27 @@ python3 "$SCRIPTS/lqe_chunk.py" split --state "$JOB/state.json" \
   --errors "$JOB/errors_precheck.json" \
   --outdir "$JOB/chunks" --size 100</p>
 <div class="callout"><b>不检查术语：</b>在 <code>read</code> 命令的 <code>--out</code> 前加入 <code>--no-terminology</code>。它会覆盖 profile 术语配置，且不能与显式 <code>--terminology &lt;file&gt;</code> 同时使用。模式写入 <code>state.check_scope</code> 和 <code>scope.json</code>。该模式只关闭术语、专名和术语审计；不会关闭文件内一致性、Markup、数字等检查。</div>
+<p>以下可见合同精确定义两种解析后 scope：</p>
+<pre class="prompt" data-lqe-scope-contract>
+{
+  "mode_flag": "--no-terminology",
+  "standard": {
+    "required": ["terminology", "accuracy", "grammar", "naturalness"],
+    "optional": ["proper_names"]
+  },
+  "no-terminology": {
+    "required": ["precheck_review", "accuracy", "grammar", "naturalness"],
+    "optional": [],
+    "disabled": ["terminology", "proper_names", "term_audit"]
+  },
+  "scope_artifact": {
+    "path": "scope.json",
+    "state_field": "state.check_scope",
+    "relation": "same resolved scope"
+  },
+  "kept_checks": ["file-wide consistency", "Markup", "numeric checks"]
+}
+</pre>
 <div class="flow">
 <div class="step"><span class="n">1</span><span><b>初始化</b><small>读取输入和项目档案，确认段数、固定词数及资料加载情况</small></span></div>
 <div class="arrow">▼</div>

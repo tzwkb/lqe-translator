@@ -75,6 +75,29 @@ python "$SCRIPTS/lqe_io.py" read \
 
 `--no-terminology` 只关闭术语、专名和术语审计；不会关闭文件内一致性、Markup、数字等检查。初始化后报告段数、词数、语言、检查模式、启用模块、风格指南、确认规则、术语表和受保护内容的加载情况。
 
+以下可见合同精确定义两种模式，所有入口都以解析后的 scope 为准：
+
+<pre data-lqe-scope-contract>
+{
+  "mode_flag": "--no-terminology",
+  "standard": {
+    "required": ["terminology", "accuracy", "grammar", "naturalness"],
+    "optional": ["proper_names"]
+  },
+  "no-terminology": {
+    "required": ["precheck_review", "accuracy", "grammar", "naturalness"],
+    "optional": [],
+    "disabled": ["terminology", "proper_names", "term_audit"]
+  },
+  "scope_artifact": {
+    "path": "scope.json",
+    "state_field": "state.check_scope",
+    "relation": "same resolved scope"
+  },
+  "kept_checks": ["file-wide consistency", "Markup", "numeric checks"]
+}
+</pre>
+
 ## 3. 术语标记
 
 本节只适用于标准模式；无术语模式不读取或使用术语条目。

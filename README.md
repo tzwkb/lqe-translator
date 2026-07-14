@@ -103,6 +103,29 @@ python3 "$SCRIPTS/lqe_io.py" read \
 
 The resolved mode is stored in `state.check_scope` and copied to `$JOB/scope.json`. No-terminology mode disables terminology, proper-name, and term-audit work; it does not disable file-wide consistency, Markup, or numeric checks.
 
+The following visible contract defines both resolved scopes:
+
+<pre data-lqe-scope-contract>
+{
+  "mode_flag": "--no-terminology",
+  "standard": {
+    "required": ["terminology", "accuracy", "grammar", "naturalness"],
+    "optional": ["proper_names"]
+  },
+  "no-terminology": {
+    "required": ["precheck_review", "accuracy", "grammar", "naturalness"],
+    "optional": [],
+    "disabled": ["terminology", "proper_names", "term_audit"]
+  },
+  "scope_artifact": {
+    "path": "scope.json",
+    "state_field": "state.check_scope",
+    "relation": "same resolved scope"
+  },
+  "kept_checks": ["file-wide consistency", "Markup", "numeric checks"]
+}
+</pre>
+
 ### 2. Mark protected content
 
 Terminology entries use explicit flags in standard mode; no-terminology mode ignores them. Explicit segment protection, including verified TM matches, remains available in both modes.

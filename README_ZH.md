@@ -103,6 +103,29 @@ python3 "$SCRIPTS/lqe_io.py" read \
 
 解析后的模式写入 `state.check_scope`，并同步生成 `$JOB/scope.json`。无术语模式只关闭术语、专名和术语审计；不会关闭文件内一致性、Markup、数字等检查。
 
+以下可见合同精确定义两种解析后 scope：
+
+<pre data-lqe-scope-contract>
+{
+  "mode_flag": "--no-terminology",
+  "standard": {
+    "required": ["terminology", "accuracy", "grammar", "naturalness"],
+    "optional": ["proper_names"]
+  },
+  "no-terminology": {
+    "required": ["precheck_review", "accuracy", "grammar", "naturalness"],
+    "optional": [],
+    "disabled": ["terminology", "proper_names", "term_audit"]
+  },
+  "scope_artifact": {
+    "path": "scope.json",
+    "state_field": "state.check_scope",
+    "relation": "same resolved scope"
+  },
+  "kept_checks": ["file-wide consistency", "Markup", "numeric checks"]
+}
+</pre>
+
 ### 2. 标记受保护内容
 
 标准模式的术语条目使用明确字段；无术语模式忽略术语条目。两种模式都可使用经过证据确认的 TM 匹配等显式段保护。

@@ -47,6 +47,29 @@ python3 scripts/lqe_io.py read \
 
 该实时参数高于 profile 术语配置，且不能与显式 `--terminology <file>` 同时使用。解析结果写入 `state.check_scope` 和任务根目录的 `scope.json`。标准模式要求 `terminology`、`accuracy`、`grammar`、`naturalness`；无术语模式要求 `precheck_review`、`accuracy`、`grammar`、`naturalness`。无术语模式只关闭术语、专名和术语审计；不会关闭文件内一致性、Markup、数字等检查。
 
+以下可见合同精确定义两种解析后 scope：
+
+<pre data-lqe-scope-contract>
+{
+  "mode_flag": "--no-terminology",
+  "standard": {
+    "required": ["terminology", "accuracy", "grammar", "naturalness"],
+    "optional": ["proper_names"]
+  },
+  "no-terminology": {
+    "required": ["precheck_review", "accuracy", "grammar", "naturalness"],
+    "optional": [],
+    "disabled": ["terminology", "proper_names", "term_audit"]
+  },
+  "scope_artifact": {
+    "path": "scope.json",
+    "state_field": "state.check_scope",
+    "relation": "same resolved scope"
+  },
+  "kept_checks": ["file-wide consistency", "Markup", "numeric checks"]
+}
+</pre>
+
 ## 术语字段
 
 ```json
