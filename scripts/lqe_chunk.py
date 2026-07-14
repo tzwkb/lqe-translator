@@ -9,6 +9,7 @@ merge: chunks/chunk_NN.out.json -> errors.json ({id, errors, corrected})
 """
 import argparse
 import copy
+import hashlib
 import json
 import re
 import sys
@@ -98,6 +99,28 @@ def _seg_kind(src):
     return "name"
 
 
+def _precheck_issue_ref(segment_id: int, index: int, issue: dict) -> str:
+    canonical = {
+        key: value for key, value in issue.items() if key != "precheck_ref"
+    }
+    payload = json.dumps(
+        {"id": segment_id, "index": index, "issue": canonical},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"precheck:{segment_id}:{hashlib.sha256(payload).hexdigest()[:16]}"
+
+
+def _with_precheck_refs(segment_id: int, issues: list[dict]) -> list[dict]:
+    output = []
+    for index, issue in enumerate(issues):
+        item = copy.deepcopy(issue)
+        item["precheck_ref"] = _precheck_issue_ref(segment_id, index, item)
+        output.append(item)
+    return output
+
+
 def cmd_split(a):
     state = load(a.state)
     pre = load(a.errors)
@@ -185,7 +208,9 @@ def cmd_split(a):
                 "protected": bool(seg.get("protected")),
                 "protected_reason": seg.get("protected_reason"),
                 "kind": _seg_kind(src_txt),
-                "precheck": pre_by_id.get(seg["id"], []),
+                "precheck": _with_precheck_refs(
+                    seg["id"], pre_by_id.get(seg["id"], [])
+                ),
                 "term_hits": hits,
                 "term_near": near,
                 "protected_texts": seg.get("protected_texts", []),
@@ -301,6 +326,19 @@ _PRECHECK_REVIEW_CATEGORIES = {
     "Inconsistency",
     "Other",
 }
+_MODULE_ALLOWED_CATEGORIES = {
+    "terminology": _PRECHECK_REVIEW_CATEGORIES
+    | {"Terminology"},
+    "precheck_review": _PRECHECK_REVIEW_CATEGORIES,
+    "accuracy": {"Mistranslation", "Omission", "Addition", "Untranslated"},
+    "grammar": {"Grammar", "Spelling", "Punctuation"},
+    "naturalness": {
+        "Audience appropriateness",
+        "Culture specific reference",
+        "Unidiomatic",
+    },
+    "proper_names": {"Mistranslation", "Culture specific reference"},
+}
 
 
 def _chunk_idxs(outdir: Path):
@@ -318,8 +356,9 @@ def _module_issue_problem(state: dict, module: str, issue: dict) -> str | None:
     if problem:
         return problem
     category = issue.get("category")
-    if module == "precheck_review" and category not in _PRECHECK_REVIEW_CATEGORIES:
-        return f"precheck_review cannot own category {category!r}"
+    allowed = _MODULE_ALLOWED_CATEGORIES.get(module)
+    if allowed is not None and category not in allowed:
+        return f"{module} cannot own category {category!r}"
     return None
 
 
@@ -328,9 +367,14 @@ def _precheck_provenance_problem(
 ) -> str | None:
     used: set[int] = set()
     for reviewed in reviewed_issues:
+        reviewed_ref = reviewed.get("precheck_ref")
+        if not isinstance(reviewed_ref, str) or not reviewed_ref:
+            return "precheck provenance requires precheck_ref"
         match = None
         for index, original in enumerate(original_issues):
             if index in used:
+                continue
+            if original.get("precheck_ref") != reviewed_ref:
                 continue
             if original.get("category") != reviewed.get("category"):
                 continue

@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -407,18 +408,26 @@ class NoTerminologyPrecheckTests(unittest.TestCase):
     def run_batch(self, *args):
         return self.run_script(BATCH_SCRIPT, *args)
 
-    def write_batch_eval(self, *, category="Grammar", comment="check", edit=None):
+    def write_batch_eval(
+        self,
+        *,
+        category="Grammar",
+        comment="check",
+        edit=None,
+        precheck_ref=None,
+    ):
         segments = read_json(self.state)["segments"]
         rows = [{"id": segment["id"], "issues": []} for segment in segments]
-        rows[0]["issues"] = [
-            {
-                "category": category,
-                "severity": "Major" if category == "Terminology" else "Minor",
-                "comment": comment,
-                "needs_confirmation": edit is None,
-                "edit": edit,
-            }
-        ]
+        issue = {
+            "category": category,
+            "severity": "Major" if category == "Terminology" else "Minor",
+            "comment": comment,
+            "needs_confirmation": edit is None,
+            "edit": edit,
+        }
+        if precheck_ref is not None:
+            issue["precheck_ref"] = precheck_ref
+        rows[0]["issues"] = [issue]
         write_json(self.job / "evals" / "eval_00.json", rows)
 
     def test_precheck_omits_terms_but_keeps_non_term_checks(self):
@@ -490,6 +499,46 @@ class NoTerminologyPrecheckTests(unittest.TestCase):
         self.assertEqual(segment["term_hits"], [])
         self.assertEqual(segment["term_near"], [])
 
+    def test_split_and_batch_plan_assign_stable_precheck_reference(self):
+        issue = {
+            "category": "Markup",
+            "severity": "Major",
+            "comment": "machine finding",
+            "needs_confirmation": True,
+            "edit": None,
+        }
+        write_json(
+            self.job / "errors_precheck.json",
+            [{"id": 0, "issues": [issue]}],
+        )
+
+        refs = []
+        for _ in range(2):
+            result = self.run_chunk(
+                "split",
+                "--state",
+                self.state,
+                "--errors",
+                self.job / "errors_precheck.json",
+                "--outdir",
+                self.job / "chunks",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            reviewed = read_json(
+                self.job / "chunks" / "chunk_00.json"
+            )["segments"][0]["precheck"][0]
+            refs.append(reviewed.get("precheck_ref"))
+        self.assertIsInstance(refs[0], str)
+        self.assertTrue(refs[0])
+        self.assertEqual(refs[0], refs[1])
+
+        result = self.run_batch("plan", "--job", self.job)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        prompt = (self.job / "batches" / "batch_00.txt").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(refs[0], prompt)
+
     def test_split_rejects_explicit_terms_in_disabled_scope(self):
         result = self.run_chunk(
             "split",
@@ -550,6 +599,51 @@ class NoTerminologyPrecheckTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("scope conflict", result.stderr)
                 self.assertFalse((self.job / "errors.json").exists())
+
+    def test_batch_merge_rejects_unreferenced_precheck_issue(self):
+        self.write_batch_eval(category="Markup", comment="invented")
+
+        result = self.run_batch("merge", "--job", self.job)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("precheck provenance", result.stderr)
+        self.assertFalse((self.job / "errors.json").exists())
+
+    def test_batch_merge_accepts_referenced_precheck_issue(self):
+        write_json(
+            self.job / "errors_precheck.json",
+            [
+                {
+                    "id": 0,
+                    "issues": [
+                        {
+                            "category": "Markup",
+                            "severity": "Minor",
+                            "comment": "machine finding",
+                            "needs_confirmation": True,
+                            "edit": None,
+                        }
+                    ],
+                }
+            ],
+        )
+        result = self.run_batch("plan", "--job", self.job)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        prompt = (self.job / "batches" / "batch_00.txt").read_text(
+            encoding="utf-8"
+        )
+        match = re.search(r"precheck_ref=([a-z0-9:_-]+)", prompt)
+        self.assertIsNotNone(match, prompt)
+        self.write_batch_eval(
+            category="Markup",
+            comment="confirmed and clarified",
+            precheck_ref=match.group(1),
+        )
+
+        result = self.run_batch("merge", "--job", self.job)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.job / "errors.json").exists())
 
 
 class NoTerminologyModuleTests(unittest.TestCase):
@@ -776,6 +870,7 @@ class NoTerminologyModuleTests(unittest.TestCase):
         chunk = read_json(chunk_path)
         chunk["segments"][0]["precheck"] = [
             {
+                "precheck_ref": "precheck:0:test",
                 "category": "Markup",
                 "severity": "Minor",
                 "comment": "machine finding",
@@ -794,6 +889,7 @@ class NoTerminologyModuleTests(unittest.TestCase):
                     "id": 0,
                     "issues": [
                         {
+                            "precheck_ref": "precheck:0:test",
                             "category": "Markup",
                             "severity": "Major",
                             "comment": "confirmed and clarified",
@@ -818,6 +914,7 @@ class NoTerminologyModuleTests(unittest.TestCase):
         chunk = read_json(chunk_path)
         chunk["segments"][0]["precheck"] = [
             {
+                "precheck_ref": "precheck:0:test",
                 "category": "Locale convention",
                 "severity": "Minor",
                 "comment": "machine finding",
@@ -832,6 +929,7 @@ class NoTerminologyModuleTests(unittest.TestCase):
         cases = {
             "changed-edit": [
                 {
+                    "precheck_ref": "precheck:0:test",
                     "category": "Locale convention",
                     "severity": "Minor",
                     "comment": "changed correction",
@@ -841,6 +939,7 @@ class NoTerminologyModuleTests(unittest.TestCase):
             ],
             "duplicate-claim": [
                 {
+                    "precheck_ref": "precheck:0:test",
                     "category": "Locale convention",
                     "severity": "Minor",
                     "comment": comment,
@@ -859,6 +958,41 @@ class NoTerminologyModuleTests(unittest.TestCase):
                 result = self.run_chunk("validate-checks", "--job", self.job)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("precheck provenance", result.stderr)
+
+    def test_validate_enforces_all_module_category_ownership(self):
+        cases = (
+            ("grammar", "Markup"),
+            ("naturalness", "Other"),
+            ("accuracy", "Grammar"),
+        )
+        for module, category in cases:
+            with self.subTest(module=module, category=category):
+                self.make_no_term_chunk_job()
+                self.write_modules(
+                    ("precheck_review", "accuracy", "grammar", "naturalness")
+                )
+                write_json(
+                    self.chunks / f"chunk_00.{module}.json",
+                    [
+                        {
+                            "id": 0,
+                            "issues": [
+                                {
+                                    "category": category,
+                                    "severity": "Minor",
+                                    "comment": "wrong owner",
+                                    "needs_confirmation": True,
+                                    "edit": None,
+                                }
+                            ],
+                        }
+                    ],
+                )
+
+                result = self.run_chunk("validate-checks", "--job", self.job)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(f"{module} cannot own", result.stderr)
 
     def test_legacy_state_still_requires_standard_four_modules(self):
         self.make_legacy_chunk_job()

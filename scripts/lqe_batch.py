@@ -24,6 +24,11 @@ from lqe_engine import (
     terminology_enabled,
     validate_scope_entries,
 )
+from lqe_chunk import (
+    _PRECHECK_REVIEW_CATEGORIES,
+    _precheck_provenance_problem,
+    _with_precheck_refs,
+)
 
 
 def _est_output_chars(seg, term_hits):
@@ -69,7 +74,10 @@ def cmd_plan(args):
             )
         except (json.JSONDecodeError, CheckFormatError) as exc:
             raise SystemExit(f"[plan] invalid pre-check results: {exc}") from exc
-        pre = {entry["id"]: entry["issues"] for entry in pre_entries}
+        pre = {
+            entry["id"]: _with_precheck_refs(entry["id"], entry["issues"])
+            for entry in pre_entries
+        }
 
     bdir = job / "batches"
     bdir.mkdir(exist_ok=True)
@@ -101,6 +109,10 @@ def cmd_plan(args):
             "# Do not output Terminology, proper-name, TERM REVIEW, or confirmed-term "
             "(confirmed_term) evidence."
         )
+        scope_lines.append(
+            "# Issues in precheck-review categories must copy precheck_ref from the "
+            "matching PRECHECK item; do not invent or reuse a reference."
+        )
     _SCHEMA_HEADER = "\n".join(scope_lines) + "\n" + (
         "# 输出格式（强制）：JSON 数组，每项为 {id, issues:[...]}。"
         "每个 issue 必须含 category / severity / comment / needs_confirmation / edit；"
@@ -122,7 +134,10 @@ def cmd_plan(args):
                 )
                 status = f"[status={term['status']}]" if term["status"] else ""
                 hh.append(f"{term['source']}={term['target']}[{flags}]{status}")
-            flags = '; '.join(f"{e['category']}:{e['comment'][:60]}" for e in pre.get(sid, []))
+            flags = '; '.join(
+                f"precheck_ref={e['precheck_ref']} {e['category']}:{e['comment'][:60]}"
+                for e in pre.get(sid, [])
+            )
             block = f"#{sid}\nSRC: {src}\nTGT: {tgt}"
             if s.get("content_type"):
                 block += f"\nCONTENT_TYPE: {s['content_type']}"
@@ -157,6 +172,20 @@ def cmd_plan(args):
 def cmd_merge(args):
     job = Path(args.job)
     state = json.loads((job / "state.json").read_text(encoding="utf-8"))
+    precheck_by_id = {}
+    precheck_path = job / "errors_precheck.json"
+    if precheck_path.exists():
+        try:
+            precheck_entries = normalize_check_entries(
+                json.loads(precheck_path.read_text(encoding="utf-8")),
+                label=str(precheck_path),
+            )
+        except (json.JSONDecodeError, CheckFormatError) as exc:
+            raise SystemExit(f"[merge] invalid pre-check results: {exc}") from exc
+        precheck_by_id = {
+            entry["id"]: _with_precheck_refs(entry["id"], entry["issues"])
+            for entry in precheck_entries
+        }
     evals = sorted((job / "evals").glob("eval_*.json"))
     merged = {}
     for f in evals:
@@ -189,6 +218,20 @@ def cmd_merge(args):
         )
     except ValueError as exc:
         raise SystemExit(f"[merge] {exc}") from exc
+    if not terminology_enabled(state):
+        for entry in merged.values():
+            reviewed = [
+                issue
+                for issue in entry["issues"]
+                if issue.get("category") in _PRECHECK_REVIEW_CATEGORIES
+            ]
+            problem = _precheck_provenance_problem(
+                precheck_by_id.get(entry["id"], []), reviewed
+            )
+            if problem:
+                raise SystemExit(
+                    f"[merge] precheck provenance for id {entry['id']}: {problem}"
+                )
     out = build_results(state["segments"], list(merged.values()))
     (job / "errors.json").write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
 

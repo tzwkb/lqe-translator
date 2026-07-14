@@ -38,6 +38,8 @@
 
 字段固定为 `{id, issues:[{category,severity,comment,needs_confirmation,edit}]}`。检查模块不得输出 corrected；脚本会在合并时生成该内部字段。
 
+`precheck_review` 保留问题时还必须带 chunk 中原问题的 `precheck_ref`；其他模块不使用该字段。
+
 - `comment` 用英文简短说明，可引用少量原文或译文。
 - `severity` 只能是 `Neutral`、`Minor`、`Major`、`Critical`。
 - `edit` 只表示一个可安全应用的局部替换，必须带 `from`、`to`、`evidence`；同一子串出现多次时再带 `start`、`end`。

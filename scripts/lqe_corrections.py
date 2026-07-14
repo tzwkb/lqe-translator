@@ -43,6 +43,11 @@ def _canonical_issue(value: object, *, label: str) -> dict:
     result = {
         key: copy.deepcopy(value[key]) for key in _ISSUE_FIELDS if key in value
     }
+    if "precheck_ref" in value:
+        precheck_ref = value["precheck_ref"]
+        if not isinstance(precheck_ref, str) or not precheck_ref.strip():
+            raise CheckFormatError(f"{label}: precheck_ref must be a non-empty string")
+        result["precheck_ref"] = precheck_ref
     result["needs_confirmation"] = needs_confirmation
     result["edit"] = edit
     return result
