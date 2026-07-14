@@ -155,7 +155,7 @@ python3 "$SCRIPTS/lqe_chunk.py" split --state "$JOB/state.json" \
 <tr><th>模块覆盖</th><td>当前模式的四个必需模块覆盖全部分配 id；结构校验无缺失、重复或非法字段</td></tr>
 <tr><th>保护规则</th><td>受保护段的问题数和改动数均为 0，导出文本与原译一致</td></tr>
 <tr><th>修改安全</th><td>变量、标签、换行和受保护文本没有变化；需要人工确认的项没有自动写入</td></tr>
-<tr><th>交付文件</th><td><code>*_lqe.xlsx</code> 与 <code>*_corrected.xlsx</code> 均存在且可打开；工作表、空行、列顺序和格式保持</td></tr>
+<tr><th>交付文件</th><td><code>*_lqe.xlsx</code> 与 <code>*_corrected.xlsx</code> 均存在且可打开；CSV/XLSX 表格任务：工作表、空行、列顺序和格式保持；SDLXLIFF 任务：corrected Excel 为新建固定 5 列表</td></tr>
 <tr><th>结果说明</th><td>首轮数据与重试数据分开报告；未达到阈值时不描述为通过</td></tr>
 </table>
 

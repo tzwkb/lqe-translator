@@ -177,6 +177,16 @@ class DocumentedContractTests(unittest.TestCase):
                 self.assertIn(expected_report, content)
                 self.assertIn(expected_export, content)
 
+    def test_pm_guide_separates_tabular_and_sdlxliff_delivery_checks(self):
+        self.assertIn(
+            "CSV/XLSX 表格任务：工作表、空行、列顺序和格式保持",
+            self.pm_guide,
+        )
+        self.assertIn(
+            "SDLXLIFF 任务：corrected Excel 为新建固定 5 列表",
+            self.pm_guide,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
