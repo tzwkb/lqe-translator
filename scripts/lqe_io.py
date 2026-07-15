@@ -13,14 +13,17 @@ import argparse
 import csv
 import io
 import json
+import math
 import os
 import re
 import sys
 import tempfile
+import unicodedata
 from datetime import date
 from pathlib import Path
 
 import openpyxl
+import regex
 from openpyxl.styles import PatternFill, Font, Alignment
 from openpyxl.utils import get_column_letter
 
@@ -48,14 +51,15 @@ from lqe_inputs.sdlxliff import (
     is_exact_tm,
     validate_options as validate_sdlxliff_options,
 )
+from lqe_excel_diff import build_rich_diff
 
 
 def _write_json_atomic(path: Path, value: object) -> None:
-    staging = path.with_name(f".{path.name}.tmp")
-    staging.write_text(
-        json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    staging.replace(path)
+    staging = _stage_json_replacement(path, value)
+    try:
+        os.replace(staging, path)
+    finally:
+        staging.unlink(missing_ok=True)
 
 
 def _validate_scope_or_exit(
@@ -1224,6 +1228,63 @@ def _publish_protection_transaction(
                 path.unlink()
 
 
+def _publish_write_transaction(
+    state_path: Path,
+    state: dict,
+    errors_path: Path,
+    errors_data: list,
+    output_path: Path,
+    staged_output: Path,
+    *,
+    publish_errors: bool,
+) -> None:
+    destinations = [state_path, output_path]
+    if publish_errors:
+        destinations.insert(0, errors_path)
+    if len(set(destinations)) != len(destinations):
+        raise ValueError("write transaction destinations must be distinct")
+    for destination in destinations:
+        if os.path.lexists(destination) and (
+            destination.is_symlink() or not destination.is_file()
+        ):
+            raise ValueError(
+                f"write transaction destination must be a regular file: {destination}"
+            )
+    originals = {
+        destination: destination.read_bytes() if destination.exists() else None
+        for destination in destinations
+    }
+    staged: dict[Path, Path] = {output_path: staged_output}
+    published: dict[Path, tuple[int, int]] = {}
+    try:
+        if publish_errors:
+            staged[errors_path] = _stage_json_replacement(
+                errors_path,
+                errors_data,
+            )
+        staged[state_path] = _stage_json_replacement(state_path, state)
+        for destination in destinations:
+            source = staged[destination]
+            identity = _file_identity(source)
+            if identity is None:
+                raise FileNotFoundError(f"staged artifact is missing: {source}")
+            published[destination] = identity
+            os.replace(source, destination)
+    except BaseException:
+        for destination in reversed(destinations):
+            identity = published.get(destination)
+            if identity is not None:
+                _restore_replaced_file(
+                    destination,
+                    identity,
+                    originals[destination],
+                )
+        raise
+    finally:
+        for path in staged.values():
+            path.unlink(missing_ok=True)
+
+
 def _scrub_protected_entries(errors_data: list, protected_ids: set[int]) -> int:
     changed = 0
     for entry in errors_data:
@@ -1476,6 +1537,114 @@ def _set_excel_text(cell, value) -> None:
         cell.data_type = "s"
 
 
+_GRAPHEME_PATTERN = regex.compile(r"\X")
+_EMOJI_WIDTH_PATTERN = regex.compile(
+    r"\p{Emoji_Presentation}|\p{Regional_Indicator}|\u20e3"
+)
+_EMOJI_BASE_PATTERN = regex.compile(r"\p{Emoji}")
+_MAX_EXCEL_ROW_HEIGHT = 409.0
+
+
+def _grapheme_units(grapheme: str) -> int:
+    if grapheme == "\t":
+        return 4
+    if _EMOJI_WIDTH_PATTERN.search(grapheme) or (
+        "\ufe0f" in grapheme and _EMOJI_BASE_PATTERN.search(grapheme)
+    ):
+        return 2
+    units = 0
+    for char in grapheme:
+        if char in "\r\n":
+            continue
+        if unicodedata.combining(char) or unicodedata.category(char) in {"Mn", "Me", "Cf"}:
+            continue
+        char_units = 2 if unicodedata.east_asian_width(char) in {"W", "F"} else 1
+        units = max(units, char_units)
+    return units
+
+
+def _display_units(value) -> int:
+    text = "" if value is None else str(value)
+    return sum(
+        _grapheme_units(grapheme)
+        for grapheme in _GRAPHEME_PATTERN.findall(text)
+    )
+
+
+def _wrapped_line_count(value, column_width) -> int:
+    text = "" if value is None else str(value)
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    capacity = max(1, math.floor(float(column_width) * 0.88))
+    total_lines = 0
+
+    def place_characters(characters, used_units):
+        additional_lines = 0
+        for grapheme in _GRAPHEME_PATTERN.findall(characters):
+            grapheme_units = _grapheme_units(grapheme)
+            if not grapheme_units:
+                continue
+            if used_units and used_units + grapheme_units > capacity:
+                additional_lines += 1
+                used_units = 0
+            used_units += grapheme_units
+        return additional_lines, used_units
+
+    for explicit_line in text.split("\n"):
+        matches = list(re.finditer(r"\S+", explicit_line))
+        if not matches:
+            additional_lines, _ = place_characters(explicit_line, 0)
+            total_lines += 1 + additional_lines
+            continue
+
+        wrapped_lines = 1
+        additional_lines, used_units = place_characters(
+            explicit_line[:matches[0].start()],
+            0,
+        )
+        wrapped_lines += additional_lines
+        previous_end = matches[0].start()
+        for index, match in enumerate(matches):
+            separator = (
+                explicit_line[previous_end:match.start()]
+                if index
+                else ""
+            )
+            token_units = _display_units(match.group())
+            separator_units = _display_units(separator)
+            if used_units and used_units + separator_units + token_units > capacity:
+                wrapped_lines += 1
+                used_units = 0
+                separator = ""
+            additional_lines, used_units = place_characters(
+                separator + match.group(),
+                used_units,
+            )
+            wrapped_lines += additional_lines
+            previous_end = match.end()
+        additional_lines, _ = place_characters(
+            explicit_line[previous_end:],
+            used_units,
+        )
+        wrapped_lines += additional_lines
+        total_lines += wrapped_lines
+
+    return total_lines
+
+
+def _wrapped_row_height(cells, minimum=15.75, *, context="wrapped row") -> float:
+    maximum_lines = max(
+        (_wrapped_line_count(value, column_width) for value, column_width in cells),
+        default=1,
+    )
+    required_height = max(float(minimum), 2.0 + 16.5 * maximum_lines)
+    if required_height > _MAX_EXCEL_ROW_HEIGHT:
+        raise ValueError(
+            f"{context}: {maximum_lines} wrapped lines require {required_height:g} pt; "
+            f"Excel/WPS row height is limited to {_MAX_EXCEL_ROW_HEIGHT:g} pt"
+        )
+    return required_height
+
+
 def _segment_filename(state: dict, segment: dict, source_row=None) -> str:
     if state.get("input_format") == "sdlxliff":
         metadata = segment.get("metadata") or {}
@@ -1556,7 +1725,16 @@ def _protection_evidence(segment: dict, protected_ids: set[int]) -> str:
     )
 
 
-def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id="legacy"):
+def _build_xlsx(
+    state,
+    history,
+    score,
+    threshold,
+    out_path,
+    scorecard_profile_id="legacy",
+    *,
+    announce=True,
+):
     scorecard_profile = load_scorecard_profile(scorecard_profile_id)
     categories = scorecard_category_order(scorecard_profile)
     check_scope = get_check_scope(state)
@@ -1584,6 +1762,11 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
     all_protected_ids = set()
     for entry in history:
         all_protected_ids.update(entry.get("protected_ids", []))
+        all_protected_ids.update(
+            result["id"]
+            for result in entry.get("errors", [])
+            if any(issue.get("protected") for issue in result.get("errors", []))
+        )
     for seg in segments:
         if seg.get("protected"):
             all_protected_ids.add(seg["id"])
@@ -1820,6 +2003,21 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
     ws.row_dimensions[cur_row].height = 6
     cur_row += 1
 
+    is_sdlxliff_report = state.get("input_format") == "sdlxliff"
+    filename_width = (
+        45
+        if is_sdlxliff_report
+        else 70
+        if "来源相对路径" in (state.get("headers") or [])
+        else 22
+    )
+    scorecard_widths = [
+        filename_width, 8, 45 if is_sdlxliff_report else 35, 45, 45,
+        14, 22, 10, 10, 45, 12, 12, 45,
+    ]
+    for column, width in enumerate(scorecard_widths, start=1):
+        ws.column_dimensions[get_column_letter(column)].width = width
+
     ws.row_dimensions[cur_row].height = 14.25
     for col, hdr in enumerate(
         ["File name","Segment #","Source text","原译",
@@ -1830,35 +2028,36 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
     cur_row += 1
 
     for dr in detail_rows:
-        ws.row_dimensions[cur_row].height = 15.75
         row_fill = _GREEN_LIGHT if dr["fixed"] else None
-        for col, val in [
-            (1, dr["filename"]), (2, dr["seg_id"]),
-            (3, dr["source"]),   (4, dr["original"]),
-            (5, dr["corrected"]),(6, dr["parent"]),
-            (7, dr["category"]), (8, dr["severity"]),
-            (9, dr["iteration"]),(10, dr["comment"]),
-            (11, dr["processing"]),
-            (12, "Yes" if dr["seg_id"] in all_protected_ids else "No"),
-            (13, _protection_evidence(seg_map[dr["seg_id"]], all_protected_ids)),
-        ]:
+        rich_pair = (
+            build_rich_diff(dr["original"], dr["corrected"])
+            if isinstance(dr["corrected"], str) and dr["corrected"]
+            else None
+        )
+        detail_values = [
+            dr["filename"], dr["seg_id"], dr["source"], dr["original"],
+            dr["corrected"], dr["parent"], dr["category"], dr["severity"],
+            dr["iteration"], dr["comment"], dr["processing"],
+            "Yes" if dr["seg_id"] in all_protected_ids else "No",
+            _protection_evidence(seg_map[dr["seg_id"]], all_protected_ids),
+        ]
+        if rich_pair:
+            detail_values[3], detail_values[4] = rich_pair
+        for col, val in enumerate(detail_values, start=1):
             c = ws.cell(row=cur_row, column=col)
             _set_excel_text(c, val)
             _s(c, fill=row_fill, align=_LEFT_TOP if col not in (2, 8, 9, 11) else _CENTER)
+        ws.row_dimensions[cur_row].height = _wrapped_row_height(
+            [
+                (
+                    value,
+                    ws.column_dimensions[get_column_letter(column)].width,
+                )
+                for column, value in enumerate(detail_values, start=1)
+            ],
+            context=f"LQA Scorecard row {cur_row}",
+        )
         cur_row += 1
-
-    filename_width = (
-        70
-        if state.get("input_format") != "sdlxliff"
-        and "来源相对路径" in (state.get("headers") or [])
-        else 22
-    )
-    for col_ltr, width in [
-        ("A",filename_width),("B",8),("C",35),("D",45),("E",45),
-        ("F",14),("G",22),("H",10),("I",10),("J",45),
-        ("K",12),("L",12),("M",45),
-    ]:
-        ws.column_dimensions[col_ltr].width = width
 
     ws2 = wb.create_sheet("LQE Results")
 
@@ -1872,7 +2071,9 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
 
     current_entries = {e["id"]: e for e in history[-1].get("errors", [])} if history else {}
     report_headers, report_rows = _report_source_table(state)
-    target_col = state.get("target_col", 1)
+    target_col = state.get("target_col")
+    if target_col is None:
+        target_col = "译文" if "译文" in report_headers else 1
     try:
         target_index = int(target_col)
     except (ValueError, TypeError):
@@ -1881,6 +2082,28 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
         report_headers[target_index] = "原译"
 
     ws2_headers = report_headers + ["建议译文", "处理方式", "错误详情", "LQE_Iter", "Protected", "Protection Evidence"]
+    results_widths = []
+    for header in ws2_headers:
+        if header in {"原文", "原译", "建议译文", "错误详情", "Protection Evidence"}:
+            width = 45
+        elif is_sdlxliff_report and header == "来源文件":
+            width = 35
+        elif is_sdlxliff_report and header == "TU ID":
+            width = 38
+        elif is_sdlxliff_report and header == "SDL Segment ID":
+            width = 14
+        elif header == "处理方式":
+            width = 18
+        elif header == "LQE_Iter":
+            width = 10
+        elif header == "Protected":
+            width = 12
+        else:
+            width = 20
+        results_widths.append(width)
+    for column, width in enumerate(results_widths, start=1):
+        ws2.column_dimensions[get_column_letter(column)].width = width
+
     for ci, h in enumerate(ws2_headers, start=1):
         c = ws2.cell(row=1, column=ci)
         _set_excel_text(c, h)
@@ -1904,6 +2127,12 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
         processing = _processing_label(processing_entry)
         corrected = entry.get("corrected")
         suggestion = "" if processing == "已保护，不修改" else (corrected or "")
+        rich_pair = (
+            build_rich_diff(seg["target"], suggestion)
+            if isinstance(suggestion, str) and suggestion
+            else None
+        )
+        suggestion_column = len(report_headers) + 1
         row_fill = _ORANGE if has_error else _GREEN_LIGHT if (is_protected or suggestion) else None
         row_data = list(raw_row) + [
             suggestion,
@@ -1913,40 +2142,46 @@ def _build_xlsx(state, history, score, threshold, out_path, scorecard_profile_id
             "Yes" if is_protected else "No",
             _protection_evidence(seg, all_protected_ids),
         ]
+        if rich_pair and 0 <= target_index < len(report_headers):
+            row_data[target_index] = rich_pair[0]
+        if rich_pair:
+            row_data[suggestion_column - 1] = rich_pair[1]
         for ci, val in enumerate(row_data, start=1):
             c = ws2.cell(row=ri, column=ci)
             _set_excel_text(c, val)
             c.alignment = _WRAP_TOP
             if row_fill:
                 c.fill = row_fill
-        ws2.row_dimensions[ri].height = max(15.0, min(80.0, 15.0 + 13.0 * max(0, len(errs) - 1)))
-
-    n_orig = len(state["headers"])
-    for ci in range(1, n_orig + 1):
-        ws2.column_dimensions[get_column_letter(ci)].width = 20
-    for ci, w in enumerate([35, 45, 22, 8, 12, 18], start=n_orig + 1):
-        ws2.column_dimensions[get_column_letter(ci)].width = w
+        ws2.row_dimensions[ri].height = _wrapped_row_height(
+            [
+                (
+                    value,
+                    ws2.column_dimensions[get_column_letter(column)].width,
+                )
+                for column, value in enumerate(row_data, start=1)
+            ],
+            context=f"LQE Results row {ri}",
+        )
 
     wb.save(str(out_path))
-    print(f"[lqe_io] Output → {out_path}")
+    if announce:
+        print(f"[lqe_io] Output → {out_path}")
 
 
 def cmd_write(args):
     state_path = Path(args.state)
+    errors_path = Path(args.errors)
     state = read_json(state_path)
-    final_errors_data = read_json(args.errors)
+    final_errors_data = read_json(errors_path)
     _validate_scope_or_exit(
         state,
         final_errors_data,
         issues_key="errors",
-        label=Path(args.errors).name,
+        label=errors_path.name,
         command="write",
     )
     protected_ids = _state_protected_ids(state)
     scrubbed = _scrub_protected_entries(final_errors_data, protected_ids)
-    if scrubbed:
-        Path(args.errors).write_text(json.dumps(final_errors_data, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"[write] scrubbed {scrubbed} protected-segment issue(s) from {args.errors}")
     score = float(args.score)
 
     final_entry = {
@@ -1972,11 +2207,43 @@ def cmd_write(args):
     ]
     history.append(final_entry)
     state["error_history"] = history
-    state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    src = Path(state["input_path"])
     out_path = state_path.parent / (_job_label(state_path) + "_lqe.xlsx")
-    _build_xlsx(state, history, score, args.threshold, out_path, args.scorecard_profile)
+    with tempfile.NamedTemporaryFile(
+        prefix=f".{out_path.stem}.",
+        suffix=out_path.suffix,
+        dir=out_path.parent,
+        delete=False,
+    ) as staging_file:
+        staging_path = Path(staging_file.name)
+    try:
+        try:
+            _build_xlsx(
+                state,
+                history,
+                score,
+                args.threshold,
+                staging_path,
+                args.scorecard_profile,
+                announce=False,
+            )
+        except ValueError as exc:
+            raise SystemExit(f"[write] {exc}") from exc
+        _publish_write_transaction(
+            state_path,
+            state,
+            errors_path,
+            final_errors_data,
+            out_path,
+            staging_path,
+            publish_errors=bool(scrubbed),
+        )
+    finally:
+        staging_path.unlink(missing_ok=True)
+
+    if scrubbed:
+        print(f"[write] scrubbed {scrubbed} protected-segment issue(s) from {errors_path}")
+    print(f"[lqe_io] Output → {out_path}")
 
 
 # ── pre-check（实现在 lqe_checks.py）─────────────────────────────────────────

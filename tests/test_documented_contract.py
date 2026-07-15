@@ -135,13 +135,30 @@ class DocumentedContractTests(unittest.TestCase):
             self.assertEqual(argv.count("tests.test_sdlxliff_input"), 1)
             self.assertEqual(run_mock.call_args.kwargs["cwd"], ROOT)
             self.assertIn(
-                "corrected ownership, SDLXLIFF, and no-terminology regression suites",
+                "corrected ownership, SDLXLIFF, no-terminology, and rich-diff "
+                "regression suites",
                 runner.__doc__,
             )
             self.assertEqual(
                 runner.PASS,
-                ["T25 corrected ownership + SDLXLIFF + no-terminology suites"],
+                [
+                    "T25 corrected ownership + SDLXLIFF + no-terminology + "
+                    "rich-diff suites"
+                ],
             )
+        finally:
+            shutil.rmtree(runner.TMP, ignore_errors=True)
+
+    def test_run_tests_t25_invokes_rich_diff_suite(self):
+        runner = load_test_runner()
+        try:
+            completed = SimpleNamespace(returncode=0, stdout="", stderr="")
+            with mock.patch.object(
+                runner.subprocess, "run", return_value=completed
+            ) as run_mock:
+                runner.t25()
+            argv = run_mock.call_args.args[0]
+            self.assertEqual(argv.count("tests.test_excel_diff_highlighting"), 1)
         finally:
             shutil.rmtree(runner.TMP, ignore_errors=True)
 
@@ -215,6 +232,44 @@ class DocumentedContractTests(unittest.TestCase):
                 "XLSX：输出 *_corrected.xlsx，保持工作簿、工作表、空行、"
                 "列顺序和格式",
                 "SDLXLIFF：输出新建固定 5 列的 *_corrected.xlsx",
+            ),
+        }
+        for path, phrases in contracts.items():
+            content = (ROOT / path).read_text(encoding="utf-8")
+            for phrase in phrases:
+                with self.subTest(path=path, phrase=phrase):
+                    self.assertIn(phrase, content)
+
+    def test_user_documents_publish_rich_diff_scope(self):
+        contracts = {
+            "SKILL.md": (
+                "原译中删除或替换的内容显示为红色删除线",
+                "建议译文中新增或替换的内容显示为红色字体",
+                "corrected 文件不添加差异样式",
+                "openpyxl>=3.1",
+                'openpyxl>=3.1" regex',
+            ),
+            "README_ZH.md": (
+                "原译中删除或替换的内容显示为红色删除线",
+                "建议译文中新增或替换的内容显示为红色字体",
+                "corrected 文件不添加差异样式",
+                "openpyxl>=3.1",
+                'openpyxl>=3.1" regex',
+            ),
+            "README.md": (
+                "removed or replaced text in the original translation uses red "
+                "strikethrough",
+                "inserted or replaced text in the suggested translation uses red font",
+                "Corrected files do not receive diff styling",
+                "openpyxl>=3.1",
+                'openpyxl>=3.1" regex',
+            ),
+            "PM_GUIDE.html": (
+                "原译中删除或替换的内容显示为红色删除线",
+                "建议译文中新增或替换的内容显示为红色字体",
+                "corrected 文件不添加差异样式",
+                "openpyxl&gt;=3.1",
+                'openpyxl&gt;=3.1" regex',
             ),
         }
         for path, phrases in contracts.items():

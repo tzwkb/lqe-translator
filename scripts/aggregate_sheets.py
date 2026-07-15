@@ -13,19 +13,69 @@
   python scripts/aggregate_sheets.py --job LQE测试用 [--sheets 剧情,功能,社媒] [--threshold 98]
 """
 import argparse
+from copy import copy, deepcopy
 import json
 import subprocess
 import sys
 from pathlib import Path
 
 import openpyxl
+from openpyxl.cell.rich_text import CellRichText
 from openpyxl.styles import Font
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lqe_engine import read_json, _SKILL_ROOT  # noqa: E402
 from lqe_corrections import CheckFormatError, verify_results  # noqa: E402
+from lqe_excel_diff import build_rich_diff  # noqa: E402
 
 THRESH_DEFAULT = 98
+_NON_TEXT = object()
+
+
+def _copy_report_cell(source_cell, target_cell) -> None:
+    value = source_cell.value
+    target_cell.value = deepcopy(value) if isinstance(value, CellRichText) else value
+    if source_cell.data_type in {"s", "f"}:
+        target_cell.data_type = source_cell.data_type
+    if source_cell.has_style:
+        target_cell.font = copy(source_cell.font)
+        target_cell.fill = copy(source_cell.fill)
+        target_cell.border = copy(source_cell.border)
+        target_cell.alignment = copy(source_cell.alignment)
+        target_cell.number_format = source_cell.number_format
+        target_cell.protection = copy(source_cell.protection)
+    if source_cell.comment is not None:
+        target_cell.comment = copy(source_cell.comment)
+    if source_cell.hyperlink is not None:
+        target_cell._hyperlink = copy(source_cell.hyperlink)
+
+
+def _copy_report_layout(source_sheet, target_sheet) -> None:
+    target_sheet.freeze_panes = source_sheet.freeze_panes
+    for index, source_dimension in source_sheet.row_dimensions.items():
+        target_dimension = target_sheet.row_dimensions[index]
+        for attribute in ("height", "hidden", "outlineLevel", "collapsed"):
+            setattr(target_dimension, attribute, getattr(source_dimension, attribute))
+    for key, source_dimension in source_sheet.column_dimensions.items():
+        target_dimension = target_sheet.column_dimensions[key]
+        for attribute in (
+            "width",
+            "hidden",
+            "bestFit",
+            "outlineLevel",
+            "collapsed",
+        ):
+            setattr(target_dimension, attribute, getattr(source_dimension, attribute))
+
+
+def _report_text(value):
+    if isinstance(value, CellRichText):
+        return str(value)
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    return _NON_TEXT
 
 
 def _label(p: Path) -> str:
@@ -118,6 +168,8 @@ def main():
             seg_rows[e["id"]]: e["corrected"]
             for e in results
             if e["corrected"] is not None
+            and not seg_by_id[e["id"]].get("protected")
+            and not any(issue.get("protected") for issue in e.get("errors", []))
         }
         res = _calc(sj, a.threshold)
         tot_L += res["npt"] * res["wordcount"] / 1000.0
@@ -151,6 +203,8 @@ def main():
             if cell.value != corrected:
                 delivery_replacements += 1
             cell.value = corrected
+            if isinstance(corrected, str) and corrected.startswith("="):
+                cell.data_type = "s"
         tot_fix += delivery_replacements
         summary.append([sj.name, nseg, res["wordcount"], res["errors"],
                         res["critical"], res["score"], res["status"], delivery_replacements])
@@ -183,12 +237,39 @@ def main():
         lqe = sj / f"{_label(sj)}_lqe.xlsx"
         if not lqe.exists():
             continue
-        wb = openpyxl.load_workbook(lqe)
+        wb = openpyxl.load_workbook(lqe, rich_text=True, data_only=False)
         if "LQE Results" in wb.sheetnames:
             sw = wb["LQE Results"]
             ws2 = rep.create_sheet(f"{sj.name} Results")
-            for row in sw.iter_rows(values_only=True):
-                ws2.append(list(row))
+            _copy_report_layout(sw, ws2)
+            for row in sw.iter_rows():
+                for source_cell in row:
+                    target_cell = ws2.cell(source_cell.row, source_cell.column)
+                    _copy_report_cell(source_cell, target_cell)
+            headers = [cell.value for cell in ws2[1]]
+            if "原译" in headers and "建议译文" in headers:
+                original_column = headers.index("原译") + 1
+                suggested_column = headers.index("建议译文") + 1
+                for row_number in range(2, ws2.max_row + 1):
+                    original_cell = ws2.cell(row_number, original_column)
+                    suggested_cell = ws2.cell(row_number, suggested_column)
+                    original_text = _report_text(original_cell.value)
+                    suggested_text = _report_text(suggested_cell.value)
+                    if (
+                        original_cell.data_type != "f"
+                        and suggested_cell.data_type != "f"
+                        and isinstance(original_text, str)
+                        and isinstance(suggested_text, str)
+                        and suggested_text
+                        and original_text != suggested_text
+                    ):
+                        original_cell.value, suggested_cell.value = build_rich_diff(
+                            original_text,
+                            suggested_text,
+                        )
+                        for cell in (original_cell, suggested_cell):
+                            if isinstance(cell.value, str) and cell.value.startswith("="):
+                                cell.data_type = "s"
         wb.close()
 
     rep_out = job_dir / f"{label}_lqe.xlsx"

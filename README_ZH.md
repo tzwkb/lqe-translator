@@ -64,7 +64,7 @@ lqe-translator/
 ## 安装与路径
 
 ```bash
-pip install openpyxl requests python-docx -q
+pip install "openpyxl>=3.1" regex requests python-docx -q
 SCRIPTS=~/.codex/skills/lqe-translator/scripts
 ```
 
@@ -294,6 +294,8 @@ python3 "$SCRIPTS/lqe_io.py" export \
 - CSV/TSV 输入输出 `<任务名>_corrected.csv` 或 `<任务名>_corrected.tsv`，保持原行列和输入扩展名。
 - XLSX 输入输出 `<任务名>_corrected.xlsx`，保持工作簿、工作表、空行、列顺序和格式。
 - SDLXLIFF 输出新建固定 5 列的 `<任务名>_corrected.xlsx`。
+
+LQE 报告使用富文本显示修改差异：原译中删除或替换的内容显示为红色删除线，建议译文中新增或替换的内容显示为红色字体。corrected 文件不添加差异样式。
 
 用户可见报告使用“建议修改、需要人工确认、保持原译、已保护”。`corrected` 仅用于内部数据和标准输出文件名。
 

@@ -56,7 +56,7 @@ footer{margin-top:56px;text-align:center;color:#99a;font-size:12px}
 <table>
 <tr><th width="120">必需</th><td>Excel、CSV、TSV，或单个/目录形式的 SDLXLIFF 1.2；表格需明确原文列和译文列；两类输入都需项目语言轨，例如 <code>nrc/zh-th</code></td></tr>
 <tr><th>项目资料</th><td><code>profile.json</code>、<code>confirmed_rules.md</code>、风格指南和目标语言说明；标准模式还使用术语表</td></tr>
-<tr><th>运行环境</th><td>macOS 或 Linux shell、Python 3；首次安装 <code>openpyxl requests python-docx</code></td></tr>
+<tr><th>运行环境</th><td>macOS 或 Linux shell、Python 3；首次安装 <code>openpyxl&gt;=3.1 regex requests python-docx</code></td></tr>
 <tr><th>运行选择</th><td>默认首轮检查；只有明确要求时才启用自动迭代</td></tr>
 </table>
 <div class="callout"><b>两种保护：</b>术语条目的 <code>protected: true</code> 表示不可修改；有明确 TM 精确匹配证据的段也可标记为受保护。受保护内容不修改、不计分。</div>
@@ -64,7 +64,7 @@ footer{margin-top:56px;text-align:center;color:#99a;font-size:12px}
 <h2 id="manual">二、手动启动与运行</h2>
 <p>在 skill 根目录运行。默认安装位置为 <code>~/.codex/skills/lqe-translator</code>：</p>
 <p class="prompt">cd ~/.codex/skills/lqe-translator
-pip install openpyxl requests python-docx -q
+pip install "openpyxl&gt;=3.1" regex requests python-docx -q
 SCRIPTS="$PWD/scripts"
 JOB="$PWD/jobs/&lt;任务名&gt;"</p>
 <p>用项目档案初始化，并把机器预检结果单独写入 <code>errors_precheck.json</code>：</p>
@@ -145,6 +145,7 @@ python3 "$SCRIPTS/lqe_chunk.py" split --state "$JOB/state.json" \
 <tr><td><code>*_corrected.csv/tsv/xlsx</code></td><td>扩展名和内容结构由输入格式决定</td></tr>
 </table>
 <p>报告中的处理方式只使用“建议修改、需要人工确认、保持原译、已保护”。原输入文件不会被覆盖。</p>
+<p>LQE 报告使用富文本显示修改差异：原译中删除或替换的内容显示为红色删除线，建议译文中新增或替换的内容显示为红色字体。corrected 文件不添加差异样式。</p>
 <p>CSV/TSV：输出 *_corrected.csv/tsv，保持原行列和输入扩展名；XLSX：输出 *_corrected.xlsx，保持工作簿、工作表、空行、列顺序和格式；SDLXLIFF：输出新建固定 5 列的 *_corrected.xlsx。</p>
 <p>SDLXLIFF 报告固定为 11 列：来源文件、TU ID、SDL Segment ID、原文、原译、建议译文、处理方式、错误详情、LQE_Iter、Protected、Protection Evidence。SDL corrected Excel 固定为 5 列：来源文件、TU ID、SDL Segment ID、原文、译文。</p>
 <p>第一版不回写 SDLXLIFF XML；导出只新增 corrected Excel，原始 XML 保持不变。</p>

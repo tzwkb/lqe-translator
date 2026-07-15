@@ -1,6 +1,6 @@
 ---
 name: lqe-translator
-description: LQE scoring and review workflow for game-localization translations. Project profiles provide language settings, style guides, terminology, confirmed rules, deterministic checks, scorecards, and Excel reports. AI check modules report issues and safe local edits; Python validates edits, builds corrected text, and calculates scores. Triggers: LQE/LQA, 译文质检/评估/打分, translation QA.
+description: "LQE scoring and review workflow for game-localization translations. Project profiles provide language settings, style guides, terminology, confirmed rules, deterministic checks, scorecards, and Excel reports. AI check modules report issues and safe local edits; Python validates edits, builds corrected text, and calculates scores. Triggers: LQE/LQA, 译文质检/评估/打分, translation QA."
 ---
 
 # LQE Translator
@@ -70,7 +70,7 @@ projects/<game>/<source>-<target>/
 ## 2. 初始化
 
 ```bash
-pip install openpyxl requests python-docx -q
+pip install "openpyxl>=3.1" regex requests python-docx -q
 
 python "$SCRIPTS/lqe_io.py" read \
   --project "<game>/<source>-<target>" \
@@ -353,6 +353,8 @@ python "$SCRIPTS/lqe_io.py" export \
 ```
 
 报告面向用户显示“建议修改、需要人工确认、保持原译、已保护”。`*_corrected.<ext>` 是标准交付文件名；其中 corrected 仅是内部机器字段和标准文件名的一部分。
+
+LQE 报告使用富文本显示修改差异：原译中删除或替换的内容显示为红色删除线，建议译文中新增或替换的内容显示为红色字体。corrected 文件不添加差异样式。
 
 SDLXLIFF 的 `LQE Results` 固定为 11 列：来源文件、TU ID、SDL Segment ID、原文、原译、建议译文、处理方式、错误详情、LQE_Iter、Protected、Protection Evidence。其余 SDL 私有字段、文件 SHA-256、语言、扩展 namespace、规则命中、排除和保护证据写入 `source_manifest.json`。SDL corrected Excel 固定为 5 列：来源文件、TU ID、SDL Segment ID、原文、译文。
 

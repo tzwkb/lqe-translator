@@ -64,7 +64,7 @@ lqe-translator/
 ## Setup
 
 ```bash
-pip install openpyxl requests python-docx -q
+pip install "openpyxl>=3.1" regex requests python-docx -q
 SCRIPTS=~/.codex/skills/lqe-translator/scripts
 ```
 
@@ -296,6 +296,8 @@ Every input produces `<job>_lqe.xlsx` with the score, issues, suggested text, re
 - CSV/TSV inputs produce `<job>_corrected.csv` or `<job>_corrected.tsv` and preserve rows, columns, and the source extension.
 - XLSX input produces `<job>_corrected.xlsx` and preserves the workbook, worksheets, blank rows, column order, and formatting.
 - SDLXLIFF produces a new fixed five-column `<job>_corrected.xlsx`.
+
+LQE reports use rich text for translation diffs: removed or replaced text in the original translation uses red strikethrough, and inserted or replaced text in the suggested translation uses red font. Corrected files do not receive diff styling.
 
 User-facing reports label rows as suggested change, needs human confirmation, keep original, or protected. The word `corrected` is reserved for internal data and the standard output filename.
 

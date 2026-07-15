@@ -1,7 +1,7 @@
 """Self-contained regression suite for the LQE skill.
 
 Run:  python scripts/run_tests.py
-Covers corrected ownership, SDLXLIFF, and no-terminology regression suites;
+Covers corrected ownership, SDLXLIFF, no-terminology, and rich-diff regression suites;
 all 23 builtin pre-checks; project profiles; counting, dedup, and wordcount
 guards; and a smoke test for lqe_batch.
 Fixtures are built in a temp dir; nothing is written into the repo.
@@ -783,6 +783,7 @@ def t25():
             "tests.test_no_terminology_mode",
             "tests.test_sdlxliff_input",
             "tests.test_documented_contract",
+            "tests.test_excel_diff_highlighting",
             "tests.test_mastertb_module_contract",
         ],
         cwd=SCRIPTS.parent,
@@ -791,7 +792,7 @@ def t25():
     )
     output = (result.stdout + result.stderr).strip()
     check(
-        "T25 corrected ownership + SDLXLIFF + no-terminology suites",
+        "T25 corrected ownership + SDLXLIFF + no-terminology + rich-diff suites",
         result.returncode == 0,
         output[-2000:],
     )
