@@ -876,6 +876,39 @@ def _wrapped_marker(
 
 
 def _segmentation_markers(container: ET.Element, context: str) -> list[ET.Element]:
+    direct_markers = [
+        child
+        for child in container
+        if child.tag == _X + "mrk" and _local_attribute(child, "mtype") == "seg"
+    ]
+    if (
+        len(direct_markers) == 1
+        and not (container.text or "").strip()
+        and all(child in direct_markers or child.tag == _X + "x" for child in container)
+        and all(not (child.tail or "").strip() for child in container)
+    ):
+        marker = direct_markers[0]
+        synthetic = ET.Element(marker.tag, dict(marker.attrib))
+
+        def append_text(value: str | None) -> None:
+            if not value:
+                return
+            if len(synthetic):
+                synthetic[-1].tail = (synthetic[-1].tail or "") + value
+            else:
+                synthetic.text = (synthetic.text or "") + value
+
+        for child in container:
+            if child is marker:
+                append_text(marker.text)
+                for nested in marker:
+                    synthetic.append(deepcopy(nested))
+                continue
+            copied = deepcopy(child)
+            copied.tail = None
+            synthetic.append(copied)
+        return [synthetic]
+
     markers: list[ET.Element] = []
 
     def collect(parent: ET.Element, wrappers: tuple[ET.Element, ...]) -> None:

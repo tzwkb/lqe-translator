@@ -138,6 +138,36 @@ class RichDiffUnitTests(unittest.TestCase):
                 context="LQE Results row 2",
             )
 
+    def test_fit_wrapped_row_reduces_font_only_when_needed(self):
+        self.assertEqual(
+            lqe_io._fit_wrapped_row([("short", 45)]),
+            (18.5, 11.0),
+        )
+        self.assertEqual(
+            lqe_io._fit_wrapped_row(
+                [("\n".join(f"line {index}" for index in range(30)), 45)],
+                context="LQE Results row 2",
+            ),
+            (407.0, 9.0),
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            r"LQE Results row 3.*31 wrapped lines.*9 pt.*409",
+        ):
+            lqe_io._fit_wrapped_row(
+                [("\n".join(f"line {index}" for index in range(31)), 45)],
+                context="LQE Results row 3",
+            )
+
+    def test_fit_or_span_wrapped_row_spans_at_nine_point_floor(self):
+        self.assertEqual(
+            lqe_io._fit_or_span_wrapped_row(
+                [("\n".join(f"line {index}" for index in range(36)), 45)],
+                context="LQE Results row 4",
+            ),
+            (244.0, 9.0, 2),
+        )
+
     def test_write_json_atomic_cleans_staging_after_replace_failure(self):
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
@@ -453,10 +483,10 @@ class RichDiffReportTests(unittest.TestCase):
         finally:
             workbook.close()
 
-    def test_report_generation_rejects_rows_above_excel_height_limit(self):
+    def test_report_generation_spans_rows_above_excel_height_limit(self):
         output = self.root / "too-tall_lqe.xlsx"
-        original = "\n".join(f"Line {index} uses OLD." for index in range(30))
-        suggested = "\n".join(f"Line {index} uses NEW." for index in range(30))
+        original = "\n".join(f"Line {index} uses OLD." for index in range(31))
+        suggested = "\n".join(f"Line {index} uses NEW." for index in range(31))
         state = {
             "input_path": str(self.root / "too-tall.xlsx"),
             "headers": ["原文", "译文"],
@@ -474,12 +504,59 @@ class RichDiffReportTests(unittest.TestCase):
             ],
         }]
 
-        with self.assertRaisesRegex(
-            ValueError,
-            r"LQA Scorecard row \d+.*30 wrapped lines.*409",
-        ):
-            lqe_io._build_xlsx(state, history, 99, 98, output)
-        self.assertFalse(output.exists())
+        lqe_io._build_xlsx(state, history, 99, 98, output)
+
+        workbook = openpyxl.load_workbook(output, rich_text=True)
+        try:
+            for sheet_name in ("LQA Scorecard", "LQE Results"):
+                sheet = workbook[sheet_name]
+                self.assertTrue(sheet.merged_cells.ranges, sheet_name)
+                self.assertLessEqual(
+                    max(row.height or 0 for row in sheet.row_dimensions.values()),
+                    409,
+                )
+        finally:
+            workbook.close()
+
+    def test_report_generation_autofits_30_line_rows(self):
+        output = self.root / "autofit_lqe.xlsx"
+        original = "\n".join(f"Line {index} uses OLD." for index in range(30))
+        suggested = "\n".join(f"Line {index} uses NEW." for index in range(30))
+        state = {
+            "input_path": str(self.root / "autofit.xlsx"),
+            "headers": ["原文", "译文"],
+            "rows_raw": [["Source", original]],
+            "target_col": 1,
+            "segments": [
+                {"id": 0, "source": "Source", "target": original, "kind": "desc"},
+            ],
+            "wordcount": 120,
+        }
+        history = [{
+            "iteration": 0,
+            "errors": [
+                {"id": 0, "errors": [issue()], "corrected": suggested},
+            ],
+        }]
+
+        lqe_io._build_xlsx(state, history, 99, 98, output)
+
+        workbook = openpyxl.load_workbook(output, rich_text=True)
+        try:
+            for sheet_name in ("LQA Scorecard", "LQE Results"):
+                sheet = workbook[sheet_name]
+                matched = [
+                    cell
+                    for row in sheet.iter_rows()
+                    for cell in row
+                    if str(cell.value) == original
+                ]
+                self.assertTrue(matched, sheet_name)
+                row = matched[0].row
+                self.assertEqual(sheet.row_dimensions[row].height, 407)
+                self.assertEqual(matched[0].font.sz, 9)
+        finally:
+            workbook.close()
 
     def test_report_generation_accommodates_long_wrapped_legal_copy(self):
         output = self.root / "long-legal-copy_lqe.xlsx"
@@ -526,7 +603,7 @@ class RichDiffReportTests(unittest.TestCase):
         finally:
             workbook.close()
 
-    def test_results_error_details_reject_rows_above_excel_height_limit(self):
+    def test_results_error_details_span_rows_above_excel_height_limit(self):
         output = self.root / "too-many-errors_lqe.xlsx"
         state = {
             "input_path": str(self.root / "too-many-errors.xlsx"),
@@ -539,7 +616,7 @@ class RichDiffReportTests(unittest.TestCase):
             "wordcount": 1,
         }
         errors = []
-        for index in range(25):
+        for index in range(31):
             current_issue = issue()
             current_issue["comment"] = f"Issue {index}"
             errors.append(current_issue)
@@ -548,12 +625,16 @@ class RichDiffReportTests(unittest.TestCase):
             "errors": [{"id": 0, "errors": errors, "corrected": None}],
         }]
 
-        with self.assertRaisesRegex(
-            ValueError,
-            r"LQE Results row 2.*25 wrapped lines.*414\.5.*409",
-        ):
-            lqe_io._build_xlsx(state, history, 99, 98, output)
-        self.assertFalse(output.exists())
+        lqe_io._build_xlsx(state, history, 99, 98, output)
+
+        workbook = openpyxl.load_workbook(output)
+        try:
+            results = workbook["LQE Results"]
+            self.assertIn("A2:A3", {str(item) for item in results.merged_cells.ranges})
+            self.assertLessEqual(results.row_dimensions[2].height, 409)
+            self.assertLessEqual(results.row_dimensions[3].height, 409)
+        finally:
+            workbook.close()
 
     def test_cmd_write_layout_failure_is_atomic(self):
         job = self.root / "atomic-job"
@@ -561,8 +642,8 @@ class RichDiffReportTests(unittest.TestCase):
         state_path = job / "state.json"
         errors_path = job / "errors.json"
         output = job / "atomic-job_lqe.xlsx"
-        original = "\n".join(f"Line {index} uses OLD." for index in range(30))
-        suggested = "\n".join(f"Line {index} uses NEW." for index in range(30))
+        original = "\n".join(f"Line {index} uses OLD." for index in range(31))
+        suggested = "\n".join(f"Line {index} uses NEW." for index in range(31))
         state = {
             "input_path": str(job / "source.xlsx"),
             "headers": ["原文", "译文"],
@@ -611,11 +692,16 @@ class RichDiffReportTests(unittest.TestCase):
         )
 
         with patch.object(lqe_io, "_validate_scope_or_exit"):
-            with self.assertRaisesRegex(
-                SystemExit,
-                r"\[write\].*LQA Scorecard row \d+.*409",
+            with patch.object(
+                lqe_io,
+                "_fit_or_span_wrapped_row",
+                side_effect=ValueError("injected layout failure"),
             ):
-                lqe_io.cmd_write(args)
+                with self.assertRaisesRegex(
+                    SystemExit,
+                    r"\[write\].*injected layout failure",
+                ):
+                    lqe_io.cmd_write(args)
 
         self.assertEqual(state_path.read_bytes(), state_before)
         self.assertEqual(errors_path.read_bytes(), errors_before)

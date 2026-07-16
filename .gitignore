@@ -14,6 +14,7 @@ projects/**/*.docx
 projects/**/*.sdltm
 projects/**/*.bak
 projects/**/*.bak.*
+projects/**/profile_pre*.json
 !projects/
 !projects/*/
 !projects/*/*/

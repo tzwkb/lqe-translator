@@ -19,6 +19,7 @@ import re
 import sys
 import tempfile
 import unicodedata
+from copy import copy
 from datetime import date
 from pathlib import Path
 
@@ -1645,6 +1646,55 @@ def _wrapped_row_height(cells, minimum=15.75, *, context="wrapped row") -> float
     return required_height
 
 
+def _fit_wrapped_row(cells, minimum=15.75, *, context="wrapped row") -> tuple[float, float]:
+    maximum_lines = max(
+        (_wrapped_line_count(value, column_width) for value, column_width in cells),
+        default=1,
+    )
+    for font_size, line_height in ((11.0, 16.5), (10.0, 15.0), (9.0, 13.5)):
+        required_height = max(float(minimum), 2.0 + line_height * maximum_lines)
+        if required_height <= _MAX_EXCEL_ROW_HEIGHT:
+            return required_height, font_size
+    raise ValueError(
+        f"{context}: {maximum_lines} wrapped lines still require {required_height:g} pt "
+        f"at {font_size:g} pt; Excel/WPS row height is limited to "
+        f"{_MAX_EXCEL_ROW_HEIGHT:g} pt"
+    )
+
+
+def _fit_or_span_wrapped_row(
+    cells,
+    minimum=15.75,
+    *,
+    context="wrapped row",
+) -> tuple[float, float, int]:
+    try:
+        height, font_size = _fit_wrapped_row(
+            cells,
+            minimum,
+            context=context,
+        )
+        return height, font_size, 1
+    except ValueError:
+        maximum_lines = max(
+            (_wrapped_line_count(value, column_width) for value, column_width in cells),
+            default=1,
+        )
+        total_height = max(float(minimum), 2.0 + 13.5 * maximum_lines)
+        row_span = math.ceil(total_height / _MAX_EXCEL_ROW_HEIGHT)
+        return total_height / row_span, 9.0, row_span
+
+
+def _set_row_font_size(worksheet, row: int, columns: int, font_size: float) -> None:
+    if font_size >= 11.0:
+        return
+    for column in range(1, columns + 1):
+        cell = worksheet.cell(row=row, column=column)
+        font = copy(cell.font)
+        font.sz = font_size
+        cell.font = font
+
+
 def _segment_filename(state: dict, segment: dict, source_row=None) -> str:
     if state.get("input_format") == "sdlxliff":
         metadata = segment.get("metadata") or {}
@@ -2047,7 +2097,7 @@ def _build_xlsx(
             c = ws.cell(row=cur_row, column=col)
             _set_excel_text(c, val)
             _s(c, fill=row_fill, align=_LEFT_TOP if col not in (2, 8, 9, 11) else _CENTER)
-        ws.row_dimensions[cur_row].height = _wrapped_row_height(
+        row_height, row_font_size, row_span = _fit_or_span_wrapped_row(
             [
                 (
                     value,
@@ -2057,7 +2107,18 @@ def _build_xlsx(
             ],
             context=f"LQA Scorecard row {cur_row}",
         )
-        cur_row += 1
+        for physical_row in range(cur_row, cur_row + row_span):
+            ws.row_dimensions[physical_row].height = row_height
+        _set_row_font_size(ws, cur_row, len(detail_values), row_font_size)
+        if row_span > 1:
+            for column in range(1, len(detail_values) + 1):
+                ws.merge_cells(
+                    start_row=cur_row,
+                    start_column=column,
+                    end_row=cur_row + row_span - 1,
+                    end_column=column,
+                )
+        cur_row += row_span
 
     ws2 = wb.create_sheet("LQE Results")
 
@@ -2115,8 +2176,9 @@ def _build_xlsx(
         _s(c, fill=_DARK_BLUE, font=_WHITE_FONT, align=_CENTER)
     ws2.row_dimensions[1].height = 15.0
 
-    for ri, seg in enumerate(segments, start=2):
-        raw_row = report_rows[ri - 2]
+    ri = 2
+    for segment_index, seg in enumerate(segments):
+        raw_row = report_rows[segment_index]
         is_protected = seg["id"] in all_protected_ids
         current_entry = current_entries.get(seg["id"])
         entry = current_entry if current_entry is not None else {
@@ -2157,7 +2219,7 @@ def _build_xlsx(
             c.alignment = _WRAP_TOP
             if row_fill:
                 c.fill = row_fill
-        ws2.row_dimensions[ri].height = _wrapped_row_height(
+        row_height, row_font_size, row_span = _fit_or_span_wrapped_row(
             [
                 (
                     value,
@@ -2167,6 +2229,18 @@ def _build_xlsx(
             ],
             context=f"LQE Results row {ri}",
         )
+        for physical_row in range(ri, ri + row_span):
+            ws2.row_dimensions[physical_row].height = row_height
+        _set_row_font_size(ws2, ri, len(row_data), row_font_size)
+        if row_span > 1:
+            for column in range(1, len(row_data) + 1):
+                ws2.merge_cells(
+                    start_row=ri,
+                    start_column=column,
+                    end_row=ri + row_span - 1,
+                    end_column=column,
+                )
+        ri += row_span
 
     wb.save(str(out_path))
     if announce:

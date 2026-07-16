@@ -3,12 +3,33 @@
   "source": "伊贝儿",
   "senses": [
    {
-    "target": "ไอเบอร์รี",
-    "category": "Creature Species"
+    "target": "มอสซิป",
+    "category": "Creature Species",
+    "confirmed": false,
+    "protected": false
    },
    {
     "target": "อีเบย์",
-    "category": "Creature Individual"
+    "category": "Creature Individual",
+    "confirmed": false,
+    "protected": false
+   }
+  ]
+ },
+ {
+  "source": "翠顶夫人",
+  "senses": [
+   {
+    "target": "ไซเกลซ",
+    "category": "Creature Species",
+    "confirmed": false,
+    "protected": false
+   },
+   {
+    "target": "มาดามสีมรกต",
+    "category": "Creature Individual",
+    "confirmed": false,
+    "protected": false
    }
   ]
  },
@@ -17,11 +38,15 @@
   "senses": [
    {
     "target": "ไลเอล",
-    "category": "Creature Species"
+    "category": "Creature Species",
+    "confirmed": false,
+    "protected": false
    },
    {
     "target": "ลีโอ",
-    "category": "Creature Individual"
+    "category": "Creature Individual",
+    "confirmed": false,
+    "protected": false
    }
   ]
  },
@@ -30,11 +55,32 @@
   "senses": [
    {
     "target": "บัมเบล",
-    "category": "Creature Species"
+    "category": "Creature Species",
+    "confirmed": false,
+    "protected": false
    },
    {
     "target": "นางพญาผึ้ง",
-    "category": "Creature Individual"
+    "category": "Creature Individual",
+    "confirmed": false,
+    "protected": false
+   }
+  ]
+ },
+ {
+  "source": "帕帕斯卡",
+  "senses": [
+   {
+    "target": "เวิร์สกา พาพาสโก",
+    "category": "Creature Species",
+    "confirmed": false,
+    "protected": false
+   },
+   {
+    "target": "พาสโก",
+    "category": "Creature Individual",
+    "confirmed": false,
+    "protected": false
    }
   ]
  },
@@ -43,11 +89,32 @@
   "senses": [
    {
     "target": "บันนี่",
-    "category": "Creature Species"
+    "category": "Creature Species",
+    "confirmed": false,
+    "protected": false
    },
    {
     "target": "ก๊าบก๊าบ",
-    "category": "Creature Individual"
+    "category": "Creature Individual",
+    "confirmed": false,
+    "protected": false
+   }
+  ]
+ },
+ {
+  "source": "古路尼",
+  "senses": [
+   {
+    "target": "กูลูนี่",
+    "category": "Creature Species",
+    "confirmed": false,
+    "protected": false
+   },
+   {
+    "target": "กูลูนี",
+    "category": "Creature Individual",
+    "confirmed": false,
+    "protected": false
    }
   ]
  },
@@ -55,12 +122,16 @@
   "source": "裘卡",
   "senses": [
    {
-    "target": "เฟลวาร์ด",
-    "category": "Creature Species"
+    "target": "เฟลแวร์",
+    "category": "Creature Species",
+    "confirmed": false,
+    "protected": false
    },
    {
-    "target": "จูคา",
-    "category": "Named NPC"
+    "target": "เฟลวาร์ด",
+    "category": "Named NPC",
+    "confirmed": false,
+    "protected": false
    }
   ]
  },
@@ -69,11 +140,15 @@
   "senses": [
    {
     "target": "ชนะทาง",
-    "category": "Jini Combat System"
+    "category": "Jini Combat System",
+    "confirmed": false,
+    "protected": false
    },
    {
     "target": "ข่ม",
-    "category": "Jini Combat System"
+    "category": "Jini Combat System",
+    "confirmed": false,
+    "protected": false
    }
   ]
  }

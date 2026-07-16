@@ -829,6 +829,7 @@ class SDLXLIFFParserTests(unittest.TestCase):
         self.assertNotIn("Second wrapper segment", first_extensions)
         self.assertIn("Second wrapper segment", second_extensions)
         self.assertNotIn("First wrapper segment", second_extensions)
+
         first_attributes = {
             (item["name"], item["value"])
             for item in first["metadata"]["sdlxliff"]["extension_attributes"]
@@ -846,6 +847,26 @@ class SDLXLIFFParserTests(unittest.TestCase):
             {value for name, value in second_attributes if name == attribute_name},
             {"source-two", "target-two"},
         )
+
+    def test_inline_code_before_single_segment_is_owned_by_that_segment(self):
+        fixture = self.temp_fixture(
+            "leading-inline-code.sdlxliff",
+            self.document(
+                '<trans-unit id="tu"><source><x id="lead"/>甲</source>'
+                '<seg-source><x id="lead"/><mrk mtype="seg" mid="1">甲</mrk>'
+                '</seg-source><target><x id="lead"/>'
+                '<mrk mtype="seg" mid="1">Alpha</mrk></target>'
+                '<sdl:seg-defs><sdl:seg id="1"/></sdl:seg-defs></trans-unit>'
+            ),
+        )
+
+        result = read_sdlxliff(fixture, options=SDLXLIFFOptions())
+
+        self.assertEqual(len(result.segments), 1)
+        self.assertEqual(result.segments[0]["source"], '<x id="lead"/>甲')
+        self.assertEqual(result.segments[0]["target"], '<x id="lead"/>Alpha')
+        self.assertEqual(result.segments[0]["source_plain"], "甲")
+        self.assertEqual(result.segments[0]["target_plain"], "Alpha")
 
     def test_xliff_g_wrapper_rejects_text_outside_segment_boundaries(self):
         fixture = self.temp_fixture(

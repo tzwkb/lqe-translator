@@ -6,6 +6,8 @@
 
 ## 术语状态语义（terms_th.json 的 status）
 - **New**（主库 TH 列）：待审核——偏离时记录 Terminology，但需结合语境
+- **合规审核通过**：仅表示主表合规审核状态；保留为当前主库候选，但不据此自动设为 `confirmed` 或 `protected`
+- **Denied**：保留拒绝/误导名记录供语境判断，不得作为安全自动替换的确认术语证据
 - **WorkingTB**（译员工作 TB）：项目流通译法——偏离时记录 Terminology Major
 - **Approved**：PM/客户定稿——严格执行
 - 精灵名一律 ≤12 字符（仅精灵名段；无 key 列时凭 TB 命中判断）
@@ -31,5 +33,12 @@
 - 162 条译法随新表更新，含修复 65 条历史遗留 `target="0"` 占位符。838 条主表待填充，3 条回填自旧库，其余尚无泰语译法（不入 TB）
 - **同名多义**：伊贝儿/里奥/裘卡/黄蜂后/呱呱/克制 在「物种 Species」与「个体/NPC」两分类下译法被 0630 故意拆开（0629 两分类译法一致，无冲突）。terms_th.json 现已支持一个 source 挂多个 `senses`（见 `docs/TERM_MULTISENSE_DESIGN.md`），两个语义都已收进 TB，不再只保留一个——评估时 AI 结合段落语境（个体/角色 vs 物种）判断该用哪个，都不匹配才报 Terminology
   - 全部多义分组清单见 `terms_th.multisense.json`（每次重新导入自动重新生成，供人工核对是否确实有意区分）
+
+## TB 更新 2026-07-16（Master TB 0716 TH 导入）
+- 源文件 `../common/ROCO_MasterTB_0716_TH.xlsx`；旧库快照 `terms_th_pre0716.bak.json`，旧多义清单快照 `terms_th_pre0716.multisense.bak.json`
+- 导入 5,539 个来源、5,548 个义项；新增 1,236 个来源，移除主表已不再收录的 11 个来源，299 个共有来源的泰语译法发生变化
+- 43 行 TH 为空且无可回填旧译，未写入术语库；状态分布：合规审核通过 4,301、New 1,239、Denied 4、Approved 4
+- 多义来源共 9 个：伊贝儿、翠顶夫人、里奥、黄蜂后、帕帕斯卡、呱呱、古路尼、裘卡、克制；以 `terms_th.multisense.json` 为准
+- 所有 `confirmed` / `protected` 均按技能合同保持显式 `false`；不根据 status 自动推断
 
 （范围口径「都列出」、severity 口径见 SKILL.md 标准流程，全语言通用，不在此重复）
