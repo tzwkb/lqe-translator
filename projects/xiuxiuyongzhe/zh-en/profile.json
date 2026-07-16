@@ -1,0 +1,15 @@
+{
+  "name": "xiuxiuyongzhe/zh-en",
+  "language_pair": "zh-en",
+  "source_lang": "zh",
+  "target_lang": "en",
+  "game": "咻咻勇者",
+  "background": "项目背景资料未提供。按文本实际功能区分 UI、系统提示、玩法说明与叙事内容，并保持简洁自然的游戏英语。",
+  "style_guide": "sg.md",
+  "terminology": "terms_en.json",
+  "checks": "checks.json",
+  "confirmed_rules": "confirmed_rules.md",
+  "wordcount_basis": "target-words",
+  "threshold": 98,
+  "protected_term_statuses": []
+}

@@ -1443,6 +1443,58 @@ class CorrectedOwnershipOutputTests(unittest.TestCase):
         self.assertIn("corrected", result.stderr)
         self.assertEqual(output.read_bytes(), b"existing output")
 
+    def test_export_verifies_confirmed_term_edit_with_chunk_context(self):
+        segments = [
+            {"id": 0, "row_index": 0, "source": "世界", "target": "World"}
+        ]
+        issue = check_issue(
+            category="Terminology",
+            severity="Major",
+            comment="Use the confirmed project term.",
+            edit=replacement(
+                "World",
+                "Realm",
+                evidence=confirmed_evidence("世界", "Realm"),
+            ),
+        )
+        state, errors, output = self.make_export_fixture(
+            "confirmed-term-export",
+            segments,
+            [{"id": 0, "errors": [issue], "corrected": "Realm"}],
+        )
+        chunks = state.parent / "chunks"
+        chunks.mkdir()
+        write_json(
+            chunks / "chunk_00.json",
+            {
+                "chunk_id": 0,
+                "segments": [
+                    {
+                        **segments[0],
+                        "kind": "name",
+                        "term_hits": [
+                            {
+                                "source": "世界",
+                                "target": "Realm",
+                                "confirmed": True,
+                                "protected": False,
+                            }
+                        ],
+                        "protected_texts": [],
+                    }
+                ],
+            },
+        )
+
+        result = self.run_io("export", "--state", state, "--errors", errors)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        workbook = openpyxl.load_workbook(output, data_only=False)
+        try:
+            self.assertEqual(workbook.active["B2"].value, "Realm")
+        finally:
+            workbook.close()
+
     def test_export_requires_exact_result_id_coverage_before_touching_output(self):
         segments = [
             {"id": 0, "row_index": 0, "source": "one", "target": "one"},

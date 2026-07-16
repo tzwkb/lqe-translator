@@ -125,6 +125,27 @@ python "$SCRIPTS/lqe_io.py" read \
 
 本节只适用于标准模式；无术语模式不读取或使用术语条目。
 
+原始术语表没有 `confirmed`、`approved`、`status` 等明确确认字段，且项目资料没有提供“哪些状态等于已确认”的映射时，**必须在初始化前询问用户**如何处理。不得根据文件名、工作表名或“通常如此”自行决定；**不得默认全部已确认，也不得默认全部未确认**。在用户回答前，不生成正式 `terms_*.json`、不运行术语预检、不评分。
+
+询问时明确给出三种处理口径：
+
+1. 整份术语表视为已确认；唯一译法写 `confirmed: true`，多译词保留候选并按语境判断。
+2. 整份术语表仅作未确认参考；写 `confirmed: false`。
+3. 用户提供逐行规则或状态映射后再转换。
+
+<pre data-lqe-term-confirmation-contract>
+{
+  "trigger": "terminology has no explicit confirmation field or confirmed-status mapping",
+  "required_action": "ask_user_before_initialization",
+  "forbidden_defaults": ["all_confirmed", "all_unconfirmed"],
+  "choices": [
+    "treat_entire_glossary_as_confirmed",
+    "treat_as_unconfirmed_reference",
+    "provide_row_or_status_mapping"
+  ]
+}
+</pre>
+
 术语条目或多义候选必须显式带：
 
 ```json
@@ -133,7 +154,7 @@ python "$SCRIPTS/lqe_io.py" read \
 
 - `confirmed: true`：客户已经确认该译法；匹配证据完整时允许安全局部修改。
 - `protected: true`：不可修改。
-- 缺失的两个字段按 `false` 处理；不要根据 `status` 自行推断 `confirmed`。
+- 完成上述用户确认后，转换结果必须显式写出两个字段；不得依赖缺失字段的隐式默认值，也不要根据未映射的 `status` 自行推断 `confirmed`。
 - profile 的 `protected_term_statuses` 只负责把明确列出的状态映射为 `protected: true`。
 
 ## 4. TM 100% 匹配保护
@@ -191,6 +212,8 @@ python "$SCRIPTS/lqe_io.py" pre-check \
 ## 6. 检查模块
 
 大文件按模块并行检查；小文件也使用同一协议。模块说明位于：
+
+流程要求 subagent 并行检查时，如果因并发上限、权限、工具不可用或运行环境限制而无法启用，**必须主动询问用户**如何处理；**不得静默回退**为主 Agent 单跑、跳过模块、缩小覆盖范围或降低检查标准。用户明确同意替代方案后才能继续。
 
 ```text
 docs/check_modules/common.md

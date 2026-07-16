@@ -1,0 +1,70 @@
+[
+ {
+  "source": "天师",
+  "senses": [
+   {
+    "target": "Grandmaster",
+    "category": "",
+    "confirmed": true,
+    "protected": false
+   },
+   {
+    "target": "The Grandmaster",
+    "category": "",
+    "confirmed": true,
+    "protected": false
+   }
+  ]
+ },
+ {
+  "source": "级",
+  "senses": [
+   {
+    "target": "Lv.",
+    "category": "",
+    "confirmed": true,
+    "protected": false
+   },
+   {
+    "target": "Level",
+    "category": "",
+    "confirmed": true,
+    "protected": false
+   }
+  ]
+ },
+ {
+  "source": "目标",
+  "senses": [
+   {
+    "target": "Objective",
+    "category": "",
+    "confirmed": true,
+    "protected": false
+   },
+   {
+    "target": "Target",
+    "category": "",
+    "confirmed": true,
+    "protected": false
+   }
+  ]
+ },
+ {
+  "source": "院长",
+  "senses": [
+   {
+    "target": "director",
+    "category": "",
+    "confirmed": true,
+    "protected": false
+   },
+   {
+    "target": "Director",
+    "category": "",
+    "confirmed": true,
+    "protected": false
+   }
+  ]
+ }
+]

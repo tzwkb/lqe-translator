@@ -2012,7 +2012,7 @@ def _build_xlsx(
         else 22
     )
     scorecard_widths = [
-        filename_width, 8, 45 if is_sdlxliff_report else 35, 45, 45,
+        filename_width, 8, 80, 80, 80,
         14, 22, 10, 10, 45, 12, 12, 45,
     ]
     for column, width in enumerate(scorecard_widths, start=1):
@@ -2083,8 +2083,13 @@ def _build_xlsx(
 
     ws2_headers = report_headers + ["建议译文", "处理方式", "错误详情", "LQE_Iter", "Protected", "Protection Evidence"]
     results_widths = []
+    source_header = state.get("source_col")
     for header in ws2_headers:
-        if header in {"原文", "原译", "建议译文", "错误详情", "Protection Evidence"}:
+        if header in {"原文", "原译", "建议译文", source_header}:
+            width = 80
+        elif header == "错误详情":
+            width = 80
+        elif header == "Protection Evidence":
             width = 45
         elif is_sdlxliff_report and header == "来源文件":
             width = 35
@@ -2287,10 +2292,35 @@ def _export_sdlxliff_xlsx(
     return out_path
 
 
+def _verification_segments(state_path: Path, state: dict) -> list[dict]:
+    segments = state["segments"]
+    by_id = {segment["id"]: segment for segment in segments}
+    chunks_dir = state_path.parent / "chunks"
+    for chunk_path in sorted(chunks_dir.glob("chunk_[0-9][0-9].json")):
+        chunk = read_json(chunk_path)
+        for context in chunk.get("segments", []):
+            segment = by_id.get(context.get("id"))
+            if segment is None:
+                continue
+            if context.get("source") != segment.get("source") or context.get(
+                "target"
+            ) != segment.get("target"):
+                raise CheckFormatError(
+                    f"{chunk_path}: segment {segment['id']} differs from state"
+                )
+            for key in ("kind", "term_hits", "protected_texts"):
+                if key in context:
+                    segment[key] = context[key]
+    return segments
+
+
 def cmd_export(args):
     state_path = Path(args.state)
     state = read_json(state_path)
-    segments = state["segments"]
+    try:
+        segments = _verification_segments(state_path, state)
+    except CheckFormatError as exc:
+        sys.exit(f"[export] {exc}")
     seg_map = {s["id"]: s for s in segments}
     result_entries = {
         segment["id"]: {

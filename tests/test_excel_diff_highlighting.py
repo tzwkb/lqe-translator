@@ -481,6 +481,51 @@ class RichDiffReportTests(unittest.TestCase):
             lqe_io._build_xlsx(state, history, 99, 98, output)
         self.assertFalse(output.exists())
 
+    def test_report_generation_accommodates_long_wrapped_legal_copy(self):
+        output = self.root / "long-legal-copy_lqe.xlsx"
+        paragraph = (
+            "This paragraph contains detailed age-rating, privacy, payment, "
+            "and account-management information for players and guardians."
+        )
+        target = "\n".join(f"({index}) {paragraph}" for index in range(1, 10))
+        state = {
+            "input_path": str(self.root / "long-legal-copy.xlsx"),
+            "headers": ["##var", "keyword", "_explanation", "ZH", "EN"],
+            "rows_raw": [["", "legal_copy", "", "合规说明" * 80, target]],
+            "source_col": "ZH",
+            "target_col": "EN",
+            "segments": [
+                {"id": 0, "source": "合规说明" * 80, "target": target, "kind": "desc"},
+            ],
+            "wordcount": 120,
+        }
+        issues = []
+        for index in range(8):
+            current_issue = issue()
+            current_issue["comment"] = (
+                f"Glossary candidate {index} needs a contextual terminology review."
+            )
+            issues.append(current_issue)
+        history = [{
+            "iteration": 0,
+            "errors": [{"id": 0, "errors": issues, "corrected": None}],
+        }]
+
+        lqe_io._build_xlsx(state, history, 99, 98, output)
+
+        workbook = openpyxl.load_workbook(output)
+        try:
+            self.assertLessEqual(
+                max(
+                    row.height or 0
+                    for sheet in (workbook["LQA Scorecard"], workbook["LQE Results"])
+                    for row in sheet.row_dimensions.values()
+                ),
+                409,
+            )
+        finally:
+            workbook.close()
+
     def test_results_error_details_reject_rows_above_excel_height_limit(self):
         output = self.root / "too-many-errors_lqe.xlsx"
         state = {

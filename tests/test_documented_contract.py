@@ -36,6 +36,16 @@ EXPECTED_SCOPE_CONTRACT = {
     },
     "kept_checks": ["file-wide consistency", "Markup", "numeric checks"],
 }
+EXPECTED_TERM_CONFIRMATION_CONTRACT = {
+    "trigger": "terminology has no explicit confirmation field or confirmed-status mapping",
+    "required_action": "ask_user_before_initialization",
+    "forbidden_defaults": ["all_confirmed", "all_unconfirmed"],
+    "choices": [
+        "treat_entire_glossary_as_confirmed",
+        "treat_as_unconfirmed_reference",
+        "provide_row_or_status_mapping",
+    ],
+}
 
 
 def scope_contract_blocks(content: str) -> list[str]:
@@ -51,6 +61,20 @@ def parse_scope_contract(content: str) -> dict:
     if len(blocks) != 1:
         raise AssertionError(
             f"expected one visible data-lqe-scope-contract block, found {len(blocks)}"
+        )
+    return json.loads(html.unescape(blocks[0]))
+
+
+def parse_term_confirmation_contract(content: str) -> dict:
+    blocks = re.findall(
+        r"<pre(?=[^>]*\bdata-lqe-term-confirmation-contract\b)[^>]*>(.*?)</pre>",
+        content,
+        re.DOTALL,
+    )
+    if len(blocks) != 1:
+        raise AssertionError(
+            "expected one visible data-lqe-term-confirmation-contract block, "
+            f"found {len(blocks)}"
         )
     return json.loads(html.unescape(blocks[0]))
 
@@ -119,6 +143,21 @@ class DocumentedContractTests(unittest.TestCase):
             with self.subTest(path=path):
                 content = (ROOT / path).read_text(encoding="utf-8")
                 self.assertEqual(len(scope_contract_blocks(content)), 1)
+
+    def test_skill_requires_user_decision_when_term_confirmation_is_absent(self):
+        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        self.assertEqual(
+            parse_term_confirmation_contract(skill),
+            EXPECTED_TERM_CONFIRMATION_CONTRACT,
+        )
+        self.assertIn("必须在初始化前询问用户", skill)
+        self.assertIn("不得默认全部已确认，也不得默认全部未确认", skill)
+
+    def test_skill_requires_escalation_when_subagents_are_blocked(self):
+        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("流程要求 subagent", skill)
+        self.assertIn("必须主动询问用户", skill)
+        self.assertIn("不得静默回退", skill)
 
     def test_run_tests_t25_invokes_required_regression_suites(self):
         runner = load_test_runner()
