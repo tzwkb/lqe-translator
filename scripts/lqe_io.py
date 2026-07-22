@@ -19,7 +19,7 @@ import re
 import sys
 import tempfile
 import unicodedata
-from copy import copy
+from copy import copy, deepcopy
 from datetime import date
 from pathlib import Path
 
@@ -33,10 +33,13 @@ from lqe_engine import (
     CATEGORY_ORDER as _ALL_CATS, CATEGORY_PARENT as _PARENT,
     VALID_CATEGORIES as _VALID_CATEGORIES, VALID_SEVERITIES as _VALID_SEVERITIES,
     apply_severity, build_check_scope, get_check_scope,
+    current_target,
     load_terms as _load_terms, group_terms as _group_terms,
+    requires_bound_artifacts,
     raw_points, weighted_points,
     load_scorecard_profile, normalize_category_for_profile, scorecard_category_order,
     scorecard_category_parent, scorecard_category_weight,
+    scorecard_severity_points,
     language_tags_match, normalize_language_tag,
     resolve_language_assets,
     validate_scope_entries,
@@ -53,14 +56,31 @@ from lqe_inputs.sdlxliff import (
     validate_options as validate_sdlxliff_options,
 )
 from lqe_excel_diff import build_rich_diff
-
-
-def _write_json_atomic(path: Path, value: object) -> None:
-    staging = _stage_json_replacement(path, value)
-    try:
-        os.replace(staging, path)
-    finally:
-        staging.unlink(missing_ok=True)
+from lqe_paths import (
+    file_sha256,
+    paths_alias as _paths_alias,
+    publish_replacement_transaction,
+    state_reference_paths,
+    validate_artifact_paths,
+    write_json_atomic,
+)
+from lqe_terms import canonicalize_terms, load_canonical_terminology
+from lqe_scoring import (
+    resolve_scoring_policy,
+    score_errors,
+    scoring_policy_overrides,
+)
+from lqe_report_contract import attach_report_contract
+from lqe_provenance import (
+    AUDIT_HEADER_BASES,
+    issue_detail,
+    issue_review_columns as _issue_review_columns,
+)
+from lqe_result_contract import (
+    build_result_contract,
+    result_contract_path,
+    validate_result_contract,
+)
 
 
 def _validate_scope_or_exit(
@@ -93,48 +113,29 @@ def _processing_label(entry: dict) -> str:
     return "无需修改"
 
 
+def _issue_processing_label(
+    issue: dict | None,
+    entry: dict,
+    *,
+    protected: bool,
+) -> str:
+    if protected or (issue is not None and issue.get("protected")):
+        return "已保护，不修改"
+    if issue is None:
+        return _processing_label(entry)
+    if not isinstance(issue.get("review_provenance"), dict):
+        return _processing_label(entry)
+    if issue.get("needs_confirmation"):
+        return "需要人工确认"
+    if issue.get("edit") is not None and entry.get("corrected") is not None:
+        return "建议修改"
+    return "仅提醒"
+
+
 # ── read ──────────────────────────────────────────────────────────────────────
 
-_SRC_KEYS = {"source", "zh", "src", "原文", "中文_cn", "中文", "chinese", "chinese_prc", "zh_cn", "zh-cn", "简中", "中文简体", "source text"}
-_TGT_KEYS = {"target", "en", "tgt", "译文", "en_us", "english", "翻译", "英文", "thai", "th", "泰语", "泰文", "target text"}
-_ZW_TABLE = {ord(c): None for c in "​‌‍﻿"}
-
-
-def _clean_term_sense(raw: dict) -> dict | None:
-    target = str(raw.get("target", "")).translate(_ZW_TABLE).strip()
-    if not target:
-        return None
-    sense = {"target": target}
-    for key in ("status", "category", "definition"):
-        value = raw.get(key)
-        if value is not None and str(value).strip():
-            sense[key] = str(value).strip()
-    sense["confirmed"] = raw.get("confirmed") is True
-    sense["protected"] = raw.get("protected") is True
-    return sense
-
-
 def _clean_terms(items: list) -> list:
-    out = []
-    for t in items:
-        s = str(t.get("source", "")).translate(_ZW_TABLE).strip()
-        if not s:
-            continue
-        if "senses" in t:
-            senses = [
-                clean
-                for raw in t["senses"]
-                if isinstance(raw, dict)
-                for clean in [_clean_term_sense(raw)]
-                if clean is not None
-            ]
-            if senses:
-                out.append({"source": s, "senses": senses})
-            continue
-        sense = _clean_term_sense(t)
-        if sense is not None:
-            out.append({"source": s, **sense})
-    return out
+    return canonicalize_terms(items)
 _MAXLEN_KEYS = {"maxlen", "max_len", "max length", "maxlength", "max_length",
                 "char_limit", "charlimit", "limit", "width", "ui_max",
                 "限长", "字符上限", "长度上限", "字数上限"}
@@ -150,13 +151,6 @@ def _parse_maxlen(val) -> int | None:
         return None
 
 
-def _pick_col(keys: list, candidates: set) -> str | None:
-    for k in keys:
-        if k and k.strip().lower() in candidates:
-            return k
-    return None
-
-
 def _job_label(state_path) -> str:
     """输出文件名前缀：标注产物来自哪个任务。取 jobs/ 下的子路径用 _ 连接
     （如 jobs/LQE测试用/剧情/ → 'LQE测试用_剧情'），否则退回 job 目录名。
@@ -170,54 +164,17 @@ def _job_label(state_path) -> str:
     return d.name
 
 
-def _load_terminology(path: str) -> list:
-    p = Path(path)
-    if not p.exists():
-        print(f"[warn] terminology file not found: {path}", file=sys.stderr)
-        return []
-    suffix = p.suffix.lower()
-
-    if suffix == ".json":
-        data = read_json(p)
-        return _clean_terms(data if isinstance(data, list) else data.get("items", []))
-
-    if suffix in (".csv", ".tsv"):
-        delim = "\t" if suffix == ".tsv" else ","
-        raw = p.read_bytes().decode("utf-8-sig")
-        reader = csv.DictReader(io.StringIO(raw), delimiter=delim)
-        rows = list(reader)
-        if not rows:
-            return []
-        keys = [k for k in rows[0].keys() if k is not None]
-        src_key = _pick_col(keys, _SRC_KEYS) or keys[0]
-        tgt_key = _pick_col(keys, _TGT_KEYS) or (keys[1] if len(keys) > 1 else keys[0])
-        return _clean_terms([{"source": r.get(src_key, ""), "target": r.get(tgt_key, "")} for r in rows if r.get(src_key)])
-
-    if suffix in (".xlsx", ".xls"):
-        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
-        try:
-            ws = wb.active
-            raw_headers = [cell.value for cell in next(ws.iter_rows(min_row=1, max_row=1))]
-            keys = [str(h).strip() if h is not None else None for h in raw_headers]
-            src_key = _pick_col([k for k in keys if k], _SRC_KEYS) or (keys[0] if keys else None)
-            tgt_key = _pick_col([k for k in keys if k], _TGT_KEYS) or (keys[1] if len(keys) > 1 else None)
-            if not src_key or not tgt_key:
-                print(f"[warn] cannot detect source/target columns in {path}, headers={keys}", file=sys.stderr)
-                return []
-            si = keys.index(src_key)
-            ti = keys.index(tgt_key)
-            result = []
-            for row in ws.iter_rows(min_row=2, values_only=True):
-                src_val = row[si] if si < len(row) else None
-                tgt_val = row[ti] if ti < len(row) else None
-                if src_val:
-                    result.append({"source": str(src_val), "target": str(tgt_val or "")})
-        finally:
-            wb.close()
-        return _clean_terms(result)
-
-    print(f"[warn] unsupported terminology format: {suffix}", file=sys.stderr)
-    return []
+def _load_terminology(
+    path: str,
+    *,
+    term_status_map: object = None,
+    protected_statuses: object = None,
+) -> list:
+    return load_canonical_terminology(
+        Path(path),
+        term_status_map=term_status_map,
+        protected_statuses=protected_statuses,
+    )
 
 
 def _load_project(name_or_path: str) -> dict:
@@ -233,6 +190,7 @@ def _load_project(name_or_path: str) -> dict:
         sys.exit(1)
     prof = read_json(p)
     prof["_dir"] = str(p.parent.resolve())
+    prof["_path"] = str(p.resolve())
     return prof
 
 
@@ -243,6 +201,28 @@ def _validate_project_profile(prof: dict):
         print("[ERROR] project profile must define language_pair, source_lang, and target_lang; "
               f"missing: {', '.join(missing)}", file=sys.stderr)
         sys.exit(1)
+    protected_statuses = prof.get("protected_term_statuses")
+    if "protected_term_statuses" in prof and (
+        not isinstance(protected_statuses, list)
+        or any(
+            not isinstance(value, str) or not value.strip()
+            for value in protected_statuses
+        )
+    ):
+        print(
+            "[ERROR] project profile protected_term_statuses must be an "
+            "array of non-empty strings",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if "scoring_policy" in prof and not isinstance(
+        prof["scoring_policy"], dict
+    ):
+        print(
+            "[ERROR] project profile scoring_policy must be an object",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 def _project_path(prof: dict, val: str) -> str:
@@ -250,6 +230,22 @@ def _project_path(prof: dict, val: str) -> str:
         return ""
     q = Path(val)
     return str(q if q.is_absolute() else Path(prof["_dir"]) / q)
+
+
+def _profile_reference_paths(prof: dict | None) -> dict[str, Path]:
+    if not prof:
+        return {}
+    references = {"--project": Path(prof["_path"])}
+    for field in ("style_guide", "terminology", "checks", "confirmed_rules"):
+        value = prof.get(field)
+        if isinstance(value, str) and value.strip():
+            references[f"project.{field}"] = Path(_project_path(prof, value))
+    confirmed = references.get("project.confirmed_rules")
+    if confirmed is not None:
+        references["project.common_confirmed_rules"] = (
+            confirmed.parent.parent / "common" / "confirmed_rules_common.md"
+        )
+    return references
 
 
 def _load_style_guide(path: str) -> str:
@@ -364,37 +360,32 @@ def _prepare_read_assets(
 
     terms_path = ""
     if args.terminology:
-        protected_statuses = {
-            str(status).lower()
-            for status in (prof.get("protected_term_statuses") or [])
-        } if prof else set()
-        src = Path(args.terminology)
-        if prof and src.suffix.lower() == ".json" and not protected_statuses and src.exists():
-            terms_path = str(src)
-            print(f"[lqe_io] terminology: 引用项目 TB（不复制）→ {src}")
-        else:
-            terms = _load_terminology(args.terminology)
-            if terms and protected_statuses:
-                n_protected = 0
-                for term in terms:
-                    for sense in term.get("senses", [term]):
-                        if str(sense.get("status", "")).lower() in protected_statuses:
-                            sense["protected"] = True
-                            n_protected += 1
-                print(
-                    f"[lqe_io] protected term senses: {n_protected} "
-                    f"(protected_term_statuses: {sorted(protected_statuses)})"
-                )
-            if terms:
-                staged_file = write_dir / "terms.json"
-                published_file = final_dir / "terms.json"
-                staged_file.write_text(
-                    json.dumps(terms, ensure_ascii=False, indent=2), encoding="utf-8"
-                )
-                terms_path = str(published_file)
-                print(
-                    f"[lqe_io] terminology: {len(terms)} entries → {published_file}"
-                )
+        protected_statuses = (
+            prof.get("protected_term_statuses", []) if prof else []
+        )
+        terms = _load_terminology(
+            args.terminology,
+            term_status_map=prof.get("term_status_map") if prof else None,
+            protected_statuses=protected_statuses,
+        )
+        if terms:
+            n_protected = sum(
+                1
+                for term in terms
+                for sense in term.get("senses", [term])
+                if sense.get("protected") is True
+            )
+            if n_protected:
+                print(f"[lqe_io] protected term senses: {n_protected}")
+            staged_file = write_dir / "terms.json"
+            published_file = final_dir / "terms.json"
+            staged_file.write_text(
+                json.dumps(terms, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            terms_path = str(published_file)
+            print(
+                f"[lqe_io] terminology: {len(terms)} entries → {published_file}"
+            )
 
     requested_asset_lang = (
         _target_lang({"target_lang": getattr(args, "target_lang", None)})
@@ -490,6 +481,19 @@ def _prepare_read_assets(
                 f"{published_file}"
             )
 
+    profile_policy = dict((prof or {}).get("scoring_policy", {}))
+    for key in (
+        "scorecard_profile",
+        "severity_scale",
+        "critical_gate",
+        "repeat_dedup",
+    ):
+        if prof and key in prof and key not in profile_policy:
+            profile_policy[key] = prof[key]
+    if prof and "threshold" in prof and "threshold" not in profile_policy:
+        profile_policy["threshold"] = prof["threshold"]
+    scoring_policy = resolve_scoring_policy({}, profile_policy)
+
     return {
         "aipe_url": None,
         "check_scope": check_scope,
@@ -503,7 +507,8 @@ def _prepare_read_assets(
         "background_path": background_path,
         "checks_path": checks_path,
         "confirmed_rules_path": confirmed_rules_path,
-        "threshold": prof.get("threshold", 98) if prof else 98,
+        "threshold": scoring_policy["threshold"],
+        "scoring_policy": scoring_policy,
         "sg_path": sg_path,
         "terms_path": terms_path,
         "terminology": [],
@@ -573,33 +578,6 @@ def _validate_sdlxliff_languages(result, args, prof: dict | None) -> tuple[str, 
     return expected_source, expected_target
 
 
-def _file_identity(path: Path) -> tuple[int, int] | None:
-    try:
-        stat = path.lstat()
-    except FileNotFoundError:
-        return None
-    return stat.st_dev, stat.st_ino
-
-
-def _unlink_if_owned(path: Path, identity: tuple[int, int]) -> None:
-    if _file_identity(path) == identity:
-        path.unlink()
-
-
-def _publish_staged_file(source: Path, destination: Path) -> None:
-    identity = _file_identity(source)
-    if identity is None:
-        raise FileNotFoundError(f"staged artifact is missing: {source}")
-    try:
-        os.link(source, destination, follow_symlinks=False)
-        source.unlink()
-    except FileExistsError:
-        raise
-    except BaseException:
-        _unlink_if_owned(destination, identity)
-        raise
-
-
 def _publish_sdlxliff_job(
     state_path: Path,
     *,
@@ -666,20 +644,6 @@ def _publish_sdlxliff_job(
     }
     job_dir.mkdir(parents=True, exist_ok=True)
     staged: dict[str, Path] = {}
-    published: dict[Path, tuple[int, int]] = {}
-
-    def publish(source: Path, destination: Path) -> None:
-        identity = _file_identity(source)
-        if identity is None:
-            raise FileNotFoundError(f"staged artifact is missing: {source}")
-        published[destination] = identity
-        try:
-            _publish_staged_file(source, destination)
-        except FileExistsError as exc:
-            published.pop(destination, None)
-            raise FileExistsError(
-                f"SDLXLIFF job artifact appeared during publication: {destination}"
-            ) from exc
 
     try:
         for key, payload in serialized.items():
@@ -693,21 +657,25 @@ def _publish_sdlxliff_job(
             ) as handle:
                 staged[key] = Path(handle.name)
                 handle.write(payload)
-        for destination, source in sorted(
-            assets.items(), key=lambda item: str(item[0])
-        ):
-            publish(source, destination)
-        for key in ("manifest", "candidates", "scope"):
-            publish(staged[key], paths[key])
-        publish(staged["state"], paths["state"])
-    except BaseException:
-        for path, identity in reversed(list(published.items())):
-            _unlink_if_owned(path, identity)
-        raise
+        replacements = [
+            (source, destination)
+            for destination, source in sorted(
+                assets.items(), key=lambda item: str(item[0])
+            )
+        ]
+        replacements.extend(
+            (staged[key], paths[key])
+            for key in ("manifest", "candidates", "scope", "state")
+        )
+        try:
+            publish_replacement_transaction(replacements, overwrite=False)
+        except FileExistsError as exc:
+            raise FileExistsError(
+                "SDLXLIFF job artifact appeared during publication"
+            ) from exc
     finally:
         for path in staged.values():
-            if path.exists():
-                path.unlink()
+            path.unlink(missing_ok=True)
 
 
 def _read_sdlxliff_job(args, prof: dict | None, check_scope: dict) -> None:
@@ -780,6 +748,7 @@ def _read_sdlxliff_job(args, prof: dict | None, check_scope: dict) -> None:
             ],
         }
         state = {
+            "artifact_contract_version": 1,
             "input_format": "sdlxliff",
             "input_path": str(Path(args.input).resolve()),
             "input_paths": result.input_paths,
@@ -812,7 +781,7 @@ def _read_sdlxliff_job(args, prof: dict | None, check_scope: dict) -> None:
     )
 
 
-def cmd_read(args):
+def _cmd_read_locked(args):
     check_scope = build_check_scope(getattr(args, "no_terminology", False))
     out_path = Path(args.out)
     job_dir = out_path.parent
@@ -826,6 +795,25 @@ def cmd_read(args):
             file=sys.stderr,
         )
         sys.exit(2)
+    if _paths_alias(out_path, Path(args.input)):
+        print(
+            f"[ERROR] --out path conflicts with --input: {args.input}",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    generated_asset_names = {
+        "sg.txt",
+        "terms.json",
+        "lang_notes.md",
+        "background.md",
+        "confirmed_rules.md",
+    }
+    if out_path.name.casefold() in generated_asset_names:
+        print(
+            f"[ERROR] --out path conflicts with generated asset: {out_path.name}",
+            file=sys.stderr,
+        )
+        sys.exit(2)
     try:
         input_format = detect_input_format(
             Path(args.input), getattr(args, "input_format", "auto")
@@ -833,6 +821,16 @@ def cmd_read(args):
     except ValueError as exc:
         print(f"[ERROR] {exc}", file=sys.stderr)
         sys.exit(1)
+    if input_format == "sdlxliff" and out_path.name.casefold() in {
+        "source_manifest.json",
+        "tm_candidates.json",
+        "scope.json",
+    }:
+        print(
+            f"[ERROR] SDLXLIFF --out path conflicts with reserved helper artifact: {out_path}",
+            file=sys.stderr,
+        )
+        sys.exit(2)
     prof = _load_project(args.project) if getattr(args, "project", None) else None
     if prof:
         _validate_project_profile(prof)
@@ -844,6 +842,40 @@ def cmd_read(args):
             elif not args.terminology:
                 args.terminology = _project_path(prof, prof["terminology"])
         print(f"[lqe_io] project: {prof.get('name', '?')} ({prof.get('language_pair', '?')})")
+
+    protected_inputs = {
+        "--input": Path(args.input),
+        **_profile_reference_paths(prof),
+    }
+    if args.style_guide:
+        protected_inputs["--style-guide"] = Path(args.style_guide)
+    if args.terminology:
+        protected_inputs["--terminology"] = Path(args.terminology)
+    planned_outputs = {
+        "state": out_path,
+        "scope": scope_path,
+        "style guide copy": job_dir / "sg.txt",
+        "terminology copy": job_dir / "terms.json",
+        "language notes copy": job_dir / "lang_notes.md",
+        "background copy": job_dir / "background.md",
+        "confirmed rules copy": job_dir / "confirmed_rules.md",
+    }
+    if input_format == "sdlxliff":
+        planned_outputs.update(
+            {
+                "source manifest": job_dir / "source_manifest.json",
+                "TM candidates": job_dir / "tm_candidates.json",
+            }
+        )
+    try:
+        validate_artifact_paths(
+            planned_outputs,
+            protected_inputs,
+            context="read",
+        )
+    except ValueError as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        sys.exit(2)
 
     if input_format == "sdlxliff":
         try:
@@ -868,6 +900,7 @@ def cmd_read(args):
 
     no_header = getattr(args, "no_header", False)
     input_path = Path(args.input)
+    input_sha256 = file_sha256(input_path)
     suffix = input_path.suffix.lower()
 
     if suffix in (".csv", ".tsv"):
@@ -975,29 +1008,94 @@ def cmd_read(args):
         or _source_lang(prof if prof else {})
     lang = _target_lang({"target_lang": getattr(args, "target_lang", None)}) \
         or _target_lang(prof if prof else {})
-    common = _prepare_read_assets(
-        args,
-        prof,
-        check_scope,
-        segments,
-        source_lang,
-        lang,
+    try:
+        job_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(
+            dir=job_dir, prefix=".read-assets."
+        ) as asset_staging_dir:
+            staging_dir = Path(asset_staging_dir)
+            common = _prepare_read_assets(
+                args,
+                prof,
+                check_scope,
+                segments,
+                source_lang,
+                lang,
+                asset_dir=staging_dir,
+                publish_dir=job_dir,
+            )
+
+            state = {
+                "artifact_contract_version": 1,
+                "input_format": "tabular",
+                "input_path": str(Path(args.input).resolve()),
+                "input_sha256": input_sha256,
+                "no_header": bool(no_header),
+                "source_col": args.source_col,
+                "target_col": args.target_col,
+                "headers": headers,
+                "rows_raw": rows_raw,
+                "text_type_markers": text_type_markers,
+                **common,
+                "segments": segments,
+            }
+            staged_scope = staging_dir / "scope.json"
+            staged_state = staging_dir / out_path.name
+            staged_scope.write_text(
+                json.dumps(check_scope, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            staged_state.write_text(
+                json.dumps(state, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            asset_replacements = [
+                (path, job_dir / path.name)
+                for path in staging_dir.iterdir()
+                if path.is_file() and path not in {staged_scope, staged_state}
+            ]
+            input_paths = [Path(args.input)]
+            for configured in (args.style_guide, args.terminology):
+                if configured:
+                    input_paths.append(Path(configured))
+            for _, destination in asset_replacements:
+                for input_source in input_paths:
+                    if _paths_alias(destination, input_source):
+                        raise ValueError(
+                            "generated job asset conflicts with input: "
+                            f"{destination} == {input_source}"
+                        )
+            if file_sha256(input_path) != input_sha256:
+                raise ValueError(
+                    f"tabular input changed while it was being read: {input_path}"
+                )
+            publish_replacement_transaction(
+                [
+                    *sorted(asset_replacements, key=lambda item: str(item[1])),
+                    (staged_scope, scope_path),
+                    (staged_state, out_path),
+                ]
+            )
+    except (OSError, ValueError) as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        sys.exit(1)
+    print(
+        f"[lqe_io] {len(segments)} segments → {args.out}  "
+        f"wordcount={state['wordcount']}"
     )
 
-    state = {
-        "input_format": "tabular",
-        "input_path": str(Path(args.input).resolve()),
-        "source_col": args.source_col,
-        "target_col": args.target_col,
-        "headers": headers,
-        "rows_raw": rows_raw,
-        "text_type_markers": text_type_markers,
-        **common,
-        "segments": segments,
-    }
-    _write_json_atomic(scope_path, check_scope)
-    _write_json_atomic(out_path, state)
-    print(f"[lqe_io] {len(segments)} segments → {args.out}  wordcount={state['wordcount']}")
+
+def cmd_read(args):
+    from lqe_split_contract import generation_lock
+
+    state_path = Path(args.out)
+    job_dir = state_path.parent
+    read_lock_target = job_dir.parent / f"{job_dir.name}.lqe-read"
+    try:
+        with generation_lock(read_lock_target, exclusive=True):
+            _cmd_read_locked(args)
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"[read] {exc}") from exc
 
 # ── lookup-terms ──────────────────────────────────────────────────────────────
 
@@ -1060,22 +1158,6 @@ def _protected_ids(args, *, allow_candidates: bool = False) -> set[int]:
                 if sid is not None:
                     ids.add(int(sid))
     return ids
-
-
-def _paths_alias(first: Path, second: Path) -> bool:
-    first = Path(first)
-    second = Path(second)
-    try:
-        if os.path.samefile(first, second):
-            return True
-    except (FileNotFoundError, OSError):
-        pass
-    if first.resolve() == second.resolve():
-        return True
-    return (
-        first.parent.resolve() == second.parent.resolve()
-        and first.name.casefold() == second.name.casefold()
-    )
 
 
 def _validated_tm_candidate_ids(
@@ -1160,31 +1242,52 @@ def _stage_json_replacement(path: Path, value: object) -> Path:
         raise
 
 
-def _restore_replaced_file(
-    path: Path,
-    published_identity: tuple[int, int],
-    original: bytes | None,
+def _assert_json_unchanged(path: Path, expected: object, *, label: str) -> None:
+    if read_json(path) != expected:
+        raise ValueError(f"{label} changed during artifact publication: {path}")
+
+
+def _stage_bound_result_replacements(
+    errors_path: Path,
+    errors_data: list[dict],
+    state: dict,
+    manifest: dict | None,
+) -> tuple[list[Path], list[tuple[Path, Path]]]:
+    staged_errors = _stage_json_replacement(errors_path, errors_data)
+    staged = [staged_errors]
+    replacements = [(staged_errors, errors_path)]
+    if requires_bound_artifacts(state):
+        if manifest is None:
+            staged_errors.unlink(missing_ok=True)
+            raise ValueError("bound result publication requires a generation")
+        contract_path = result_contract_path(errors_path)
+        staged_contract = _stage_json_replacement(
+            contract_path,
+            build_result_contract(manifest, errors_data),
+        )
+        staged.append(staged_contract)
+        replacements.append((staged_contract, contract_path))
+    return staged, replacements
+
+
+def _publish_bound_result_update(
+    errors_path: Path,
+    errors_data: list[dict],
+    state: dict,
+    manifest: dict | None,
 ) -> None:
-    if _file_identity(path) != published_identity:
-        return
-    if original is None:
-        path.unlink()
-        return
-    staged = None
+    staged: list[Path] = []
     try:
-        with tempfile.NamedTemporaryFile(
-            mode="wb",
-            dir=path.parent,
-            prefix=f".{path.name}.restore.",
-            suffix=".tmp",
-            delete=False,
-        ) as handle:
-            staged = Path(handle.name)
-            handle.write(original)
-        os.replace(staged, path)
+        staged, replacements = _stage_bound_result_replacements(
+            errors_path,
+            errors_data,
+            state,
+            manifest,
+        )
+        publish_replacement_transaction(replacements)
     finally:
-        if staged is not None and staged.exists():
-            staged.unlink()
+        for path in staged:
+            path.unlink(missing_ok=True)
 
 
 def _publish_protection_transaction(
@@ -1193,40 +1296,20 @@ def _publish_protection_transaction(
     output_path: Path,
     payload: dict,
 ) -> None:
-    if os.path.lexists(output_path) and (
-        output_path.is_symlink() or not output_path.is_file()
-    ):
-        raise ValueError(
-            f"protection output must be a regular file: {output_path}"
-        )
-    originals = {
-        output_path: output_path.read_bytes() if output_path.exists() else None,
-        state_path: state_path.read_bytes(),
-    }
-    staged: dict[Path, Path] = {}
-    published: dict[Path, tuple[int, int]] = {}
+    staged: list[Path] = []
     try:
-        staged[output_path] = _stage_json_replacement(output_path, payload)
-        staged[state_path] = _stage_json_replacement(state_path, state)
-        for destination in (output_path, state_path):
-            source = staged[destination]
-            identity = _file_identity(source)
-            if identity is None:
-                raise FileNotFoundError(f"staged artifact is missing: {source}")
-            published[destination] = identity
-            os.replace(source, destination)
-    except BaseException:
-        for destination in (state_path, output_path):
-            identity = published.get(destination)
-            if identity is not None:
-                _restore_replaced_file(
-                    destination, identity, originals[destination]
-                )
-        raise
+        staged_output = _stage_json_replacement(output_path, payload)
+        staged_state = _stage_json_replacement(state_path, state)
+        staged.extend((staged_output, staged_state))
+        publish_replacement_transaction(
+            [
+                (staged_output, output_path),
+                (staged_state, state_path),
+            ]
+        )
     finally:
-        for path in staged.values():
-            if path.exists():
-                path.unlink()
+        for path in staged:
+            path.unlink(missing_ok=True)
 
 
 def _publish_write_transaction(
@@ -1238,51 +1321,31 @@ def _publish_write_transaction(
     staged_output: Path,
     *,
     publish_errors: bool,
+    manifest: dict | None,
 ) -> None:
-    destinations = [state_path, output_path]
-    if publish_errors:
-        destinations.insert(0, errors_path)
-    if len(set(destinations)) != len(destinations):
-        raise ValueError("write transaction destinations must be distinct")
-    for destination in destinations:
-        if os.path.lexists(destination) and (
-            destination.is_symlink() or not destination.is_file()
-        ):
-            raise ValueError(
-                f"write transaction destination must be a regular file: {destination}"
-            )
-    originals = {
-        destination: destination.read_bytes() if destination.exists() else None
-        for destination in destinations
-    }
-    staged: dict[Path, Path] = {output_path: staged_output}
-    published: dict[Path, tuple[int, int]] = {}
+    staged: list[Path] = [staged_output]
     try:
+        replacements = []
         if publish_errors:
-            staged[errors_path] = _stage_json_replacement(
+            result_staged, result_replacements = _stage_bound_result_replacements(
                 errors_path,
                 errors_data,
+                state,
+                manifest,
             )
-        staged[state_path] = _stage_json_replacement(state_path, state)
-        for destination in destinations:
-            source = staged[destination]
-            identity = _file_identity(source)
-            if identity is None:
-                raise FileNotFoundError(f"staged artifact is missing: {source}")
-            published[destination] = identity
-            os.replace(source, destination)
-    except BaseException:
-        for destination in reversed(destinations):
-            identity = published.get(destination)
-            if identity is not None:
-                _restore_replaced_file(
-                    destination,
-                    identity,
-                    originals[destination],
-                )
-        raise
+            staged.extend(result_staged)
+            replacements.extend(result_replacements)
+        staged_state = _stage_json_replacement(state_path, state)
+        staged.append(staged_state)
+        replacements.extend(
+            [
+                (staged_output, output_path),
+                (staged_state, state_path),
+            ]
+        )
+        publish_replacement_transaction(replacements)
     finally:
-        for path in staged.values():
+        for path in staged:
             path.unlink(missing_ok=True)
 
 
@@ -1290,16 +1353,25 @@ def _scrub_protected_entries(errors_data: list, protected_ids: set[int]) -> int:
     changed = 0
     for entry in errors_data:
         if entry.get("id") in protected_ids:
-            if entry.get("errors") or entry.get("corrected"):
+            if entry.get("errors") or entry.get("corrected") is not None:
                 changed += len(entry.get("errors", [])) or 1
             entry["errors"] = []
             entry["corrected"] = None
     return changed
 
 
-def cmd_protect_segments(args):
-    state_path = Path(args.state).resolve()
-    state = read_json(state_path)
+def _correction_candidates(errors_data: list[dict]) -> dict[int, str]:
+    return {
+        entry["id"]: entry["corrected"]
+        for entry in errors_data
+        if entry.get("corrected") is not None
+        and not any(
+            error.get("protected") for error in (entry.get("errors") or [])
+        )
+    }
+
+
+def _cmd_protect_segments_locked(args, state_path: Path, state: dict):
     protected_file = getattr(args, "protected_file", None)
     protected_payload = read_json(protected_file) if protected_file else None
     try:
@@ -1322,15 +1394,22 @@ def cmd_protect_segments(args):
         return
 
     out_path = Path(args.out) if args.out else state_path.parent / "tm_protected.json"
-    if _paths_alias(out_path, state_path):
-        raise SystemExit(
-            f"[protect-segments] output path conflicts with state: {out_path}"
+    try:
+        validate_artifact_paths(
+            {"protection decision": out_path},
+            {
+                "state": state_path,
+                **state_reference_paths(state),
+                **(
+                    {"protected file": Path(protected_file)}
+                    if protected_file
+                    else {}
+                ),
+            },
+            context="protect-segments",
         )
-    if protected_file and _paths_alias(out_path, Path(protected_file)):
-        raise SystemExit(
-            "[protect-segments] output path conflicts with protected input: "
-            f"{out_path}"
-        )
+    except ValueError as exc:
+        raise SystemExit(f"[protect-segments] {exc}") from exc
 
     seg_by_id = {s["id"]: s for s in state.get("segments", [])}
     valid = sorted(sid for sid in ids if sid in seg_by_id)
@@ -1340,6 +1419,9 @@ def cmd_protect_segments(args):
         seg["protected"] = True
         if seg.get("protected_reason") != "SOURCE_LOCKED":
             seg["protected_reason"] = args.reason
+        working_target = current_target(seg)
+        if working_target != seg.get("target", ""):
+            seg["current_target"] = working_target
         seg["corrected"] = None
 
     payload = {
@@ -1359,10 +1441,23 @@ def cmd_protect_segments(args):
         print(f"[protect-segments] ignored unknown ids: {unknown[:20]}")
 
 
-def cmd_build_results(args):
-    state = json.loads(Path(args.state).read_text(encoding="utf-8"))
+def cmd_protect_segments(args):
+    from lqe_split_contract import generation_lock
+
+    state_path = Path(args.state).resolve()
+    try:
+        with generation_lock(state_path.parent / "chunks", exclusive=True):
+            state = read_json(state_path)
+            _cmd_protect_segments_locked(args, state_path, state)
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"[protect-segments] {exc}") from exc
+
+
+def _cmd_build_results_locked(args, state_path: Path, state: dict):
+    checks_path = Path(args.checks)
+    out_path = Path(args.out)
     entries = normalize_check_entries(
-        json.loads(Path(args.checks).read_text(encoding="utf-8")),
+        json.loads(checks_path.read_text(encoding="utf-8")),
         label=args.checks,
     )
     _validate_scope_or_exit(
@@ -1372,7 +1467,7 @@ def cmd_build_results(args):
         label=Path(args.checks).name,
         command="build-results",
     )
-    segments = state["segments"]
+    segments = deepcopy(state["segments"])
     state_ids = {segment["id"] for segment in segments}
     check_ids = {entry["id"] for entry in entries}
     missing = sorted(state_ids - check_ids)
@@ -1383,15 +1478,48 @@ def cmd_build_results(args):
             f"missing={missing} extra={extra}"
         )
     results = build_results(segments, entries)
-    Path(args.out).write_text(
-        json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    if requires_bound_artifacts(state):
+        raise SystemExit(
+            "[build-results] unbound checks cannot publish into a current job; "
+            "use lqe_chunk.py merge"
+        )
+    try:
+        validate_artifact_paths(
+            {"results": out_path},
+            {
+                "state": state_path,
+                "checks": checks_path,
+                **state_reference_paths(state),
+            },
+            context="build-results",
+        )
+        write_json_atomic(out_path, results)
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"[build-results] {exc}") from exc
 
 
-def cmd_apply_fixes(args):
+def cmd_build_results(args):
+    from lqe_split_contract import generation_lock
+
     state_path = Path(args.state)
-    state = read_json(state_path)
+    try:
+        with generation_lock(state_path.parent / "chunks", exclusive=True):
+            state = read_json(state_path)
+            _cmd_build_results_locked(args, state_path, state)
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"[build-results] {exc}") from exc
+
+
+def _cmd_apply_fixes_locked(
+    args,
+    state_path: Path,
+    state: dict,
+    segments: list[dict],
+    manifest: dict | None,
+    revalidate,
+):
     errors_data = read_json(args.errors)
+    original_errors_data = deepcopy(errors_data)
     _validate_scope_or_exit(
         state,
         errors_data,
@@ -1400,91 +1528,240 @@ def cmd_apply_fixes(args):
         command="apply-fixes",
     )
     protected_ids = _protected_ids(args) | _state_protected_ids(state)
-    attempted_candidates = [
-        entry
-        for entry in errors_data
-        if entry.get("corrected")
-        and not any(
-            error.get("protected") for error in (entry.get("errors") or [])
-        )
-    ]
-    attempted = {
-        entry["id"]: entry["corrected"] for entry in attempted_candidates
-    }
+    raw_attempted = _correction_candidates(errors_data)
 
     scrubbed = _scrub_protected_entries(errors_data, protected_ids)
-    if scrubbed:
-        Path(args.errors).write_text(json.dumps(errors_data, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"[apply-fixes] scrubbed {scrubbed} protected-segment issue(s) from {args.errors}")
-    scorecard_profile = load_scorecard_profile(getattr(args, "scorecard_profile", "legacy"))
-
-    seg_ids = {s["id"] for s in state["segments"]}
+    try:
+        scoring_policy = resolve_scoring_policy(
+            state,
+            scoring_policy_overrides(args),
+        )
+    except (CheckFormatError, ValueError) as exc:
+        raise SystemExit(f"[apply-fixes] {exc}") from exc
+    scorecard_profile = load_scorecard_profile(
+        scoring_policy["scorecard_profile"]
+    )
+    seg_ids = {segment["id"] for segment in segments}
     issues = _validate_errors(errors_data, seg_ids, scorecard_profile)
     for msg in issues:
         print(f"[validate] {msg}")
+    try:
+        verified = _verify_result_payload_with_segments(
+            state,
+            segments,
+            manifest,
+            errors_data,
+            Path(args.errors),
+            command="apply-fixes",
+        )
+        computation = score_errors(
+            state,
+            verified,
+            scoring_policy,
+            protected_ids=protected_ids,
+        )
+    except (CheckFormatError, ValueError) as exc:
+        raise SystemExit(f"[apply-fixes] {exc}") from exc
+    errors_data = computation["annotated_errors"]
+    attempted = _correction_candidates(errors_data)
 
     corrections = {sid: text for sid, text in attempted.items() if sid not in protected_ids}
-    protected_reasons = {
-        segment["id"]: _protection_reason(segment, protected_ids)
-        for segment in state["segments"]
-    }
-    protection_evidence = {
-        segment["id"]: segment.get("protection_evidence")
-        for segment in state["segments"]
-    }
+    segment_by_id = {segment["id"]: segment for segment in state["segments"]}
     protected_skipped = [
         {
             "id": sid,
-            "reason": protected_reasons.get(sid, "TM_100_MATCH"),
-            "evidence": protection_evidence.get(sid),
+            "reason": _protection_reason(segment_by_id[sid], protected_ids),
+            "evidence": segment_by_id[sid].get("protection_evidence"),
             "attempted": text,
         }
-        for sid, text in attempted.items()
-        if sid in protected_ids
+        for sid, text in raw_attempted.items()
+        if sid in protected_ids and sid in segment_by_id
     ]
-    skipped = protected_skipped
-    if not corrections and not skipped:
+    if not corrections and not protected_skipped:
+        if scrubbed or computation["annotations_changed"]:
+            revalidate()
+            _assert_json_unchanged(
+                Path(args.errors),
+                original_errors_data,
+                label="errors input",
+            )
+            _publish_bound_result_update(
+                Path(args.errors),
+                errors_data,
+                state,
+                manifest,
+            )
+        if scrubbed:
+            print(
+                f"[apply-fixes] scrubbed {scrubbed} protected-segment "
+                f"issue(s) from {args.errors}"
+            )
         print("[lqe_io] apply-fixes: no corrections found, state unchanged.")
+        print(
+            json.dumps(
+                {"applied_count": 0, "lifecycle": "review_required"},
+                ensure_ascii=False,
+            )
+        )
         return
 
     cur_iter = state.get("iteration", 0)
     history = state.get("error_history", [])
+    score_result = computation["output"]
+    score = score_result["score"]
+    supplied_score = getattr(args, "score", None)
+    if supplied_score is not None and not math.isclose(
+        float(supplied_score), score, abs_tol=0.005
+    ):
+        print(
+            f"[apply-fixes] supplied score {float(supplied_score):g} differs "
+            f"from recomputed score {score:g}; using recomputed score",
+            file=sys.stderr,
+        )
     cur_entry = {
         "iteration": cur_iter,
-        "score": float(args.score) if getattr(args, "score", None) else None,
+        "score": score,
+        "status": score_result["status"],
         "errors": errors_data,
         "corrections_count": len(corrections),
         "protected_ids": sorted(protected_ids),
-        "skipped_corrections": skipped,
+        "skipped_corrections": protected_skipped,
     }
     history.append(cur_entry)
     state["error_history"] = history
 
-    next_iter = cur_iter + (1 if corrections or protected_skipped else 0)
+    next_iter = cur_iter + (1 if corrections else 0)
     for seg in state["segments"]:
         if seg["id"] in protected_ids:
             seg["protected"] = True
             if not seg.get("protected_reason"):
                 seg["protected_reason"] = "TM_100_MATCH"
+            working_target = current_target(seg)
+            if working_target != seg.get("target", ""):
+                seg["current_target"] = working_target
             seg["corrected"] = None
             continue
         if seg["id"] in corrections:
+            seg["current_target"] = corrections[seg["id"]]
             seg["corrected"] = corrections[seg["id"]]
             seg["iter"] = next_iter
 
     state["iteration"] = next_iter
-    state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    state["threshold"] = scoring_policy["threshold"]
+    state["scoring_policy"] = scoring_policy
+    state["pending_recheck"] = bool(corrections)
 
     archived = state_path.parent / f"errors_iter{cur_iter}.json"
-    archived.write_text(json.dumps(errors_data, ensure_ascii=False, indent=2), encoding="utf-8")
+    iter_out = state_path.parent / (_job_label(state_path) + f"_lqe_iter{cur_iter}.xlsx")
+    try:
+        validate_artifact_paths(
+            {
+                "iteration error archive": archived,
+                "iteration report": iter_out,
+            },
+            {
+                "state": state_path,
+                "errors": Path(args.errors),
+                **state_reference_paths(state),
+            },
+            context="apply-fixes",
+        )
+    except ValueError as exc:
+        raise SystemExit(f"[apply-fixes] {exc}") from exc
+    with tempfile.NamedTemporaryFile(
+        prefix=f".{iter_out.stem}.",
+        suffix=iter_out.suffix,
+        dir=iter_out.parent,
+        delete=False,
+    ) as staging_file:
+        staged_report = Path(staging_file.name)
+    staged_paths = []
+    try:
+        _build_xlsx(
+            state,
+            [cur_entry],
+            score,
+            scoring_policy["threshold"],
+            staged_report,
+            scoring_policy["scorecard_profile"],
+            announce=False,
+            scoring_policy=scoring_policy,
+            scoring_computation=computation,
+        )
+        replacements = []
+        if scrubbed or computation["annotations_changed"]:
+            result_staged, result_replacements = _stage_bound_result_replacements(
+                Path(args.errors),
+                errors_data,
+                state,
+                manifest,
+            )
+            staged_paths.extend(result_staged)
+            replacements.extend(result_replacements)
+        staged_archive = _stage_json_replacement(archived, errors_data)
+        staged_state = _stage_json_replacement(state_path, state)
+        staged_paths.extend((staged_archive, staged_state))
+        replacements.extend(
+            [
+                (staged_archive, archived),
+                (staged_report, iter_out),
+                (staged_state, state_path),
+            ]
+        )
+        revalidate()
+        _assert_json_unchanged(
+            Path(args.errors),
+            original_errors_data,
+            label="errors input",
+        )
+        publish_replacement_transaction(replacements)
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"[apply-fixes] {exc}") from exc
+    finally:
+        staged_report.unlink(missing_ok=True)
+        for staged_path in staged_paths:
+            staged_path.unlink(missing_ok=True)
+
+    if scrubbed:
+        print(
+            f"[apply-fixes] scrubbed {scrubbed} protected-segment "
+            f"issue(s) from {args.errors}"
+        )
     print(f"[lqe_io] Applied {len(corrections)} corrections → iteration {next_iter}")
     print(f"[lqe_io] Errors archived → {archived}")
+    print(f"[lqe_io] Output → {iter_out}")
+    print(
+        json.dumps(
+            {
+                "applied_count": len(corrections),
+                "lifecycle": (
+                    "pending_recheck" if corrections else "review_required"
+                ),
+            },
+            ensure_ascii=False,
+        )
+    )
 
-    src = Path(state["input_path"])
-    iter_score = cur_entry.get("score") or 0.0
-    threshold = getattr(args, "threshold", 98.0)
-    iter_out = state_path.parent / (_job_label(state_path) + f"_lqe_iter{cur_iter}.xlsx")
-    _build_xlsx(state, [cur_entry], iter_score, threshold, iter_out, getattr(args, "scorecard_profile", "legacy"))
+
+def cmd_apply_fixes(args):
+    from lqe_chunk import verification_generation_lease
+
+    state_path = Path(args.state)
+    try:
+        with verification_generation_lease(
+            state_path,
+            exclusive=True,
+        ) as (state, segments, manifest, revalidate):
+            _cmd_apply_fixes_locked(
+                args,
+                state_path,
+                state,
+                segments,
+                manifest,
+                revalidate,
+            )
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"[apply-fixes] {exc}") from exc
 
 
 # ── write ─────────────────────────────────────────────────────────────────────
@@ -1784,8 +2061,18 @@ def _build_xlsx(
     scorecard_profile_id="legacy",
     *,
     announce=True,
+    scoring_policy=None,
+    scoring_computation=None,
+    report_contract_results=None,
 ):
+    if scoring_policy is not None:
+        scorecard_profile_id = scoring_policy["scorecard_profile"]
+        threshold = scoring_policy["threshold"]
     scorecard_profile = load_scorecard_profile(scorecard_profile_id)
+    severity_points = scorecard_severity_points(
+        scorecard_profile,
+        (scoring_policy or {}).get("severity_scale", "lisa"),
+    )
     categories = scorecard_category_order(scorecard_profile)
     check_scope = get_check_scope(state)
     terminology_status = (
@@ -1821,6 +2108,7 @@ def _build_xlsx(
         if seg.get("protected"):
             all_protected_ids.add(seg["id"])
     max_iter = max((entry["iteration"] for entry in history), default=0)
+    latest_entry = history[-1] if history else None
 
     for entry in history:
         fixed = entry["iteration"] < max_iter
@@ -1831,15 +2119,25 @@ def _build_xlsx(
             if seg["id"] in all_protected_ids:
                 continue
             corrected = e_seg.get("corrected")
-            processing = _processing_label(e_seg)
+            if (
+                corrected is None
+                and entry["iteration"] == max_iter
+                and current_target(seg) != seg.get("target", "")
+            ):
+                corrected = current_target(seg)
             for e in e_seg.get("errors", []):
                 cat = normalize_category_for_profile(e.get("category", "Other"), scorecard_profile)
                 sev = apply_severity(cat, e.get("severity", "Minor"), scorecard_profile)
-                if e.get("repeated"):
-                    if cat in rep_counts:
-                        rep_counts[cat][sev] = rep_counts[cat].get(sev, 0) + 1
-                elif cat in cat_counts:
-                    cat_counts[cat][sev] = cat_counts[cat].get(sev, 0) + 1
+                if entry is latest_entry:
+                    if e.get("repeated"):
+                        if cat in rep_counts:
+                            rep_counts[cat][sev] = rep_counts[cat].get(sev, 0) + 1
+                    elif cat in cat_counts:
+                        cat_counts[cat][sev] = cat_counts[cat].get(sev, 0) + 1
+                review_status, edit_status, check_source = _issue_review_columns(
+                    e,
+                    seg["id"],
+                )
                 detail_rows.append({
                     "filename": _segment_filename(state, seg),
                     "seg_id":   seg["id"],
@@ -1852,8 +2150,34 @@ def _build_xlsx(
                     "iteration": f"Iter {entry['iteration']}",
                     "comment":  ("[Repeated] " if e.get("repeated") else "") + e.get("comment", ""),
                     "fixed":    fixed,
-                    "processing": processing,
+                    "processing": _issue_processing_label(
+                        e,
+                        {**e_seg, "corrected": corrected},
+                        protected=False,
+                    ),
+                    "review_status": review_status,
+                    "edit_status": edit_status,
+                    "check_source": check_source,
                 })
+
+    if scoring_computation is not None:
+        for category in categories:
+            cat_counts[category] = {
+                severity: int(
+                    scoring_computation.get("category_counts", {})
+                    .get(category, {})
+                    .get(severity, 0)
+                )
+                for severity in ("Neutral", "Minor", "Major", "Critical")
+            }
+            rep_counts[category] = {
+                severity: int(
+                    scoring_computation.get("repeated_counts", {})
+                    .get(category, {})
+                    .get(severity, 0)
+                )
+                for severity in ("Neutral", "Minor", "Major", "Critical")
+            }
 
     total_counts = {"Neutral": 0, "Minor": 0, "Major": 0, "Critical": 0}
     total_rep    = {"Neutral": 0, "Minor": 0, "Major": 0, "Critical": 0}
@@ -1863,13 +2187,30 @@ def _build_xlsx(
     for c in rep_counts.values():
         for sev, n in c.items():
             total_rep[sev] += n
-    total_raw      = sum(raw_points(c, scorecard_profile) for c in cat_counts.values())
-    total_weighted = sum(weighted_points(cat, c, scorecard_profile) for cat, c in cat_counts.items())
+    total_raw = sum(
+        raw_points(counts, scorecard_profile, severity_points)
+        for counts in cat_counts.values()
+    )
+    total_weighted = (
+        scoring_computation["total_weighted"]
+        if scoring_computation is not None
+        else sum(
+            weighted_points(cat, counts, scorecard_profile, severity_points)
+            for cat, counts in cat_counts.items()
+        )
+    )
 
     wb  = openpyxl.Workbook()
     ws  = wb.active
     ws.title = "LQA Scorecard"
-    status   = "PASS" if score >= threshold else "FAIL"
+    latest_status = history[-1].get("status") if history else None
+    critical_gate_fail = bool(
+        (scoring_policy or {}).get("critical_gate")
+        and total_counts.get("Critical", 0)
+    )
+    status = latest_status or (
+        "FAIL" if critical_gate_fail or score < threshold else "PASS"
+    )
 
     # ── 导读 sheet（插最前）：说明后两个 sheet 的用处 + 建议使用思路 ──
     intro = wb.create_sheet("说明·导读", 0)
@@ -1881,14 +2222,15 @@ def _build_xlsx(
         ("Check scope", scope_summary, "", ""),
         ("Sheet", "是什么", "给谁看", "怎么用"),
         ("LQA Scorecard（第 2 个）", "计分卡：过/不过 + 分数 + 错误(类别×严重度)分布 + 罚分", "PM / 客户", f"先看这里拿整体判定：是否达标(阈值 {threshold})、差在哪类"),
-        ("LQE Results（第 3 个）", "逐段明细：原文 / 原译 / 建议译文 / 错误详情 / 处理方式", "审校 / 译员", "逐段审阅「建议译文」与「处理方式」，结合错误详情处理"),
+        ("LQE Results（第 3 个）", "错误明细：同段连续、每个错误一行，并标注 AI 复核与编辑状态", "审校 / 译员", "按 LQE Segment ID 查看同段错误，并核对 AI 复核与编辑状态"),
         ("", "", "", ""),
         ("建议使用思路：", "", "", ""),
         ("1. PM 先看「LQA Scorecard」拿整体判定（分数 / 状态 / 错误分布）。", "", "", ""),
-        ("2. 审校/译员到「LQE Results」，结合「建议译文」「处理方式」和「错误详情」逐段处理。", "", "", ""),
-        ("3. 「建议译文」留空时保留原译；「处理方式」说明是否仅提醒或需要人工确认。", "", "", ""),
-        ("4. 修正若要落地，按项目流程（如改在线 memoQ）。", "", "", ""),
-        ("5. 已保护内容不修改；需要人工确认的问题由审校人员判断。", "", "", ""),
+        ("2. 审校/译员到「LQE Results」，同一 LQE Segment ID 的多个错误会连续列出，每个错误一行。", "", "", ""),
+        ("3. 「AI 模块记录」是本地内容绑定证据，不是外部身份签名；「已生成并验证建议」不表示已写回 state。", "", "", ""),
+        ("4. 「建议译文」留空时保留原译；「处理方式」说明是否仅提醒或需要人工确认。", "", "", ""),
+        ("5. 修正若要落地，按项目流程（如改在线 memoQ）。", "", "", ""),
+        ("6. 已保护内容不修改；需要人工确认的问题由审校人员判断。", "", "", ""),
     ]:
         intro.append(r)
         for c in intro[intro.max_row]:
@@ -2034,8 +2376,8 @@ def _build_xlsx(
 
     for cat in categories:
         counts = cat_counts[cat]
-        r = raw_points(counts, scorecard_profile)
-        w = weighted_points(cat, counts, scorecard_profile)
+        r = raw_points(counts, scorecard_profile, severity_points)
+        w = weighted_points(cat, counts, scorecard_profile, severity_points)
         ws.row_dimensions[cur_row].height = 14.25
         rep = rep_counts[cat]
         for col, val in [
@@ -2063,7 +2405,7 @@ def _build_xlsx(
     )
     scorecard_widths = [
         filename_width, 8, 80, 80, 80,
-        14, 22, 10, 10, 45, 12, 12, 45,
+        14, 22, 10, 10, 45, 12, 18, 18, 25, 12, 45,
     ]
     for column, width in enumerate(scorecard_widths, start=1):
         ws.column_dimensions[get_column_letter(column)].width = width
@@ -2072,7 +2414,9 @@ def _build_xlsx(
     for col, hdr in enumerate(
         ["File name","Segment #","Source text","原译",
          "建议译文","Error category","Error sub-category",
-         "Error severity","Iteration","Reviewer's comment","处理方式","Protected","Protection Evidence"], start=1):
+         "Error severity","Iteration","Reviewer's comment","处理方式",
+         "AI 复核状态","AI 编辑状态","检查来源",
+         "Protected","Protection Evidence"], start=1):
         c = ws.cell(row=cur_row, column=col, value=hdr)
         _s(c, fill=_DARK_BLUE, font=_WHITE_FONT, align=_CENTER)
     cur_row += 1
@@ -2081,13 +2425,14 @@ def _build_xlsx(
         row_fill = _GREEN_LIGHT if dr["fixed"] else None
         rich_pair = (
             build_rich_diff(dr["original"], dr["corrected"])
-            if isinstance(dr["corrected"], str) and dr["corrected"]
+            if isinstance(dr["corrected"], str)
             else None
         )
         detail_values = [
             dr["filename"], dr["seg_id"], dr["source"], dr["original"],
             dr["corrected"], dr["parent"], dr["category"], dr["severity"],
             dr["iteration"], dr["comment"], dr["processing"],
+            dr["review_status"], dr["edit_status"], dr["check_source"],
             "Yes" if dr["seg_id"] in all_protected_ids else "No",
             _protection_evidence(seg_map[dr["seg_id"]], all_protected_ids),
         ]
@@ -2096,7 +2441,15 @@ def _build_xlsx(
         for col, val in enumerate(detail_values, start=1):
             c = ws.cell(row=cur_row, column=col)
             _set_excel_text(c, val)
-            _s(c, fill=row_fill, align=_LEFT_TOP if col not in (2, 8, 9, 11) else _CENTER)
+            _s(
+                c,
+                fill=row_fill,
+                align=(
+                    _CENTER
+                    if col in (2, 8, 9, 11, 12, 13, 15)
+                    else _LEFT_TOP
+                ),
+            )
         row_height, row_font_size, row_span = _fit_or_span_wrapped_row(
             [
                 (
@@ -2123,10 +2476,7 @@ def _build_xlsx(
     ws2 = wb.create_sheet("LQE Results")
 
     def _fmt_errors(errs):
-        return "\n".join(
-            f"[{e.get('category','?')} · {e.get('severity','?')}] {e.get('comment','')}"
-            for e in errs
-        )
+        return "\n".join(issue_detail(error) for error in errs)
 
     _WRAP_TOP = Alignment(wrap_text=True, vertical="top")
 
@@ -2142,7 +2492,36 @@ def _build_xlsx(
     if 0 <= target_index < len(report_headers):
         report_headers[target_index] = "原译"
 
-    ws2_headers = report_headers + ["建议译文", "处理方式", "错误详情", "LQE_Iter", "Protected", "Protection Evidence"]
+    used_headers = {str(header) for header in report_headers}
+
+    def _audit_header(base: str) -> str:
+        candidate = base
+        suffix = 2
+        while candidate in used_headers:
+            candidate = f"{base}（审计 {suffix}）"
+            suffix += 1
+        used_headers.add(candidate)
+        return candidate
+
+    segment_audit_header = _audit_header(AUDIT_HEADER_BASES["segment_id"])
+    issue_number_header = _audit_header(AUDIT_HEADER_BASES["issue_number"])
+    review_status_header = _audit_header(AUDIT_HEADER_BASES["review_status"])
+    edit_status_header = _audit_header(AUDIT_HEADER_BASES["edit_status"])
+    check_source_header = _audit_header(AUDIT_HEADER_BASES["check_source"])
+
+    ws2_headers = report_headers + [
+        "建议译文",
+        "处理方式",
+        segment_audit_header,
+        issue_number_header,
+        review_status_header,
+        edit_status_header,
+        check_source_header,
+        "错误详情",
+        "Protected",
+        "Protection Evidence",
+        "LQE_Iter",
+    ]
     results_widths = []
     source_header = state.get("source_col")
     for header in ws2_headers:
@@ -2160,6 +2539,14 @@ def _build_xlsx(
             width = 14
         elif header == "处理方式":
             width = 18
+        elif header == segment_audit_header:
+            width = 12
+        elif header == issue_number_header:
+            width = 10
+        elif header in {review_status_header, edit_status_header}:
+            width = 18
+        elif header == check_source_header:
+            width = 24
         elif header == "LQE_Iter":
             width = 10
         elif header == "Protected":
@@ -2181,77 +2568,115 @@ def _build_xlsx(
         raw_row = report_rows[segment_index]
         is_protected = seg["id"] in all_protected_ids
         current_entry = current_entries.get(seg["id"])
-        entry = current_entry if current_entry is not None else {
-            "errors": [],
-            "corrected": seg.get("corrected"),
-        }
+        baseline = (
+            current_target(seg)
+            if current_target(seg) != seg.get("target", "")
+            else None
+        )
+        if current_entry is None:
+            entry = {"errors": [], "corrected": baseline}
+        else:
+            entry = {
+                **current_entry,
+                "corrected": (
+                    current_entry.get("corrected")
+                    if current_entry.get("corrected") is not None
+                    else baseline
+                ),
+            }
         errs = [] if is_protected else entry.get("errors", [])
         has_error = bool(errs)
-        if is_protected:
-            processing_entry = {"errors": [{"protected": True}], "corrected": None}
-        else:
-            processing_entry = entry
-        processing = _processing_label(processing_entry)
+        segment_processing = _issue_processing_label(
+            None,
+            entry,
+            protected=is_protected,
+        )
         corrected = entry.get("corrected")
-        suggestion = "" if processing == "已保护，不修改" else (corrected or "")
+        suggestion = (
+            "" if segment_processing == "已保护，不修改" else (corrected or "")
+        )
         rich_pair = (
             build_rich_diff(seg["target"], suggestion)
-            if isinstance(suggestion, str) and suggestion
+            if corrected is not None and segment_processing != "已保护，不修改"
             else None
         )
         suggestion_column = len(report_headers) + 1
         row_fill = _ORANGE if has_error else _GREEN_LIGHT if (is_protected or suggestion) else None
-        row_data = list(raw_row) + [
-            suggestion,
-            processing,
-            _fmt_errors(errs),
-            seg.get("iter", 0),
-            "Yes" if is_protected else "No",
-            _protection_evidence(seg, all_protected_ids),
-        ]
-        if rich_pair and 0 <= target_index < len(report_headers):
-            row_data[target_index] = rich_pair[0]
-        if rich_pair:
-            row_data[suggestion_column - 1] = rich_pair[1]
-        for ci, val in enumerate(row_data, start=1):
-            c = ws2.cell(row=ri, column=ci)
-            _set_excel_text(c, val)
-            c.alignment = _WRAP_TOP
-            if row_fill:
-                c.fill = row_fill
-        row_height, row_font_size, row_span = _fit_or_span_wrapped_row(
-            [
-                (
-                    value,
-                    ws2.column_dimensions[get_column_letter(column)].width,
-                )
-                for column, value in enumerate(row_data, start=1)
-            ],
-            context=f"LQE Results row {ri}",
-        )
-        for physical_row in range(ri, ri + row_span):
-            ws2.row_dimensions[physical_row].height = row_height
-        _set_row_font_size(ws2, ri, len(row_data), row_font_size)
-        if row_span > 1:
-            for column in range(1, len(row_data) + 1):
-                ws2.merge_cells(
-                    start_row=ri,
-                    start_column=column,
-                    end_row=ri + row_span - 1,
-                    end_column=column,
-                )
-        ri += row_span
+        row_issues = errs or [None]
+        for issue_index, issue in enumerate(row_issues, start=1):
+            review_status, edit_status, check_source = _issue_review_columns(
+                issue,
+                seg["id"],
+            )
+            processing = _issue_processing_label(
+                issue,
+                entry,
+                protected=is_protected,
+            )
+            row_data = list(raw_row) + [
+                suggestion,
+                processing,
+                seg["id"],
+                issue_index if issue is not None else "",
+                review_status,
+                edit_status,
+                check_source,
+                _fmt_errors([issue]) if issue is not None else "",
+                "Yes" if is_protected else "No",
+                _protection_evidence(seg, all_protected_ids),
+                seg.get("iter", 0),
+            ]
+            if rich_pair and 0 <= target_index < len(report_headers):
+                row_data[target_index] = rich_pair[0]
+            if rich_pair:
+                row_data[suggestion_column - 1] = rich_pair[1]
+            for ci, val in enumerate(row_data, start=1):
+                c = ws2.cell(row=ri, column=ci)
+                _set_excel_text(c, val)
+                c.alignment = _WRAP_TOP
+                if row_fill:
+                    c.fill = row_fill
+            row_height, row_font_size, row_span = _fit_or_span_wrapped_row(
+                [
+                    (
+                        value,
+                        ws2.column_dimensions[get_column_letter(column)].width,
+                    )
+                    for column, value in enumerate(row_data, start=1)
+                ],
+                context=f"LQE Results row {ri}",
+            )
+            for physical_row in range(ri, ri + row_span):
+                ws2.row_dimensions[physical_row].height = row_height
+            _set_row_font_size(ws2, ri, len(row_data), row_font_size)
+            if row_span > 1:
+                for column in range(1, len(row_data) + 1):
+                    ws2.merge_cells(
+                        start_row=ri,
+                        start_column=column,
+                        end_row=ri + row_span - 1,
+                        end_column=column,
+                    )
+            ri += row_span
 
+    if report_contract_results is not None:
+        attach_report_contract(wb, state, report_contract_results)
     wb.save(str(out_path))
     if announce:
         print(f"[lqe_io] Output → {out_path}")
 
 
-def cmd_write(args):
-    state_path = Path(args.state)
+def _cmd_write_locked(
+    args,
+    state_path: Path,
+    state: dict,
+    segments: list[dict],
+    manifest: dict | None,
+    revalidate,
+):
     errors_path = Path(args.errors)
-    state = read_json(state_path)
     final_errors_data = read_json(errors_path)
+    original_errors_data = deepcopy(final_errors_data)
     _validate_scope_or_exit(
         state,
         final_errors_data,
@@ -2261,11 +2686,55 @@ def cmd_write(args):
     )
     protected_ids = _state_protected_ids(state)
     scrubbed = _scrub_protected_entries(final_errors_data, protected_ids)
-    score = float(args.score)
+    try:
+        scoring_policy = resolve_scoring_policy(
+            state,
+            scoring_policy_overrides(args),
+        )
+        scorecard_profile = load_scorecard_profile(
+            scoring_policy["scorecard_profile"]
+        )
+        validation_messages = _validate_errors(
+            final_errors_data,
+            {segment["id"] for segment in state.get("segments", [])},
+            scorecard_profile,
+        )
+        for message in validation_messages:
+            print(f"[validate] {message}")
+        final_errors_data = _verify_result_payload_with_segments(
+            state,
+            segments,
+            manifest,
+            final_errors_data,
+            errors_path,
+            command="write",
+        )
+        computation = score_errors(
+            state,
+            final_errors_data,
+            scoring_policy,
+            protected_ids=protected_ids,
+        )
+    except (CheckFormatError, ValueError) as exc:
+        raise SystemExit(f"[write] {exc}") from exc
+    final_errors_data = computation["annotated_errors"]
+    score_result = computation["output"]
+    score = score_result["score"]
+    supplied_score = float(args.score)
+    if not math.isclose(supplied_score, score, abs_tol=0.005):
+        print(
+            f"[write] supplied score {supplied_score:g} differs from "
+            f"recomputed score {score:g}; using recomputed score",
+            file=sys.stderr,
+        )
+    state["threshold"] = scoring_policy["threshold"]
+    state["scoring_policy"] = scoring_policy
+    state["pending_recheck"] = False
 
     final_entry = {
         "iteration": state.get("iteration", 0),
         "score": score,
+        "status": score_result["status"],
         "errors": final_errors_data,
         "corrections_count": 0,
         "protected_ids": sorted(protected_ids),
@@ -2288,6 +2757,18 @@ def cmd_write(args):
     state["error_history"] = history
 
     out_path = state_path.parent / (_job_label(state_path) + "_lqe.xlsx")
+    try:
+        validate_artifact_paths(
+            {"LQE report": out_path},
+            {
+                "state": state_path,
+                "errors": errors_path,
+                **state_reference_paths(state),
+            },
+            context="write",
+        )
+    except ValueError as exc:
+        raise SystemExit(f"[write] {exc}") from exc
     with tempfile.NamedTemporaryFile(
         prefix=f".{out_path.stem}.",
         suffix=out_path.suffix,
@@ -2301,13 +2782,22 @@ def cmd_write(args):
                 state,
                 history,
                 score,
-                args.threshold,
+                scoring_policy["threshold"],
                 staging_path,
-                args.scorecard_profile,
+                scoring_policy["scorecard_profile"],
                 announce=False,
+                scoring_policy=scoring_policy,
+                scoring_computation=computation,
+                report_contract_results=final_errors_data,
             )
         except ValueError as exc:
             raise SystemExit(f"[write] {exc}") from exc
+        revalidate()
+        _assert_json_unchanged(
+            errors_path,
+            original_errors_data,
+            label="errors input",
+        )
         _publish_write_transaction(
             state_path,
             state,
@@ -2315,7 +2805,8 @@ def cmd_write(args):
             final_errors_data,
             out_path,
             staging_path,
-            publish_errors=bool(scrubbed),
+            publish_errors=final_errors_data != original_errors_data,
+            manifest=manifest,
         )
     finally:
         staging_path.unlink(missing_ok=True)
@@ -2325,11 +2816,42 @@ def cmd_write(args):
     print(f"[lqe_io] Output → {out_path}")
 
 
+def cmd_write(args):
+    from lqe_chunk import verification_generation_lease
+
+    state_path = Path(args.state)
+    try:
+        with verification_generation_lease(
+            state_path,
+            exclusive=True,
+        ) as (state, segments, manifest, revalidate):
+            _cmd_write_locked(
+                args,
+                state_path,
+                state,
+                segments,
+                manifest,
+                revalidate,
+            )
+    except ValueError as exc:
+        raise SystemExit(f"[write] {exc}") from exc
+
+
 # ── pre-check（实现在 lqe_checks.py）─────────────────────────────────────────
 
 def cmd_pre_check(args):
     from lqe_checks import run_pre_check
-    run_pre_check(Path(args.state), Path(args.out) if args.out else None)
+    from lqe_split_contract import generation_lock
+
+    state_path = Path(args.state)
+    try:
+        with generation_lock(state_path.parent / "chunks", exclusive=True):
+            run_pre_check(
+                state_path,
+                Path(args.out) if args.out else None,
+            )
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"[pre-check] {exc}") from exc
 
 
 # ── export ───────────────────────────────────────────────────────────────────
@@ -2338,6 +2860,8 @@ def _export_sdlxliff_xlsx(
     state_path: Path,
     state: dict,
     result_entries: dict,
+    *,
+    out_path: Path | None = None,
 ) -> Path:
     headers, rows = _report_source_table(state)
     workbook = openpyxl.Workbook()
@@ -2352,7 +2876,7 @@ def _export_sdlxliff_xlsx(
         )
         corrected = entry.get("corrected")
         output_row = list(source_row)
-        if not protected and corrected:
+        if not protected and corrected is not None:
             output_row[4] = corrected
         row_number = worksheet.max_row + 1
         for column, value in enumerate(output_row, start=1):
@@ -2360,72 +2884,336 @@ def _export_sdlxliff_xlsx(
                 worksheet.cell(row=row_number, column=column),
                 value,
             )
-    out_path = state_path.parent / (_job_label(state_path) + "_corrected.xlsx")
+    out_path = out_path or state_path.parent / (
+        _job_label(state_path) + "_corrected.xlsx"
+    )
     workbook.save(out_path)
     workbook.close()
     return out_path
 
 
 def _verification_segments(state_path: Path, state: dict) -> list[dict]:
-    segments = state["segments"]
-    by_id = {segment["id"]: segment for segment in segments}
-    chunks_dir = state_path.parent / "chunks"
-    for chunk_path in sorted(chunks_dir.glob("chunk_[0-9][0-9].json")):
-        chunk = read_json(chunk_path)
-        for context in chunk.get("segments", []):
-            segment = by_id.get(context.get("id"))
-            if segment is None:
-                continue
-            if context.get("source") != segment.get("source") or context.get(
-                "target"
-            ) != segment.get("target"):
-                raise CheckFormatError(
-                    f"{chunk_path}: segment {segment['id']} differs from state"
-                )
-            for key in ("kind", "term_hits", "protected_texts"):
-                if key in context:
-                    segment[key] = context[key]
-    return segments
+    from lqe_chunk import load_verification_segments
 
-
-def cmd_export(args):
-    state_path = Path(args.state)
-    state = read_json(state_path)
     try:
-        segments = _verification_segments(state_path, state)
-    except CheckFormatError as exc:
-        sys.exit(f"[export] {exc}")
+        return load_verification_segments(
+            state_path,
+            state=state,
+        )
+    except (OSError, ValueError) as exc:
+        raise CheckFormatError(str(exc)) from exc
+
+
+def _verify_result_payload_with_segments(
+    state: dict,
+    segments: list[dict],
+    manifest: dict | None,
+    errors_data: list,
+    errors_path: Path,
+    *,
+    command: str,
+) -> list[dict]:
+    _validate_scope_or_exit(
+        state,
+        errors_data,
+        issues_key="errors",
+        label=errors_path.name,
+        command=command,
+    )
+    try:
+        if requires_bound_artifacts(state):
+            contract_path = result_contract_path(errors_path)
+            if manifest is None or not contract_path.is_file():
+                raise CheckFormatError(
+                    f"{errors_path.name}: bound result contract is required"
+                )
+            validate_result_contract(
+                read_json(contract_path),
+                manifest,
+                errors_data,
+                label=errors_path.name,
+            )
+        bound = requires_bound_artifacts(state)
+        return verify_results(
+            segments,
+            errors_data,
+            str(errors_path),
+            allow_internal_provenance=bound,
+            require_internal_provenance=bound,
+        )
+    except (CheckFormatError, OSError, ValueError) as exc:
+        raise SystemExit(f"[{command}] {exc}") from exc
+
+
+def _verify_result_payload(
+    state_path: Path,
+    state: dict,
+    errors_data: list,
+    errors_path: Path,
+    *,
+    command: str,
+) -> tuple[list[dict], list[dict]]:
+    from lqe_chunk import verification_generation_lease
+
+    try:
+        with verification_generation_lease(
+            state_path,
+            exclusive=False,
+        ) as (live_state, segments, manifest, _):
+            if live_state != state:
+                raise CheckFormatError("state changed while loading results")
+            verified = _verify_result_payload_with_segments(
+                live_state,
+                segments,
+                manifest,
+                errors_data,
+                errors_path,
+                command=command,
+            )
+            return segments, verified
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"[{command}] {exc}") from exc
+
+
+def _state_no_header(state: dict) -> bool:
+    if "no_header" in state:
+        value = state["no_header"]
+        if not isinstance(value, bool):
+            raise ValueError("state.no_header must be a boolean")
+        return value
+
+    source_column = state.get("source_col")
+    return isinstance(source_column, int) or (
+        isinstance(source_column, str) and source_column.isdigit()
+    )
+
+
+def _state_column_index(state: dict, field: str) -> int:
+    value = state.get(field)
+    if _state_no_header(state) or isinstance(value, int):
+        try:
+            return int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"cannot locate {field} {value!r}") from exc
+    headers = state.get("headers") or []
+    if value not in headers:
+        raise ValueError(f"cannot locate {field} {value!r}")
+    return headers.index(value)
+
+
+def _validate_legacy_tabular_rows(
+    state: dict,
+    segments: list[dict],
+    row_at,
+) -> None:
+    source_index = _state_column_index(state, "source_col")
+    target_index = _state_column_index(state, "target_col")
+    for segment in segments:
+        row = row_at(segment)
+        if row is None:
+            raise ValueError(
+                f"source row for segment {segment['id']} is missing"
+            )
+        source = _text(_cell(row, source_index))
+        target = _text(_cell(row, target_index))
+        if source != segment.get("source", "") or target != segment.get(
+            "target", ""
+        ):
+            raise ValueError(
+                f"source row for segment {segment['id']} changed after read"
+            )
+
+
+def _validate_export_source_digest(state: dict, source_path: Path) -> str:
+    digest = file_sha256(source_path)
+    expected = state.get("input_sha256")
+    if expected is not None:
+        if not isinstance(expected, str) or not re.fullmatch(
+            r"[0-9a-f]{64}", expected
+        ):
+            raise ValueError("state.input_sha256 is invalid")
+        if digest != expected:
+            raise ValueError(f"source input changed after read: {source_path}")
+    return digest
+
+
+def _validate_sdl_source_snapshot(state: dict) -> dict[Path, str]:
+    manifest_path = state.get("source_manifest_path")
+    if not isinstance(manifest_path, str) or not manifest_path.strip():
+        raise ValueError("SDLXLIFF state has no source_manifest_path")
+    manifest = read_json(manifest_path)
+    manifest_files = manifest.get("files") if isinstance(manifest, dict) else None
+    if not isinstance(manifest_files, list):
+        raise ValueError("SDLXLIFF source manifest files must be an array")
+
+    input_root_value = state.get("input_path")
+    if not isinstance(input_root_value, str) or not input_root_value.strip():
+        raise ValueError("SDLXLIFF state has no input_path")
+    input_root = Path(input_root_value)
+    if input_root.is_file():
+        live_paths = [input_root]
+        relative_paths = [input_root.name]
+    elif input_root.is_dir():
+        live_paths = sorted(
+            (
+                path
+                for path in input_root.rglob("*")
+                if path.is_file() and path.suffix.casefold() == ".sdlxliff"
+            ),
+            key=lambda path: path.relative_to(input_root).as_posix(),
+        )
+        relative_paths = [
+            path.relative_to(input_root).as_posix() for path in live_paths
+        ]
+    else:
+        raise ValueError(f"SDLXLIFF input path is missing: {input_root}")
+
+    recorded_paths = state.get("input_paths")
+    if not isinstance(recorded_paths, list) or not all(
+        isinstance(value, str) and value.strip() for value in recorded_paths
+    ):
+        raise ValueError("SDLXLIFF state.input_paths must be a string array")
+    if [str(path.resolve()) for path in live_paths] != [
+        str(Path(value).resolve()) for value in recorded_paths
+    ]:
+        raise ValueError("SDLXLIFF source file set changed after read")
+
+    manifest_by_path = {}
+    for index, item in enumerate(manifest_files):
+        if not isinstance(item, dict):
+            raise ValueError(
+                f"SDLXLIFF source manifest files[{index}] must be an object"
+            )
+        relative_path = item.get("relative_path")
+        digest = item.get("sha256")
+        if not isinstance(relative_path, str) or not relative_path:
+            raise ValueError(
+                f"SDLXLIFF source manifest files[{index}].relative_path is invalid"
+            )
+        if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise ValueError(
+                f"SDLXLIFF source manifest files[{index}].sha256 is invalid"
+            )
+        if relative_path in manifest_by_path:
+            raise ValueError(
+                f"SDLXLIFF source manifest has duplicate path: {relative_path}"
+            )
+        manifest_by_path[relative_path] = digest
+    if set(manifest_by_path) != set(relative_paths):
+        raise ValueError("SDLXLIFF source manifest file set is inconsistent")
+
+    snapshot = {}
+    for path, relative_path in zip(live_paths, relative_paths):
+        digest = file_sha256(path)
+        if digest != manifest_by_path[relative_path]:
+            raise ValueError(f"SDLXLIFF source changed after read: {path}")
+        snapshot[path.resolve()] = digest
+    return snapshot
+
+
+def _recheck_sdl_source_snapshot(
+    state: dict,
+    snapshot: dict[Path, str],
+) -> None:
+    try:
+        current = _validate_sdl_source_snapshot(state)
+    except ValueError as exc:
+        raise ValueError(
+            f"SDLXLIFF source changed during export: {exc}"
+        ) from exc
+    if current != snapshot:
+        raise ValueError("SDLXLIFF source changed during export")
+
+
+def _validate_export_paths(
+    state_path: Path,
+    state: dict,
+    out_path: Path,
+    errors_path: Path | None,
+) -> None:
+    protected_inputs = {
+        "state": state_path,
+        **state_reference_paths(state),
+    }
+    if errors_path is not None:
+        protected_inputs["errors"] = errors_path
+        if requires_bound_artifacts(state):
+            protected_inputs["errors contract"] = result_contract_path(
+                errors_path
+            )
+    validate_artifact_paths(
+        {"corrected export": out_path},
+        protected_inputs,
+        context="export",
+    )
+
+
+def _cmd_export_locked(
+    args,
+    state_path: Path,
+    state: dict,
+    segments: list[dict],
+    manifest: dict | None,
+    revalidate,
+):
+    errors_path = Path(args.errors) if getattr(args, "errors", None) else None
+    overlay_entries = None
+    original_overlay = None
+    if errors_path is not None:
+        raw_entries = read_json(errors_path)
+        original_overlay = deepcopy(raw_entries)
+        _validate_scope_or_exit(
+            state,
+            raw_entries,
+            issues_key="errors",
+            label=errors_path.name,
+            command="export",
+        )
+        _scrub_protected_entries(raw_entries, _state_protected_ids(state))
+        overlay_entries = _verify_result_payload_with_segments(
+            state,
+            segments,
+            manifest,
+            raw_entries,
+            errors_path,
+            command="export",
+        )
+
+    def revalidate_inputs():
+        revalidate()
+        if errors_path is not None:
+            _assert_json_unchanged(
+                errors_path,
+                original_overlay,
+                label="errors input",
+            )
     seg_map = {s["id"]: s for s in segments}
     result_entries = {
         segment["id"]: {
             "errors": [],
-            "corrected": segment.get("corrected"),
+            "corrected": (
+                current_target(segment)
+                if current_target(segment) != segment.get("target", "")
+                else None
+            ),
         }
         for segment in segments
     }
 
-    if getattr(args, "errors", None):
-        try:
-            overlay_entries = verify_results(
-                segments,
-                read_json(args.errors),
-                str(args.errors),
-            )
-        except CheckFormatError as exc:
-            sys.exit(f"[export] {exc}")
-        _validate_scope_or_exit(
-            state,
-            overlay_entries,
-            issues_key="errors",
-            label=Path(args.errors).name,
-            command="export",
-        )
+    if overlay_entries is not None:
         for e in overlay_entries:
             seg = seg_map.get(e["id"])
             if seg is None:
                 continue
-            seg["corrected"] = e.get("corrected")
-            result_entries[e["id"]] = e
+            baseline = result_entries[e["id"]]["corrected"]
+            result_entries[e["id"]] = {
+                **e,
+                "corrected": (
+                    e.get("corrected")
+                    if e.get("corrected") is not None
+                    else baseline
+                ),
+            }
 
     counts = {
         "建议修改": 0,
@@ -2455,63 +3243,251 @@ def cmd_export(args):
     if state.get("input_format") == "sdlxliff":
         for segment in segments:
             counts[export_kind(segment)] += 1
-        out_path = _export_sdlxliff_xlsx(state_path, state, result_entries)
+        out_path = state_path.parent / (
+            _job_label(state_path) + "_corrected.xlsx"
+        )
+        staged = None
+        try:
+            _validate_export_paths(
+                state_path, state, out_path, errors_path
+            )
+            source_snapshot = _validate_sdl_source_snapshot(state)
+            with tempfile.NamedTemporaryFile(
+                dir=out_path.parent,
+                prefix=f".{out_path.stem}.",
+                suffix=out_path.suffix,
+                delete=False,
+            ) as handle:
+                staged = Path(handle.name)
+            _export_sdlxliff_xlsx(
+                state_path,
+                state,
+                result_entries,
+                out_path=staged,
+            )
+            _recheck_sdl_source_snapshot(state, source_snapshot)
+            revalidate_inputs()
+            publish_replacement_transaction([(staged, out_path)])
+        except (OSError, ValueError) as exc:
+            raise SystemExit(f"[export] {exc}") from exc
+        finally:
+            if staged is not None:
+                staged.unlink(missing_ok=True)
         print_summary(out_path)
         return
 
-    no_header = isinstance(state.get("source_col"), int) or (
-        isinstance(state.get("source_col"), str) and state["source_col"].isdigit()
-    )
     try:
-        ti = int(state["target_col"])
-    except (ValueError, TypeError):
-        headers = state.get("headers", [])
-        ti = headers.index(state["target_col"]) if state["target_col"] in headers else None
-        if ti is None:
-            print(f"[export] cannot locate target column '{state['target_col']}'", file=sys.stderr)
-            sys.exit(1)
+        no_header = _state_no_header(state)
+        ti = _state_column_index(state, "target_col")
+    except ValueError as exc:
+        print(f"[export] {exc}", file=sys.stderr)
+        sys.exit(1)
 
     src_path = Path(state["input_path"])
     if src_path.suffix.lower() in (".csv", ".tsv"):
         delim = "\t" if src_path.suffix.lower() == ".tsv" else ","
-        raw_rows = list(csv.reader(io.StringIO(src_path.read_bytes().decode("utf-8-sig")), delimiter=delim))
-        offset = 0 if no_header else 1
-        for seg in segments:
-            row_idx = offset + int(seg.get("row_index", seg.get("id", 0)))
-            if row_idx < 0 or row_idx >= len(raw_rows):
-                continue
-            row = raw_rows[row_idx]
-            kind = export_kind(seg)
-            corrected = result_entries[seg["id"]].get("corrected")
-            if kind != "已保护" and corrected and ti < len(row):
-                row[ti] = corrected
-            counts[kind] += 1
-        out_path = state_path.parent / (_job_label(state_path) + "_corrected" + src_path.suffix.lower())
+        out_path = state_path.parent / (
+            _job_label(state_path) + "_corrected" + src_path.suffix.lower()
+        )
         enc = "utf-8-sig" if src_path.suffix.lower() == ".csv" else "utf-8"
-        with out_path.open("w", newline="", encoding=enc) as f:
-            csv.writer(f, delimiter=delim).writerows(raw_rows)
+        staged = None
+        try:
+            _validate_export_paths(
+                state_path, state, out_path, errors_path
+            )
+            source_digest = _validate_export_source_digest(state, src_path)
+            raw_rows = list(
+                csv.reader(
+                    io.StringIO(src_path.read_bytes().decode("utf-8-sig")),
+                    delimiter=delim,
+                )
+            )
+            offset = 0 if no_header else 1
+            if state.get("input_sha256") is None:
+                _validate_legacy_tabular_rows(
+                    state,
+                    segments,
+                    lambda segment: (
+                        raw_rows[
+                            offset
+                            + int(
+                                segment.get(
+                                    "row_index", segment.get("id", 0)
+                                )
+                            )
+                        ]
+                        if 0
+                        <= offset
+                        + int(
+                            segment.get("row_index", segment.get("id", 0))
+                        )
+                        < len(raw_rows)
+                        else None
+                    ),
+                )
+            for seg in segments:
+                row_idx = offset + int(
+                    seg.get("row_index", seg.get("id", 0))
+                )
+                if row_idx < 0 or row_idx >= len(raw_rows):
+                    raise ValueError(
+                        f"source row for segment {seg['id']} is missing"
+                    )
+                row = raw_rows[row_idx]
+                kind = export_kind(seg)
+                corrected = result_entries[seg["id"]].get("corrected")
+                if (
+                    kind != "已保护"
+                    and corrected is not None
+                    and ti < len(row)
+                ):
+                    row[ti] = corrected
+                counts[kind] += 1
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                newline="",
+                encoding=enc,
+                dir=out_path.parent,
+                prefix=f".{out_path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                staged = Path(handle.name)
+                csv.writer(handle, delimiter=delim).writerows(raw_rows)
+            if file_sha256(src_path) != source_digest:
+                raise ValueError(
+                    f"source input changed during export: {src_path}"
+                )
+            revalidate_inputs()
+            publish_replacement_transaction([(staged, out_path)])
+        except (OSError, ValueError) as exc:
+            raise SystemExit(f"[export] {exc}") from exc
+        finally:
+            if staged is not None:
+                staged.unlink(missing_ok=True)
         print_summary(out_path)
         return
 
-    wb = openpyxl.load_workbook(str(src_path))
-    sheet_name = state.get("sheet_name")
-    ws = wb[sheet_name] if sheet_name in wb.sheetnames else wb.active
-
-    start_row = 1 if no_header else 2
-    for seg in segments:
-        row_num = start_row + int(seg.get("row_index", seg.get("id", 0)))
-        if row_num < start_row or row_num > ws.max_row:
-            continue
-        kind = export_kind(seg)
-        corrected = result_entries[seg["id"]].get("corrected")
-        if kind != "已保护" and corrected:
-            _set_excel_text(ws.cell(row=row_num, column=ti + 1), corrected)
-        counts[kind] += 1
-
     out_path = state_path.parent / (_job_label(state_path) + "_corrected.xlsx")
-    wb.save(str(out_path))
-    wb.close()
+    staged = None
+    workbook = None
+    try:
+        _validate_export_paths(state_path, state, out_path, errors_path)
+        source_digest = _validate_export_source_digest(state, src_path)
+        workbook = openpyxl.load_workbook(str(src_path))
+        sheet_name = state.get("sheet_name")
+        worksheet = (
+            workbook[sheet_name]
+            if sheet_name in workbook.sheetnames
+            else workbook.active
+        )
+        start_row = 1 if no_header else 2
+        if state.get("input_sha256") is None:
+            _validate_legacy_tabular_rows(
+                state,
+                segments,
+                lambda segment: (
+                    [
+                        worksheet.cell(
+                            row=start_row
+                            + int(
+                                segment.get(
+                                    "row_index", segment.get("id", 0)
+                                )
+                            ),
+                            column=column,
+                        ).value
+                        for column in range(1, worksheet.max_column + 1)
+                    ]
+                    if start_row
+                    <= start_row
+                    + int(
+                        segment.get("row_index", segment.get("id", 0))
+                    )
+                    <= worksheet.max_row
+                    else None
+                ),
+            )
+        for seg in segments:
+            row_num = start_row + int(
+                seg.get("row_index", seg.get("id", 0))
+            )
+            if row_num < start_row or row_num > worksheet.max_row:
+                raise ValueError(
+                    f"source row for segment {seg['id']} is missing"
+                )
+            kind = export_kind(seg)
+            corrected = result_entries[seg["id"]].get("corrected")
+            if kind != "已保护" and corrected is not None:
+                _set_excel_text(
+                    worksheet.cell(row=row_num, column=ti + 1), corrected
+                )
+            counts[kind] += 1
+        with tempfile.NamedTemporaryFile(
+            dir=out_path.parent,
+            prefix=f".{out_path.stem}.",
+            suffix=out_path.suffix,
+            delete=False,
+        ) as handle:
+            staged = Path(handle.name)
+        workbook.save(str(staged))
+        workbook.close()
+        workbook = None
+        if file_sha256(src_path) != source_digest:
+            raise ValueError(f"source input changed during export: {src_path}")
+        revalidate_inputs()
+        publish_replacement_transaction([(staged, out_path)])
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"[export] {exc}") from exc
+    finally:
+        if workbook is not None:
+            workbook.close()
+        if staged is not None:
+            staged.unlink(missing_ok=True)
     print_summary(out_path)
+
+
+def cmd_export(args):
+    from lqe_chunk import verification_generation_lease
+    from lqe_split_contract import generation_lock, state_fingerprint
+
+    state_path = Path(args.state)
+    errors_path = Path(args.errors) if getattr(args, "errors", None) else None
+    try:
+        if errors_path is not None:
+            with verification_generation_lease(
+                state_path,
+                exclusive=False,
+            ) as (state, segments, manifest, revalidate):
+                _cmd_export_locked(
+                    args,
+                    state_path,
+                    state,
+                    segments,
+                    manifest,
+                    revalidate,
+                )
+            return
+
+        chunks_dir = state_path.parent / "chunks"
+        with generation_lock(chunks_dir, exclusive=False):
+            state = read_json(state_path)
+            expected_state_fingerprint = state_fingerprint(state)
+
+            def revalidate_state():
+                if state_fingerprint(read_json(state_path)) != expected_state_fingerprint:
+                    raise ValueError("state changed during export")
+
+            _cmd_export_locked(
+                args,
+                state_path,
+                state,
+                deepcopy(state["segments"]),
+                None,
+                revalidate_state,
+            )
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"[export] {exc}") from exc
 
 
 # ── ingest-corpus (stub) ──────────────────────────────────────────────────────
@@ -2522,6 +3498,38 @@ def cmd_ingest_corpus(args):
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
+
+def _add_scoring_policy_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--threshold", type=float, default=None)
+    parser.add_argument(
+        "--scorecard-profile",
+        default=None,
+        dest="scorecard_profile",
+        help="评分卡 profile；省略时继承 state.scoring_policy",
+    )
+    parser.add_argument(
+        "--severity-scale",
+        choices=["lisa", "mqm"],
+        default=None,
+        dest="severity_scale",
+        help="严重度乘数档；省略时继承 state.scoring_policy",
+    )
+    critical = parser.add_mutually_exclusive_group()
+    critical.add_argument(
+        "--critical-gate", action="store_true", dest="critical_gate"
+    )
+    critical.add_argument(
+        "--no-critical-gate", action="store_false", dest="critical_gate"
+    )
+    repeat = parser.add_mutually_exclusive_group()
+    repeat.add_argument(
+        "--repeat-dedup", action="store_true", dest="repeat_dedup"
+    )
+    repeat.add_argument(
+        "--no-repeat-dedup", action="store_false", dest="repeat_dedup"
+    )
+    parser.set_defaults(critical_gate=None, repeat_dedup=None)
+
 
 def main():
     p = argparse.ArgumentParser()
@@ -2564,9 +3572,7 @@ def main():
     af.add_argument("--state",     required=True)
     af.add_argument("--errors",    required=True)
     af.add_argument("--score",     default=None, help="本轮分数（来自 lqe_calc.py 输出）")
-    af.add_argument("--threshold", type=float, default=98.0)
-    af.add_argument("--scorecard-profile", default="legacy", dest="scorecard_profile",
-                    help="评分卡 profile id/目录/profile.json 路径；默认 legacy（当前原有评分标准）")
+    _add_scoring_policy_args(af)
     af.add_argument("--protected-ids", default=None, help="逗号分隔的 TM 100%% match segment ids")
     af.add_argument("--protected-file", default=None, help="TM 100%% match protected ids JSON 文件")
 
@@ -2586,9 +3592,7 @@ def main():
     w.add_argument("--state",     required=True)
     w.add_argument("--errors",    required=True)
     w.add_argument("--score",     required=True)
-    w.add_argument("--threshold", type=float, default=98)
-    w.add_argument("--scorecard-profile", default="legacy", dest="scorecard_profile",
-                   help="评分卡 profile id/目录/profile.json 路径；默认 legacy（当前原有评分标准）")
+    _add_scoring_policy_args(w)
 
     pc = sub.add_parser("pre-check")
     pc.add_argument("--state", required=True)

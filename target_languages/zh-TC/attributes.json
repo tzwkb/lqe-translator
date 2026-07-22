@@ -1,0 +1,10 @@
+{
+  "script": "cjk",
+  "word_delim": "none",
+  "sentence_terminator": "。！？…!?",
+  "numerals": [
+    "arabic",
+    "chinese"
+  ],
+  "wordcount_basis": "source-chars"
+}

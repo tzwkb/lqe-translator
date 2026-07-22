@@ -1,0 +1,9 @@
+{
+  "script": "hangul",
+  "word_delim": "space",
+  "sentence_terminator": ".!?…",
+  "numerals": [
+    "arabic"
+  ],
+  "wordcount_basis": "source-chars"
+}

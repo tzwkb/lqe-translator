@@ -47,8 +47,15 @@ projects/<game>/<source>-<target>/
   "checks": "checks.json",
   "confirmed_rules": "confirmed_rules.md",
   "wordcount_basis": "source-chars",
-  "threshold": 98,
+  "term_status_map": {"Approved": "confirmed", "Draft": "unconfirmed"},
   "protected_term_statuses": [],
+  "scoring_policy": {
+    "threshold": 98,
+    "scorecard_profile": "legacy",
+    "severity_scale": "lisa",
+    "critical_gate": false,
+    "repeat_dedup": true
+  },
   "sdlxliff": {
     "tm_protection": "candidate-only",
     "content_type_rules": [
@@ -61,7 +68,7 @@ projects/<game>/<source>-<target>/
 }
 ```
 
-`language_pair`、`source_lang`、`target_lang` 必填。相对路径以 profile 所在目录为基准。`protected_term_statuses` 只能来自客户资料或用户明确确认；空数组表示没有受保护的术语状态。
+`language_pair`、`source_lang`、`target_lang` 必填。相对路径以 profile 所在目录为基准。`protected_term_statuses` 只能来自客户资料或用户明确确认；如提供，必须是元素均为非空字符串的数组，空数组表示没有受保护的术语状态。顶层 `threshold` 仅兼容旧 profile；新 profile 使用完整 `scoring_policy`。
 
 目标语言事实放在 `target_languages/<code>/attributes.json`，语言级检查说明放在 `eval_notes.md`。合并顺序为：内置默认 < 语言属性 < 项目 `checks.json` < CLI 参数。
 
@@ -98,6 +105,8 @@ python "$SCRIPTS/lqe_io.py" read \
 
 `--no-terminology` 只关闭术语、专名和术语审计；不会关闭文件内一致性、Markup、数字等检查。初始化后报告段数、词数、语言、检查模式、启用模块、风格指南、确认规则、术语表和受保护内容的加载情况。
 
+初始化先在 staging 中生成并校验全部资源，拒绝输入与输出/资源的同文件、软链、硬链或大小写路径别名；再以 `state.json` 最后发布。任一步失败都不得留下正式 `state.json`、`scope.json`、`terms.json` 或半套 SDL 资源。
+
 以下可见合同精确定义两种模式，所有入口都以解析后的 scope 为准：
 
 <pre data-lqe-scope-contract>
@@ -125,7 +134,9 @@ python "$SCRIPTS/lqe_io.py" read \
 
 本节只适用于标准模式；无术语模式不读取或使用术语条目。
 
-原始术语表没有 `confirmed`、`approved`、`status` 等明确确认字段，且项目资料没有提供“哪些状态等于已确认”的映射时，**必须在初始化前询问用户**如何处理。不得根据文件名、工作表名或“通常如此”自行决定；**不得默认全部已确认，也不得默认全部未确认**。在用户回答前，不生成正式 `terms_*.json`、不运行术语预检、不评分。
+需要转换的原始术语表如果缺少显式布尔 `confirmed`/`approved` 或 `protected`，则**必须在初始化前询问用户**如何处理；存在 `status` 等状态列时，必须提供“哪些状态值等于已确认/受保护”的映射。**仅仅存在 `status` 列不构成“已满足契约”——缺少显式布尔字段时，状态值必须被映射或经用户确认。** 不得根据文件名、工作表名或“通常如此”自行决定；**不得默认全部已确认，也不得默认全部未确认**。在获得映射或用户回答前，不生成正式 `terms_*.json`、不运行术语预检、不评分。
+
+已经规范化的 canonical 术语或候选如果同时显式带布尔 `confirmed` 和 `protected`，即使保留 `status` 作为审计元数据，也不需要 `term_status_map`。若同时提供映射，显式字段与映射冲突时失败。
 
 询问时明确给出三种处理口径：
 
@@ -133,12 +144,26 @@ python "$SCRIPTS/lqe_io.py" read \
 2. 整份术语表仅作未确认参考；写 `confirmed: false`。
 3. 用户提供逐行规则或状态映射后再转换。
 
+以下 converter 合同只适用于仍需从状态列推导显式布尔字段的原始术语表，不适用于已具备完整布尔字段的 canonical 数据：
+
 <pre data-lqe-term-confirmation-contract>
 {
-  "trigger": "terminology has no explicit confirmation field or confirmed-status mapping",
-  "required_action": "ask_user_before_initialization",
-  "forbidden_defaults": ["all_confirmed", "all_unconfirmed"],
-  "choices": [
+  "trigger": "terminology has no explicit confirmation field (confirmed/approved) OR has a status column but no status->confirmed/protection mapping supplied",
+  "required_action": "ask_user_or_supply_mapping_before_initialization",
+  "status_column_detection": "RULE-BASED, not enumerative: a column is a status column if its header CONTAINS the token 'status' or '状态' (case-insensitive, any position, regardless of prefixes/suffixes/brackets). This catches future renames/relocations automatically. If MULTIPLE columns match, the converter MUST SystemExit and require --status-col to disambiguate (it never guesses).",
+  "fail_closed": "converter MUST SystemExit in EITHER case below; it must NEVER emit terms with confirmed silently defaulted to false: (a) a status column is detected but no confirmation decision was supplied — a confirmation decision is --approved-statuses (values / '*' / '') and --protected-statuses ALONE is NOT enough; (b) NO status column is detected and --no-status was NOT passed (the column may have been renamed/relocated). It must print the distinct detected/unmapped status values for audit.",
+  "mapping_channels": [
+    "converter arg: --approved-statuses 'Approved,合规审核通过'  (status values are compared CASE-INSENSITIVELY — a rule, not per-value casing)",
+    "converter arg: --approved-statuses '*' to treat the whole glossary as confirmed (choice 1)",
+    "converter arg: --approved-statuses '' (empty) to explicitly treat all as unconfirmed (choice 2)",
+    "converter arg: --protected-statuses '<status>' to mark those senses protected (NOT a confirmation decision on its own)",
+    "converter arg: --exclude-statuses '<status>' to additionally drop rejected terms entirely (not checked, not flagged). NOTE: status 'Denied' is ALWAYS excluded by default (case-insensitive) — no flag needed (standing rule: client-rejected terms never enter the glossary)",
+    "converter arg: --status-col '<header>' to disambiguate when multiple status-keyword columns exist",
+    "converter arg: --no-status to assert the glossary has NO confirmation info at all (required when no status column is detected)",
+    "profile.term_status_map: {\"Approved\": \"confirmed\"}  (use for status->confirmed/protection; 'Denied' must not be mapped since it is unconditionally excluded)"
+  ],
+  "forbidden_defaults": ["all_confirmed", "all_unconfirmed", "infer_from_unmapped_status", "silently_proceed_when_status_column_undetected"],
+  "choices_when_asking": [
     "treat_entire_glossary_as_confirmed",
     "treat_as_unconfirmed_reference",
     "provide_row_or_status_mapping"
@@ -154,8 +179,8 @@ python "$SCRIPTS/lqe_io.py" read \
 
 - `confirmed: true`：客户已经确认该译法；匹配证据完整时允许安全局部修改。
 - `protected: true`：不可修改。
-- 完成上述用户确认后，转换结果必须显式写出两个字段；不得依赖缺失字段的隐式默认值，也不要根据未映射的 `status` 自行推断 `confirmed`。
-- profile 的 `protected_term_statuses` 只负责把明确列出的状态映射为 `protected: true`。
+- 完成上述用户确认后，转换结果必须显式写出两个布尔字段；缺 `confirmed` 或缺 `protected` 都失败。不得依赖隐式默认值，也不要根据未映射的 `status` 自行推断。已有两个显式布尔字段时，`status` 仅作审计元数据。失败发生在正式 job 资源发布前。
+- profile 的 `protected_term_statuses` 只负责把明确列出的状态映射为 `protected: true`；如提供，必须是元素均为非空字符串的数组。
 
 ## 4. TM 100% 匹配保护
 
@@ -216,14 +241,14 @@ python "$SCRIPTS/lqe_io.py" pre-check \
 流程要求 subagent 并行检查时，如果因并发上限、权限、工具不可用或运行环境限制而无法启用，**必须主动询问用户**如何处理；**不得静默回退**为主 Agent 单跑、跳过模块、缩小覆盖范围或降低检查标准。用户明确同意替代方案后才能继续。
 
 ```text
-docs/check_modules/common.md
-docs/check_modules/terminology.md
-docs/check_modules/precheck_review.md
-docs/check_modules/accuracy.md
-docs/check_modules/grammar.md
-docs/check_modules/naturalness.md
-docs/check_modules/proper_names.md
-docs/check_modules/term_audit.md
+references/check_modules/common.md
+references/check_modules/terminology.md
+references/check_modules/precheck_review.md
+references/check_modules/accuracy.md
+references/check_modules/grammar.md
+references/check_modules/naturalness.md
+references/check_modules/proper_names.md
+references/check_modules/term_audit.md
 ```
 
 每个子任务读取 `common.md`、自己的模块文件、项目上下文和 chunk。模型只提交检查结果，不生成整段最终译文。
@@ -301,7 +326,16 @@ chunk_NN.grammar.json
 chunk_NN.naturalness.json
 ```
 
-术语表自检可再写 `chunk_NN.proper_names.json`。段数超过 30 时按 `common.md` 使用 `ckpt-append` 和 `ckpt-finalize`。
+模型先把唯一输出协议写成 JSON 数组草稿，再用当前 `chunk_NN.json` 的 `split_fingerprint` 与 `payload_digest` 发布正式文件：
+
+```bash
+python "$SCRIPTS/lqe_chunk.py" publish-module \
+  --job "$JOB" --chunk <NN> --module <module> --input <草稿.json> \
+  --split-fingerprint <chunk.split_fingerprint> \
+  --chunk-payload-digest <chunk.payload_digest>
+```
+
+当前 schema 拒绝正式路径中的裸数组和旧 generation 指纹。术语表自检可再发布 `proper_names`。段数超过 30 时按 `common.md` 用 `ckpt-append`、`ckpt-finalize` 先生成草稿。
 
 结构检查与合并：
 
@@ -316,7 +350,9 @@ python "$SCRIPTS/lqe_chunk.py" merge \
   --out "$JOB/errors.json"
 ```
 
-`validate-checks` 按 `state.check_scope` 要求当前四个必需模块结构正确且 id 完整。`merge-checks` 合并并去重问题；`reconcile` 确保准确性类别只由 `accuracy` 模块确认；`merge` 广播重复段、恢复必须保留的确定性问题，并由脚本生成最终内部结果。
+`validate-checks` 按 `state.check_scope` 要求当前四个必需模块结构正确且 id 完整。`merge-checks` 合并并去重问题；`reconcile` 确保准确性类别只由 `accuracy` 模块确认；`merge` 从当前绑定模块重新构建并核对 merged 内容，广播重复段、恢复必须保留的确定性问题，再由脚本生成最终内部结果。模型草稿不能自行声明 AI provenance。
+
+`merge` 原子发布 `errors.json` 与 `errors.contract.json`，绑定当前 split generation。calc、write、apply、export 和聚合持有 generation lease，并拒绝缺 generation、契约缺失/篡改或旧证据。当前任务不得使用 `build-results` 或旧 `lqe_batch merge` 绕过模块发布流程。
 
 一键收尾：
 
@@ -324,15 +360,14 @@ python "$SCRIPTS/lqe_chunk.py" merge \
 bash "$SCRIPTS/finalize_job.sh" "$JOB" <nchunks> [single|iterate]
 ```
 
-`single` 只生成首轮报告和建议译文；`iterate` 在未达阈值时应用已验证修改。用户未明确选择时使用 `single`。
+`single` 只生成本轮报告和建议译文；`iterate` 在未达标时仅应用脚本重新验证通过的局部 edit。用户未明确选择时使用 `single`。状态机：PASS 才创建 `.finalized`；FAIL+single 不改当前译文且不完成；FAIL+iterate 只有至少应用一处安全局部修改时，才更新 `current_target`、`iteration + 1`、设置 `pending_recheck=true` 并返回 `PENDING-RECHECK`。如果没有可应用修改，则写出本轮报告，并通过 `export --errors` 写出已验证的错误覆盖，返回 `REVIEW-REQUIRED`，清除 `.iteration_pending`，不推进 iteration。下一轮必须重新预检、分块和检查；state/译文/scope/预检/术语指纹变化时旧 chunks 会归档，旧模块输出不可复用。
 
 ## 8. 评分
 
 ```bash
 python "$SCRIPTS/lqe_calc.py" \
   --state "$JOB/state.json" \
-  --errors "$JOB/errors.json" \
-  --threshold 98
+  --errors "$JOB/errors.json"
 ```
 
 ```text
@@ -341,7 +376,7 @@ L_per_category = weight × K
 score = max((1 - ΣL / 固定词数) × 100, 0)
 ```
 
-默认严重度点数：Neutral 0、Minor 1、Major 5、Critical 10。默认阈值 98。词数在初始化时固定。相同源译文段的同类同级问题默认只首次计分；`--no-repeat-dedup` 可关闭该规则。`--critical-gate` 可让任一 Critical 直接 FAIL；`--scorecard-profile lqe_2026` 使用 2026 评分卡。
+默认策略来自 `state.scoring_policy`，CLI 只做显式覆盖。默认严重度点数：Neutral 0、Minor 1、Major 5、Critical 10；默认阈值 98。词数在初始化时固定。每次计分都先清除并重算 `repeated`；`repeat_dedup` 控制重复去重，`critical_gate` 控制 Critical 直接 FAIL。
 
 脚本强制 Terminology、Untranslated、Markup、Length 为 Major。受保护段自动跳过计分。
 
@@ -353,8 +388,7 @@ PASS 或单轮模式：
 python "$SCRIPTS/lqe_io.py" write \
   --state "$JOB/state.json" \
   --errors "$JOB/errors.json" \
-  --score <分数> \
-  --threshold 98
+  --score <分数>
 ```
 
 用户明确启用自动迭代且结果为 FAIL 时：
@@ -363,8 +397,7 @@ python "$SCRIPTS/lqe_io.py" write \
 python "$SCRIPTS/lqe_io.py" apply-fixes \
   --state "$JOB/state.json" \
   --errors "$JOB/errors.json" \
-  --score <分数> \
-  --threshold 98
+  --score <分数>
 ```
 
 导出建议译文：
@@ -375,11 +408,13 @@ python "$SCRIPTS/lqe_io.py" export \
   --errors "$JOB/errors.json"
 ```
 
-报告面向用户显示“建议修改、需要人工确认、保持原译、已保护”。`*_corrected.<ext>` 是标准交付文件名；其中 corrected 仅是内部机器字段和标准文件名的一部分。
+`write --score` 是一致性输入；脚本按 state policy 和 errors 重新计算，分数不一致时告警并采用重算值。报告面向用户显示“建议修改、需要人工确认、保持原译、已保护”。`*_corrected.<ext>` 是标准交付文件名；其中 corrected 仅是内部机器字段和标准文件名的一部分。
 
-LQE 报告使用富文本显示修改差异：原译中删除或替换的内容显示为红色删除线，建议译文中新增或替换的内容显示为红色字体。corrected 文件不添加差异样式。
+内部结果中的 `corrected: ""` 是合法的整段删除；只有 `corrected: null` 表示没有建议修改。write、apply、export 和聚合不得把空字符串当成字段缺失。
 
-SDLXLIFF 的 `LQE Results` 固定为 11 列：来源文件、TU ID、SDL Segment ID、原文、原译、建议译文、处理方式、错误详情、LQE_Iter、Protected、Protection Evidence。其余 SDL 私有字段、文件 SHA-256、语言、扩展 namespace、规则命中、排除和保护证据写入 `source_manifest.json`。SDL corrected Excel 固定为 5 列：来源文件、TU ID、SDL Segment ID、原文、译文。
+LQE 报告使用富文本显示修改差异：原译中删除或替换的内容显示为红色删除线，建议译文中新增或替换的内容显示为红色字体。`LQE Results` 每个错误一行，同一 `LQE Segment ID` 连续；无错误段保留一行。`LQE AI 复核状态`、`LQE AI 编辑状态`、`LQE 检查来源` 区分直接复核、重复段复用、机器预检保留和旧流程未知；“已生成并验证建议”表示 AI edit 通过脚本验证并纳入建议译文，不表示已写回 state。Scorecard 历史明细同步保留这些状态。正式 module entries 同时受内容摘要和独立本地发布收据绑定；“AI 模块记录”是本地流程证据，不是 host/orchestrator 的外部身份签名。corrected 文件不添加差异样式。
+
+SDLXLIFF 的 `LQE Results` 固定为 16 列：来源文件、TU ID、SDL Segment ID、原文、原译、建议译文、处理方式、LQE Segment ID、LQE 错误序号、LQE AI 复核状态、LQE AI 编辑状态、LQE 检查来源、错误详情、Protected、Protection Evidence、LQE_Iter。表格与 SDLXLIFF 报告都把 `LQE_Iter` 固定在最后一列。其余 SDL 私有字段、文件 SHA-256、语言、扩展 namespace、规则命中、排除和保护证据写入 `source_manifest.json`。SDL corrected Excel 固定为 5 列：来源文件、TU ID、SDL Segment ID、原文、译文。
 
 第一版不回写 SDLXLIFF XML；`export` 只生成 `<任务名>_corrected.xlsx`，原始 XML 保持不变。
 
@@ -390,11 +425,12 @@ SDLXLIFF 的 `LQE Results` 固定为 11 列：来源文件、TU ID、SDL Segment
 ```bash
 python "$SCRIPTS/aggregate_sheets.py" \
   --job <文件名> \
-  [--sheets 剧情,功能,社媒] \
-  [--threshold 98]
+  [--sheets 剧情,功能,社媒]
 ```
 
-聚合结果放在父 job 目录，保留原工作簿工作表、空行、列顺序和格式，只替换目标列。
+聚合结果放在父 job 目录，保留原工作簿工作表、空行、列顺序和格式，只替换目标列。聚合会按每个子 job 的当前 state、`errors.contract.json` 和已验证 chunk generation 重新校验结果，并复用 chunk 中的术语命中上下文；子报告隐藏的 `_LQE_CONTRACT` 同时绑定 state/errors、可见 `LQE Results` 内容及逐错误 provenance 行结构。聚合复制每个子任务的 Results 与 Scorecard（含合并行和历史 AI 状态）。发布前会按稳定顺序重新取得全部子任务 lease；缺失、损坏、过期或未绑定的结果/报告、过期 chunk 证据、输入文件漂移都会失败，原有父级产物保持不变。子任务默认各自继承 policy；除阈值外的策略不一致时失败。显式 `--threshold` 只覆盖阈值；任一子任务 FAIL 则汇总 FAIL。
+
+缺少 `input_sha256` 的旧 state 仅兼容核对已选 source/target 单元格，不能证明其他公式或样式未漂移；正式交付前应重新 `read` 升级为当前 state contract。
 
 该聚合命令只用于表格工作簿；SDLXLIFF 目录是一个多文件 job，不建立多工作表子 job。
 
@@ -423,11 +459,6 @@ jobs/<文件名>/
 ## 12. 验证
 
 ```bash
-python3 -m unittest -v tests.test_correction_builder
-python3 -m unittest -v tests.test_corrected_ownership
-python3 -m unittest -v tests.test_no_terminology_mode
-python3 -m unittest -v tests.test_sdlxliff_input
-python3 -m unittest -v tests.test_documented_contract
-python3 -m unittest -v tests.test_plain_language
+python3 -m unittest discover -s tests -p 'test_*.py' -v
 python3 scripts/run_tests.py
 ```

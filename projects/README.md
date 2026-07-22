@@ -6,7 +6,7 @@
 
 | 文件 | 用途 | 读取方 |
 |---|---|---|
-| `profile.json` | 语言、背景、阈值及各资源路径 | `lqe_io.py read --project` |
+| `profile.json` | 语言、背景、完整评分策略及各资源路径 | `lqe_io.py read --project` |
 | `checks.json` | 机器预检开关和项目自定义规则 | `lqe_io.py pre-check` |
 | `confirmed_rules.md` | 客户或用户已经确认的项目规则 | Agent，检查前必读 |
 | `terms_*.json` | 术语数据，可显式带 `confirmed` 和 `protected` | 标准模式引用或按需转换；无术语模式不读取 |
@@ -27,8 +27,15 @@
   "terminology": "terms.json",
   "checks": "checks.json",
   "confirmed_rules": "confirmed_rules.md",
-  "threshold": 98,
+  "term_status_map": {"Approved": "confirmed", "Draft": "unconfirmed"},
   "protected_term_statuses": [],
+  "scoring_policy": {
+    "threshold": 98,
+    "scorecard_profile": "legacy",
+    "severity_scale": "lisa",
+    "critical_gate": false,
+    "repeat_dedup": true
+  },
   "sdlxliff": {
     "tm_protection": "candidate-only",
     "content_type_rules": [
@@ -41,7 +48,7 @@
 }
 ```
 
-`language_pair`、`source_lang`、`target_lang` 必填。相对路径以当前语言轨目录为基准。设置合并顺序为：内置默认 < 目标语言属性 < 项目 `checks.json` < 命令行参数。
+`language_pair`、`source_lang`、`target_lang` 必填。相对路径以当前语言轨目录为基准。设置合并顺序为：内置默认 < 目标语言属性 < 项目 `checks.json` < 命令行参数。顶层 `threshold` 仅兼容旧 profile；新 profile 使用完整 `scoring_policy`。
 
 `sdlxliff.tm_protection` 可取 `candidate-only` 或 `protect-exact-source-and-target`；CLI `--protect-exact-tm` 优先。`content_type_rules` 按顺序匹配大小写敏感的相对路径 glob，第一个命中生效。`exclude_rules` 必须有唯一 `id` 和非空 `reason`，可选 glob，并在 `relative_path`、`file_original`、`confirmation`、`origin`、`locked`、`source`、`target` 上使用且只使用一个 `equals` 或 `regex`。不得用不稳定的 job 段号，也不得根据 CC、FF、文件名或目录名推断内容类型。
 
@@ -106,8 +113,9 @@ python3 scripts/lqe_io.py read \
 
 - `confirmed: true`：译法已经确认；匹配证据唯一时允许安全的局部修改。
 - `protected: true`：不可修改。
-- 缺失字段按 `false` 处理，不能根据其他状态值推断 `confirmed`。
-- `protected_term_statuses` 只能填写客户资料或用户明确确认的状态值。
+- 新 job 的每个术语/候选必须显式带布尔 `confirmed` 和 `protected`；任一字段缺失都失败，不能根据状态值推断。
+- 已具备两个显式布尔字段的 canonical CSV/XLSX/JSON 可保留 `status` 作为审计元数据，无需 `term_status_map`。缺少任一布尔字段时，状态值必须由 `term_status_map` 映射。
+- `protected_term_statuses` 只补充保护，不构成确认决策；如提供，必须是元素均为非空字符串的数组。`Denied` 始终排除且不得映射。
 
 ## 检查结果接口
 
@@ -134,12 +142,18 @@ chunks/
 <任务名>_corrected.<csv|tsv|xlsx>
 ```
 
-原始输入保持不变。`<任务名>_lqe.xlsx` 用于检查和评分记录。corrected 输出按输入格式区分：
+初始化在 staging 中完成校验，拒绝输入/输出/资源别名，并以 `state.json` 最后发布；失败不留下正式半套产物。原始输入保持不变。`<任务名>_lqe.xlsx` 用于检查和评分记录。corrected 输出按输入格式区分：
 
 - CSV/TSV 输入输出 `<任务名>_corrected.csv` 或 `<任务名>_corrected.tsv`，保持原行列和输入扩展名。
 - XLSX 输入输出 `<任务名>_corrected.xlsx`，保持工作簿、工作表、空行、列顺序和格式。
 - SDLXLIFF 输出新建固定 5 列的 `<任务名>_corrected.xlsx`。
 
-SDLXLIFF 的 `source_manifest.json` 记录输入文件 SHA-256、语言、未知扩展 namespace、规则命中、纳入/排除原因和 locked/TM 证据；`tm_candidates.json` 单独记录严格候选。其 `LQE Results` 固定为来源文件、TU ID、SDL Segment ID、原文、原译、建议译文、处理方式、错误详情、LQE_Iter、Protected、Protection Evidence；新建的 corrected Excel 固定为来源文件、TU ID、SDL Segment ID、原文、译文。
+经验证的内部结果中，`corrected: ""` 是合法的整段删除；只有 `corrected: null` 表示没有建议修改。write、apply、export 和多工作表聚合都必须保留这一区别。
+
+SDLXLIFF 的 `source_manifest.json` 记录输入文件 SHA-256、语言、未知扩展 namespace、规则命中、纳入/排除原因和 locked/TM 证据；`tm_candidates.json` 单独记录严格候选。其 `LQE Results` 固定为来源文件、TU ID、SDL Segment ID、原文、原译、建议译文、处理方式、LQE Segment ID、LQE 错误序号、LQE AI 复核状态、LQE AI 编辑状态、LQE 检查来源、错误详情、Protected、Protection Evidence、LQE_Iter；同段多错误连续且每错误一行，`LQE_Iter` 固定在最后一列。新建的 corrected Excel 固定为来源文件、TU ID、SDL Segment ID、原文、译文。
 
 第一版不回写 SDLXLIFF XML；只导出标准 `<任务名>_corrected.xlsx`，原始 XML 保持不变。
+
+运行时默认继承 `state.scoring_policy`。仅 PASS 创建 `.finalized`；FAIL+single 不改当前译文、不完成；FAIL+iterate 只有至少应用一处重新验证通过的安全局部 edit 时，才更新 `current_target`/iteration、设置 `pending_recheck=true` 并返回 `PENDING-RECHECK`。零修改时写出本轮报告，并通过 `export --errors` 写出已验证的错误覆盖，返回 `REVIEW-REQUIRED`，清除 `.iteration_pending`，不推进 iteration。旧 iteration/target/scope/预检/术语指纹的 chunks 不可复用。
+
+多工作表聚合按每个子任务的当前 state、`errors.contract.json` 和已验证 chunk generation 重新校验结果，并复用 chunk 术语命中上下文；隐藏 `_LQE_CONTRACT` 同时绑定 state/errors 与可见 `LQE Results` 内容。发布前会重新取得全部子任务 lease。结果/报告缺失、损坏、过期或未绑定、chunk 证据过期、输入文件漂移都会在父级产物发布前失败，原有父级产物保持不变。

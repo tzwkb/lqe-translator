@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 from xml.etree import ElementTree as ET
@@ -25,6 +26,7 @@ sys.path.insert(0, str(SCRIPTS))
 from lqe_inputs import detect_input_format
 import lqe_engine
 import lqe_io
+import lqe_paths
 from lqe_inputs.sdlxliff import (
     SDLXLIFFImportError,
     SDLXLIFFOptions,
@@ -1754,7 +1756,17 @@ class SDLXLIFFIntegrationTests(unittest.TestCase):
         style_guide = self.root / "style.md"
         style_guide.write_text("# Style\n", encoding="utf-8")
         terminology = self.root / "source-terms.json"
-        write_json(terminology, [{"source": "甲", "target": "Alpha"}])
+        write_json(
+            terminology,
+            [
+                {
+                    "source": "甲",
+                    "target": "Alpha",
+                    "confirmed": False,
+                    "protected": False,
+                }
+            ],
+        )
         cases = (
             ("sg.txt", ("--style-guide", style_guide)),
             ("terms.json", ("--terminology", terminology)),
@@ -1832,7 +1844,7 @@ class SDLXLIFFIntegrationTests(unittest.TestCase):
         staged_asset = self.root / "staged" / "sg.txt"
         staged_asset.parent.mkdir()
         staged_asset.write_text("# Style\n", encoding="utf-8")
-        original_publish = lqe_io._publish_staged_file
+        original_publish = lqe_paths._publish_new_staged
 
         def interrupt_before_publish(source, target):
             if target.name == "tm_candidates.json":
@@ -1840,7 +1852,7 @@ class SDLXLIFFIntegrationTests(unittest.TestCase):
             return original_publish(source, target)
 
         with mock.patch.object(
-            lqe_io, "_publish_staged_file", interrupt_before_publish
+            lqe_paths, "_publish_new_staged", interrupt_before_publish
         ):
             with self.assertRaises(KeyboardInterrupt):
                 lqe_io._publish_sdlxliff_job(
@@ -1902,7 +1914,7 @@ class SDLXLIFFIntegrationTests(unittest.TestCase):
         staged_asset = self.root / "staged-race" / "sg.txt"
         staged_asset.parent.mkdir()
         staged_asset.write_text("# Style\n", encoding="utf-8")
-        original_publish = lqe_io._publish_staged_file
+        original_publish = lqe_paths._publish_new_staged
 
         def create_competing_json(source, target):
             if target.name == "tm_candidates.json":
@@ -1910,7 +1922,7 @@ class SDLXLIFFIntegrationTests(unittest.TestCase):
             return original_publish(source, target)
 
         with mock.patch.object(
-            lqe_io, "_publish_staged_file", create_competing_json
+            lqe_paths, "_publish_new_staged", create_competing_json
         ):
             with self.assertRaises(FileExistsError):
                 lqe_io._publish_sdlxliff_job(
@@ -1931,7 +1943,7 @@ class SDLXLIFFIntegrationTests(unittest.TestCase):
         staged_asset = self.root / "staged-replacement" / "sg.txt"
         staged_asset.parent.mkdir()
         staged_asset.write_text("# Style\n", encoding="utf-8")
-        original_publish = lqe_io._publish_staged_file
+        original_publish = lqe_paths._publish_new_staged
 
         def replace_asset_then_interrupt(source, target):
             if target.name == "source_manifest.json":
@@ -1942,7 +1954,7 @@ class SDLXLIFFIntegrationTests(unittest.TestCase):
             return original_publish(source, target)
 
         with mock.patch.object(
-            lqe_io, "_publish_staged_file", replace_asset_then_interrupt
+            lqe_paths, "_publish_new_staged", replace_asset_then_interrupt
         ):
             with self.assertRaises(KeyboardInterrupt):
                 lqe_io._publish_sdlxliff_job(
@@ -2302,6 +2314,9 @@ class SDLXLIFFOutputTests(unittest.TestCase):
 
     def finish_sdl_job(self):
         state_path = self.read_job()
+        state = read_json(state_path)
+        state.pop("artifact_contract_version", None)
+        write_json(state_path, state)
         errors_path = self.job / "errors.json"
         write_json(
             errors_path,
@@ -2323,7 +2338,7 @@ class SDLXLIFFOutputTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return state_path, errors_path
 
-    def test_report_has_fixed_eleven_columns_and_per_file_names(self):
+    def test_report_has_grouped_issue_columns_and_per_file_names(self):
         self.finish_sdl_job()
         report = next(self.job.glob("*_lqe.xlsx"))
         workbook = openpyxl.load_workbook(report, data_only=True)
@@ -2339,17 +2354,22 @@ class SDLXLIFFOutputTests(unittest.TestCase):
                     "原译",
                     "建议译文",
                     "处理方式",
+                    "LQE Segment ID",
+                    "LQE 错误序号",
+                    "LQE AI 复核状态",
+                    "LQE AI 编辑状态",
+                    "LQE 检查来源",
                     "错误详情",
-                    "LQE_Iter",
                     "Protected",
                     "Protection Evidence",
+                    "LQE_Iter",
                 ],
             )
             rows = list(sheet.iter_rows(min_row=2, values_only=True))
             self.assertEqual([row[0] for row in rows], ["dialogs.xml", "dialogs.xml", "ui.xml"])
-            self.assertEqual(rows[1][9], "Yes")
-            self.assertIn("SOURCE_LOCKED", rows[1][10])
-            self.assertIn('"locked"', rows[1][10])
+            self.assertEqual(rows[1][13], "Yes")
+            self.assertIn("SOURCE_LOCKED", rows[1][14])
+            self.assertIn('"locked"', rows[1][14])
             scorecard_values = [
                 cell.value for row in workbook["LQA Scorecard"] for cell in row
             ]
@@ -2388,6 +2408,17 @@ class SDLXLIFFOutputTests(unittest.TestCase):
 
     def test_export_creates_corrected_xlsx_without_touching_xml(self):
         state_path = self.read_job()
+        state = read_json(state_path)
+        state.pop("artifact_contract_version", None)
+        state["terminology"] = [
+            {
+                "source": "开始",
+                "target": "Begin",
+                "confirmed": True,
+                "protected": False,
+            }
+        ]
+        write_json(state_path, state)
         errors_path = self.job / "errors.json"
         write_json(
             errors_path,
@@ -2401,7 +2432,11 @@ class SDLXLIFFOutputTests(unittest.TestCase):
                             edit={
                                 "from": "Start",
                                 "to": "Begin",
-                                "evidence": None,
+                                "evidence": {
+                                    "type": "confirmed_term",
+                                    "source": "开始",
+                                    "target": "Begin",
+                                },
                             }
                         )
                     ],
@@ -2430,13 +2465,56 @@ class SDLXLIFFOutputTests(unittest.TestCase):
             workbook.close()
         self.assertEqual(before, {path: self.sha256(path) for path in self.input_files})
 
+    def test_export_rejects_sdl_source_drift(self):
+        state_path = self.read_job()
+        self.source.write_bytes(self.source.read_bytes() + b"\n")
+
+        result = self.run_io("export", "--state", state_path)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("source changed after read", result.stderr)
+        self.assertFalse(list(self.job.glob("*_corrected.xlsx")))
+
+    def test_export_rejects_new_sdl_file_added_during_export(self):
+        source_dir = self.root / "source-dir"
+        source_dir.mkdir()
+        shutil.copy2(self.source, source_dir / "original.sdlxliff")
+        state_path = self.job / "state.json"
+        read_result = self.run_io(
+            "read", "--input", source_dir, "--out", state_path
+        )
+        self.assertEqual(read_result.returncode, 0, read_result.stderr)
+        original_export = lqe_io._export_sdlxliff_xlsx
+
+        def export_then_add_file(*args, **kwargs):
+            original_export(*args, **kwargs)
+            shutil.copy2(self.source, source_dir / "added.sdlxliff")
+
+        with mock.patch.object(
+            lqe_io,
+            "_export_sdlxliff_xlsx",
+            side_effect=export_then_add_file,
+        ):
+            with self.assertRaisesRegex(
+                SystemExit, "source changed during export"
+            ):
+                lqe_io.cmd_export(
+                    SimpleNamespace(state=str(state_path), errors=None)
+                )
+
+        self.assertFalse(list(self.job.glob("*_corrected.xlsx")))
+
     def test_apply_fixes_preserves_source_locked_reason_and_evidence(self):
         state_path = self.read_job()
-        before = read_json(state_path)["segments"][1]["protection_evidence"]
+        state = read_json(state_path)
+        before = state["segments"][1]["protection_evidence"]
+        state.pop("artifact_contract_version", None)
+        write_json(state_path, state)
         errors_path = self.job / "errors.json"
         write_json(
             errors_path,
             [
+                {"id": 0, "errors": [], "corrected": None},
                 {
                     "id": 1,
                     "errors": [
@@ -2449,7 +2527,8 @@ class SDLXLIFFOutputTests(unittest.TestCase):
                         )
                     ],
                     "corrected": "Changed",
-                }
+                },
+                {"id": 2, "errors": [], "corrected": None},
             ],
         )
 
@@ -2474,7 +2553,9 @@ class SDLXLIFFOutputTests(unittest.TestCase):
                 }
             ],
         )
-        scrubbed = read_json(errors_path)[0]
+        scrubbed = next(
+            entry for entry in read_json(errors_path) if entry["id"] == 1
+        )
         self.assertEqual(scrubbed["errors"], [])
         self.assertIsNone(scrubbed["corrected"])
 

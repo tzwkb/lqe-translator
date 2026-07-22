@@ -7,8 +7,6 @@ USER_FACING = [
     "SKILL.md",
     "README.md",
     "README_ZH.md",
-    "PM_GUIDE.html",
-    "projects/README.md",
     "projects/nrc/common/confirmed_rules_common.md",
     "projects/nrc/zh-en/confirmed_rules.md",
     "projects/nrc/zh-en/checks.json",
@@ -17,11 +15,9 @@ USER_FACING = [
     "projects/wwm/zh-en/confirmed_rules.md",
     "projects/wwm/zh-en/checks.json",
     "projects/wwm/zh-en/lqa_notes.md",
-    "docs/check_modules",
+    "references/check_modules",
     "scripts/finalize_job.sh",
     "scripts/mastertb_prep.py",
-    "scripts/gen_checklist_xlsx.py",
-    "scripts/gen_pm_feedback_report_xlsx.py",
     "scripts/term_suggest.py",
     "scripts/tm_index.py",
 ]
@@ -84,7 +80,7 @@ class PlainLanguageTests(unittest.TestCase):
                         )
 
     def test_check_modules_use_issue_edit_contract(self):
-        module_dir = ROOT / "docs/check_modules"
+        module_dir = ROOT / "references/check_modules"
         actual = tuple(sorted(path.name for path in module_dir.glob("*.md"))) if module_dir.exists() else ()
         self.assertEqual(sorted(CHECK_MODULE_NAMES), sorted(actual))
         for name in CHECK_MODULE_NAMES:
@@ -95,25 +91,14 @@ class PlainLanguageTests(unittest.TestCase):
                 self.assertIn('"needs_confirmation"', text)
                 self.assertNotIn('"corrected"', text)
 
-    def test_retired_workflow_docs_are_removed(self):
+    def test_runtime_references_have_no_legacy_docs_paths(self):
+        self.assertFalse((ROOT / "docs/check_modules").exists())
         self.assertFalse((ROOT / "docs/lenses").exists())
-        self.assertFalse(
-            (ROOT / "docs/superpowers/plans/2026-07-12-lqe-pending-adjudication.md").exists()
-        )
-        self.assertFalse(
-            (ROOT / "docs/superpowers/specs/2026-07-12-lqe-pending-adjudication-design.md").exists()
-        )
+        self.assertFalse((ROOT / "references/lenses").exists())
 
     def test_sdlxliff_boundaries_are_plain_and_visible(self):
         requirements = {
             "SKILL.md": ("未知厂商扩展", "第一版不回写 SDLXLIFF XML"),
-            "README.md": (
-                "Unknown vendor extensions",
-                "does not write back to SDLXLIFF XML",
-            ),
-            "README_ZH.md": ("未知厂商扩展", "第一版不回写 SDLXLIFF XML"),
-            "PM_GUIDE.html": ("未知厂商扩展", "第一版不回写 SDLXLIFF XML"),
-            "projects/README.md": ("未知厂商扩展", "第一版不回写 SDLXLIFF XML"),
         }
         for path, phrases in requirements.items():
             content = (ROOT / path).read_text(encoding="utf-8")

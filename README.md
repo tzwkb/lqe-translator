@@ -8,7 +8,7 @@ English | [中文](README_ZH.md)
 
 Agent skill for game-localization LQE: deterministic pre-checks, focused AI check modules, validated local edits, scoring, and Excel deliverables.
 
-> Project managers can use the standalone [PM guide](PM_GUIDE.html).
+> Project managers can use the standalone [PM guide](PM_GUIDE.html). Development records are retained in `docs/`.
 
 ## What the workflow guarantees
 
@@ -30,7 +30,7 @@ lqe-translator/
 │   ├── lqe_corrections.py  # Validate local edits and build full-text results
 │   ├── lqe_calc.py         # Calculate the LQE score
 │   └── finalize_job.sh     # Validate through export in one command
-├── docs/check_modules/
+├── references/check_modules/
 │   ├── common.md
 │   ├── terminology.md
 │   ├── precheck_review.md
@@ -92,6 +92,8 @@ python3 "$SCRIPTS/lqe_io.py" read \
 
 The profile must declare `language_pair`, `source_lang`, and `target_lang`. Run checks only after reading the project background, `confirmed_rules.md`, the style guide, and language notes.
 
+Initialization stages and validates every asset before publication, rejects input/output/resource aliases (including symlinks and hardlinks), and publishes `state.json` last. Failure leaves no formal `state.json`, `scope.json`, `terms.json`, or partial SDL asset set.
+
 When the request explicitly excludes terminology and proper-name checks, add `--no-terminology` to `read`. It overrides profile terminology and is mutually exclusive with an explicit `--terminology <file>`:
 
 ```bash
@@ -149,9 +151,10 @@ Terminology entries use explicit flags in standard mode; no-terminology mode ign
 {"source":"Source term","target":"Approved rendering","confirmed":true,"protected":false}
 ```
 
-- Missing flags default to `false`.
-- Do not infer `confirmed` from a status label.
-- `protected_term_statuses` may map user-confirmed status values to `protected: true`.
+- Every new-job term or sense must contain boolean `confirmed` and `protected`; either missing field fails before formal job artifacts are published.
+- A canonical CSV/XLSX/JSON record that already contains both boolean fields may retain `status` as audit metadata and does not require `profile.term_status_map`. If either boolean is missing, status values require an explicit mapping; do not infer confirmation.
+- `protected_term_statuses` may only supplement protection and is not a confirmation decision. When present, it must be an array of non-empty strings.
+- `Denied` is always excluded case-insensitively and must not be mapped.
 
 When the input supplies exact TM-match evidence, the agent records explicit segment ids and then runs:
 
@@ -202,7 +205,7 @@ python3 "$SCRIPTS/lqe_chunk.py" split \
   --size 100
 ```
 
-`split` reads terminology through the state in standard mode. `--terms <file>` is an optional standard-mode override and is rejected in no-terminology mode.
+`split` reads terminology through the state in standard mode. `--terms <file>` is an optional standard-mode override and is rejected in no-terminology mode. Split inputs are fingerprinted; when the state, current target, scope, pre-check, terms, or split settings change, stale chunk artifacts are archived and old module outputs cannot be reused.
 
 For every `chunk_NN.json`, produce the files selected by `state.check_scope`:
 
@@ -220,7 +223,9 @@ chunk_NN.grammar.json
 chunk_NN.naturalness.json
 ```
 
-Each module reads `docs/check_modules/common.md`, its own specification, and the job context. It must cover every assigned id, including rows with no findings.
+Each module reads `references/check_modules/common.md`, its own specification, and the job context. It must cover every assigned id, including rows with no findings.
+
+The model writes the JSON array to a draft file. Publish it with `lqe_chunk.py publish-module`, passing the `split_fingerprint` and `payload_digest` from the chunk it reviewed. The publisher validates coverage and ownership under the generation lock and creates the formal bound envelope. Current jobs reject naked arrays at formal module paths and reject stale fingerprints.
 
 `precheck_review` confirms or removes non-terminology pre-check findings in the Markup, Length, Locale convention, Company style, Inconsistency, and Other categories. It must not create Terminology issues, `TERM REVIEW:` evidence, or `confirmed_term` edits.
 
@@ -265,9 +270,10 @@ python3 "$SCRIPTS/lqe_chunk.py" merge \
 
 python3 "$SCRIPTS/lqe_calc.py" \
   --state "$JOB/state.json" \
-  --errors "$JOB/errors.json" \
-  --threshold 98
+  --errors "$JOB/errors.json"
 ```
+
+`merge` re-derives the merged issues and provenance from the current bound module outputs, verifies both the content digest and an independent local publication receipt for formal module entries, rejects a forged intermediate merged file, and atomically publishes `errors.json` with `errors.contract.json`. Model drafts cannot self-declare AI review/edit status. Calc, write, apply, export, and aggregation hold a generation lease and reject missing provenance or a missing, tampered, or stale contract. Jobs created by the current reader also reject state-only verification when `chunks/` is missing.
 
 For a first-round review, explicitly use `single`:
 
@@ -275,7 +281,7 @@ For a first-round review, explicitly use `single`:
 bash "$SCRIPTS/finalize_job.sh" "$JOB" <chunk-count> single
 ```
 
-Choose `iterate` only when the user has explicitly requested automatic iteration.
+Choose `iterate` only when the user has explicitly requested automatic iteration. PASS alone creates `.finalized`; FAIL+single writes review artifacts without changing the current target or finalizing. FAIL+iterate advances `current_target`/iteration, sets `pending_recheck=true`, and returns `PENDING-RECHECK` only when at least one re-verified safe local edit was applied. With zero applicable edits, it writes the round report, exports the verified error overlay with `export --errors`, returns `REVIEW-REQUIRED`, removes `.iteration_pending`, and does not advance the iteration. The next round must rerun pre-check, split, and all modules.
 
 ### 6. Write the standard deliverables
 
@@ -283,8 +289,7 @@ Choose `iterate` only when the user has explicitly requested automatic iteration
 python3 "$SCRIPTS/lqe_io.py" write \
   --state "$JOB/state.json" \
   --errors "$JOB/errors.json" \
-  --score <score> \
-  --threshold 98
+  --score <score>
 
 python3 "$SCRIPTS/lqe_io.py" export \
   --state "$JOB/state.json" \
@@ -293,15 +298,19 @@ python3 "$SCRIPTS/lqe_io.py" export \
 
 Every input produces `<job>_lqe.xlsx` with the score, issues, suggested text, review handling, and history. The corrected output depends on the input format:
 
+`write --score` is a consistency input. `write` recomputes the score from state policy and errors, warns on disagreement, and uses the recomputed result.
+
 - CSV/TSV inputs produce `<job>_corrected.csv` or `<job>_corrected.tsv` and preserve rows, columns, and the source extension.
 - XLSX input produces `<job>_corrected.xlsx` and preserves the workbook, worksheets, blank rows, column order, and formatting.
 - SDLXLIFF produces a new fixed five-column `<job>_corrected.xlsx`.
 
-LQE reports use rich text for translation diffs: removed or replaced text in the original translation uses red strikethrough, and inserted or replaced text in the suggested translation uses red font. Corrected files do not receive diff styling.
+LQE reports use rich text for translation diffs: removed or replaced text in the original translation uses red strikethrough, and inserted or replaced text in the suggested translation uses red font. `LQE Results` emits one row per issue, keeps issues from the same `LQE Segment ID` contiguous, and retains one row for a segment with no issue. The audit columns distinguish direct AI review, deduplicated reuse, retained machine pre-checks, and legacy unknowns. “Suggestion generated and verified” means the AI edit passed script validation and appears in the suggested translation; it does not mean the edit was written back to state. “AI module record” is locally content-bound workflow evidence, not an external host/orchestrator identity signature. Scorecard history carries the same provenance. Corrected files do not receive diff styling.
 
 User-facing reports label rows as suggested change, needs human confirmation, keep original, or protected. The word `corrected` is reserved for internal data and the standard output filename.
 
-For SDLXLIFF, `LQE Results` always uses these 11 columns: `来源文件`, `TU ID`, `SDL Segment ID`, `原文`, `原译`, `建议译文`, `处理方式`, `错误详情`, `LQE_Iter`, `Protected`, `Protection Evidence`. `source_manifest.json` stores input SHA-256 hashes, declared languages, extension namespaces, rule matches, exclusions, and locked/TM evidence. The new corrected workbook uses five columns: `来源文件`, `TU ID`, `SDL Segment ID`, `原文`, `译文`.
+In verified internal results, `corrected: ""` is a valid deletion of the whole target; only `corrected: null` means no suggested change. Write, apply, export, and aggregation preserve that distinction.
+
+For SDLXLIFF, `LQE Results` uses these 16 columns: `来源文件`, `TU ID`, `SDL Segment ID`, `原文`, `原译`, `建议译文`, `处理方式`, `LQE Segment ID`, `LQE 错误序号`, `LQE AI 复核状态`, `LQE AI 编辑状态`, `LQE 检查来源`, `错误详情`, `Protected`, `Protection Evidence`, `LQE_Iter`. Tabular and SDLXLIFF reports always place `LQE_Iter` last. `source_manifest.json` stores input SHA-256 hashes, declared languages, extension namespaces, rule matches, exclusions, and locked/TM evidence. The new corrected workbook uses five columns: `来源文件`, `TU ID`, `SDL Segment ID`, `原文`, `译文`.
 
 The first release does not write back to SDLXLIFF XML. `export` creates `<job>_corrected.xlsx` and leaves every source XML file unchanged.
 
@@ -313,7 +322,7 @@ L_per_category = weight × K
 score = max((1 - ΣL / fixed_wordcount) × 100, 0)
 ```
 
-Default severity points are Neutral 0, Minor 1, Major 5, and Critical 10. The default threshold is 98. Terminology, Untranslated, Markup, and Length are forced to Major. Protected segments are skipped.
+`state.scoring_policy` is the default for calc, write, reports, iteration, and aggregation; CLI flags are explicit overrides only. The policy contains threshold, scorecard profile, LISA/MQM severity scale, Critical gate, and repeat dedup. Repeated annotations are cleared and rebuilt on every score. Default severity points are Neutral 0, Minor 1, Major 5, and Critical 10; the default threshold is 98. Protected segments are skipped.
 
 ## Multi-sheet workbooks
 
@@ -322,22 +331,16 @@ Create one child job per sheet, then aggregate after every sheet has passed the 
 ```bash
 python3 "$SCRIPTS/aggregate_sheets.py" \
   --job <job> \
-  --sheets <sheet-a>,<sheet-b> \
-  --threshold 98
+  --sheets <sheet-a>,<sheet-b>
 ```
 
-The parent job preserves worksheet order, blank rows, formulas, styles, and merged cells while replacing only the target cells selected by validated edits.
+The parent job preserves worksheet order, blank rows, formulas, styles, and merged cells while replacing only validated/current targets. Aggregation revalidates every child against its current state, `errors.contract.json`, and verified chunk generation, including chunk terminology context. Each hidden `_LQE_CONTRACT` binds state/errors, visible `LQE Results`, and its per-issue provenance layout; the aggregate copies both child Results and Scorecard history. Before publication, aggregation reacquires every child lease in stable order. Missing, corrupt, stale, or unbound results/reports, stale chunk evidence, or source drift fail without replacing existing parent outputs. Child policies are inherited; incompatible non-threshold policies fail closed. An explicit `--threshold` overrides only the threshold, and any child FAIL makes the aggregate FAIL.
 
 This aggregation command is for tabular workbooks only; an SDLXLIFF directory is one multi-file job, not a multi-sheet workbook.
 
 ## Verification
 
 ```bash
-python3 -m unittest -v tests.test_correction_builder
-python3 -m unittest -v tests.test_corrected_ownership
-python3 -m unittest -v tests.test_no_terminology_mode
-python3 -m unittest -v tests.test_sdlxliff_input
-python3 -m unittest -v tests.test_documented_contract
-python3 -m unittest -v tests.test_plain_language
+python3 -m unittest discover -s tests -p 'test_*.py' -v
 python3 scripts/run_tests.py
 ```

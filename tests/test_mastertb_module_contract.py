@@ -86,8 +86,13 @@ class MasterTBModuleContractTests(unittest.TestCase):
         self.assertIn("chunk_id", chunk)
         self.assertEqual(chunk["chunk_id"], 0)
         self.assertNotIn("terms", chunk)
+        segment = chunk["segments"][0]
+        precheck = dict(segment["precheck"][0])
+        precheck_ref = precheck.pop("precheck_ref")
+        self.assertTrue(precheck_ref.startswith("precheck:0:"))
+        segment = {**segment, "precheck": [precheck]}
         self.assertEqual(
-            chunk["segments"][0],
+            segment,
             {
                 "id": 0,
                 "source": "花衣蝶",
@@ -177,8 +182,8 @@ class MasterTBModuleContractTests(unittest.TestCase):
         self.assertTrue(context_path.is_file())
         context = context_path.read_text(encoding="utf-8")
         self.assertIn("`segments[]`", context)
-        self.assertIn("docs/check_modules/common.md", context)
-        self.assertIn("docs/check_modules/term_audit.md", context)
+        self.assertIn("references/check_modules/common.md", context)
+        self.assertIn("references/check_modules/term_audit.md", context)
         self.assertIn('"issues"', context)
         self.assertIn('"needs_confirmation"', context)
         self.assertIn('"edit"', context)
@@ -272,7 +277,7 @@ class MasterTBModuleContractTests(unittest.TestCase):
         )
 
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("must be an array", result.stderr)
+        self.assertIn("module output envelope fields are invalid", result.stderr)
         self.assertFalse((self.job / "errors.json").exists())
 
 

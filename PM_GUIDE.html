@@ -147,7 +147,7 @@ python3 "$SCRIPTS/lqe_chunk.py" split --state "$JOB/state.json" \
 <p>报告中的处理方式只使用“建议修改、需要人工确认、保持原译、已保护”。原输入文件不会被覆盖。</p>
 <p>LQE 报告使用富文本显示修改差异：原译中删除或替换的内容显示为红色删除线，建议译文中新增或替换的内容显示为红色字体。corrected 文件不添加差异样式。</p>
 <p>CSV/TSV：输出 *_corrected.csv/tsv，保持原行列和输入扩展名；XLSX：输出 *_corrected.xlsx，保持工作簿、工作表、空行、列顺序和格式；SDLXLIFF：输出新建固定 5 列的 *_corrected.xlsx。</p>
-<p>SDLXLIFF 报告固定为 11 列：来源文件、TU ID、SDL Segment ID、原文、原译、建议译文、处理方式、错误详情、LQE_Iter、Protected、Protection Evidence。SDL corrected Excel 固定为 5 列：来源文件、TU ID、SDL Segment ID、原文、译文。</p>
+<p>LQE Results 每个错误一行，同一 LQE Segment ID 连续；AI 复核、AI 编辑和检查来源列区分直接复核、重复段复用、机器预检保留与旧流程未知。“已生成并验证建议”表示已纳入建议译文，不表示已写回 state；“AI 模块记录”是本地内容绑定证据，不是外部身份签名。SDLXLIFF 报告固定为 16 列：来源文件、TU ID、SDL Segment ID、原文、原译、建议译文、处理方式、LQE Segment ID、LQE 错误序号、LQE AI 复核状态、LQE AI 编辑状态、LQE 检查来源、错误详情、Protected、Protection Evidence、LQE_Iter；表格与 SDLXLIFF 报告都把 LQE_Iter 放在最后一列。SDL corrected Excel 固定为 5 列：来源文件、TU ID、SDL Segment ID、原文、译文。</p>
 <p>第一版不回写 SDLXLIFF XML；导出只新增 corrected Excel，原始 XML 保持不变。</p>
 
 <h2 id="acceptance">五、验收检查</h2>

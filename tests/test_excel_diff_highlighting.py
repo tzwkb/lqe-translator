@@ -19,7 +19,9 @@ SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 from lqe_excel_diff import build_rich_diff
+from lqe_report_contract import attach_report_contract
 import lqe_io
+import lqe_paths
 
 
 def changed_blocks(value):
@@ -173,19 +175,19 @@ class RichDiffUnitTests(unittest.TestCase):
             root = Path(tempdir)
             path = root / "state.json"
             path.write_bytes(b"original")
-            real_replace = lqe_io.os.replace
+            real_replace = lqe_paths.os.replace
 
             def fail_replace(source, destination):
                 if Path(destination) == path:
                     raise OSError("injected JSON replace failure")
                 return real_replace(source, destination)
 
-            with patch.object(lqe_io.os, "replace", side_effect=fail_replace):
+            with patch.object(lqe_paths.os, "replace", side_effect=fail_replace):
                 with self.assertRaisesRegex(
                     OSError,
                     "injected JSON replace failure",
                 ):
-                    lqe_io._write_json_atomic(path, {"updated": True})
+                    lqe_paths.write_json_atomic(path, {"updated": True})
 
             self.assertEqual(path.read_bytes(), b"original")
             self.assertFalse(list(root.glob(".*.tmp")))
@@ -603,7 +605,7 @@ class RichDiffReportTests(unittest.TestCase):
         finally:
             workbook.close()
 
-    def test_results_error_details_span_rows_above_excel_height_limit(self):
+    def test_results_split_many_errors_into_contiguous_rows(self):
         output = self.root / "too-many-errors_lqe.xlsx"
         state = {
             "input_path": str(self.root / "too-many-errors.xlsx"),
@@ -630,9 +632,29 @@ class RichDiffReportTests(unittest.TestCase):
         workbook = openpyxl.load_workbook(output)
         try:
             results = workbook["LQE Results"]
-            self.assertIn("A2:A3", {str(item) for item in results.merged_cells.ranges})
-            self.assertLessEqual(results.row_dimensions[2].height, 409)
-            self.assertLessEqual(results.row_dimensions[3].height, 409)
+            headers = [cell.value for cell in results[1]]
+            segment_column = headers.index("LQE Segment ID") + 1
+            issue_column = headers.index("LQE 错误序号") + 1
+            detail_column = headers.index("错误详情") + 1
+            self.assertEqual(results.max_row, 32)
+            self.assertEqual(
+                [results.cell(row, segment_column).value for row in range(2, 33)],
+                [0] * 31,
+            )
+            self.assertEqual(
+                [results.cell(row, issue_column).value for row in range(2, 33)],
+                list(range(1, 32)),
+            )
+            self.assertEqual(
+                results.cell(32, detail_column).value,
+                "[Grammar · Minor] Issue 30",
+            )
+            self.assertTrue(
+                all(
+                    (results.row_dimensions[row].height or 0) <= 409
+                    for row in range(2, 33)
+                )
+            )
         finally:
             workbook.close()
 
@@ -667,8 +689,17 @@ class RichDiffReportTests(unittest.TestCase):
             "iteration": 0,
             "error_history": [{"iteration": 99, "errors": []}],
         }
+        local_issue = issue()
+        local_issue["needs_confirmation"] = False
+        local_issue["edit"] = {
+            "from": original,
+            "to": suggested,
+            "start": 0,
+            "end": len(original),
+            "evidence": None,
+        }
         errors = [
-            {"id": 0, "errors": [issue()], "corrected": suggested},
+            {"id": 0, "errors": [local_issue], "corrected": suggested},
             {"id": 1, "errors": [issue(protected=True)], "corrected": None},
         ]
         state_path.write_text(
@@ -744,10 +775,19 @@ class RichDiffReportTests(unittest.TestCase):
                     "iteration": 0,
                     "error_history": [{"iteration": 99, "errors": []}],
                 }
+                local_issue = issue()
+                local_issue["needs_confirmation"] = False
+                local_issue["edit"] = {
+                    "from": "Old target",
+                    "to": "New target",
+                    "start": 0,
+                    "end": len("Old target"),
+                    "evidence": None,
+                }
                 errors = [
                     {
                         "id": 0,
-                        "errors": [issue()],
+                        "errors": [local_issue],
                         "corrected": "New target",
                     },
                     {
@@ -865,7 +905,16 @@ class RichDiffReportTests(unittest.TestCase):
         try:
             self.assertEqual(
                 workbook.sheetnames,
-                ["说明·导读", "LQA Scorecard", "LQE Results"],
+                [
+                    "说明·导读",
+                    "LQA Scorecard",
+                    "LQE Results",
+                    "_LQE_CONTRACT",
+                ],
+            )
+            self.assertEqual(
+                workbook["_LQE_CONTRACT"].sheet_state,
+                "veryHidden",
             )
         finally:
             workbook.close()
@@ -1177,6 +1226,7 @@ class RichDiffAggregateTests(unittest.TestCase):
             results.cell(4, 2).data_type = "s"
             results.cell(4, 4).data_type = "s"
             results.append([3, None, "context", f"{verb} added", "changed"])
+            attach_report_contract(child_report, state, errors)
             child_report.save(child / f"{sheet_name}_lqe.xlsx")
             child_report.close()
 

@@ -13,7 +13,7 @@
 （RAG/TM/protected 100% match 属通用 skill 机制，见 SKILL.md Step 1.2，非本项目确认规则，已从此处移除）
 
 ## 0512 globaltrunk 人工 LQE 确认记录（2026-06-11 注入，效力=Query 级）
-源：《【AI】【英】0512【globaltrunk】【0511新增】_LQE Report》——人工审校结果（×=被标为错误的译法）。检查项与关注点总表见 docs/质量检查项清单.md。
+源：《【AI】【英】0512【globaltrunk】【0511新增】_LQE Report》——人工审校结果（×=被标为错误的译法）。通用运行口径见 SKILL.md。
 
 ### 术语定译
 - 画卯=Roll Call（×Mark Mao）；画卯奖励=Roll Call Rewards；本人已到！=I'm here!

@@ -440,7 +440,7 @@ def test_report_has_fixed_eleven_columns_and_per_file_names(self):
         headers = [cell.value for cell in sheet[1]]
         self.assertEqual(headers, [
             "来源文件", "TU ID", "SDL Segment ID", "原文", "原译",
-            "建议译文", "处理方式", "错误详情", "LQE_Iter", "Protected", "Protection Evidence",
+            "建议译文", "处理方式", "错误详情", "Protected", "Protection Evidence", "LQE_Iter",
         ])
         scorecard_values = [cell.value for row in workbook["LQA Scorecard"] for cell in row]
         self.assertIn("dialogs.xml", scorecard_values)

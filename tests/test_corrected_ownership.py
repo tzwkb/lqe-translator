@@ -32,6 +32,7 @@ from lqe_checks import run_pre_check
 import aggregate_sheets
 import lqe_chunk
 import lqe_io
+from lqe_report_contract import attach_report_contract, validate_report_contract
 
 
 def write_json(path, value):
@@ -98,19 +99,44 @@ class CorrectedOwnershipChunkTests(unittest.TestCase):
         )
 
     def make_job(self, segments, *, representatives=None, dedup_map=None, pre=None):
-        write_json(self.job / "state.json", {"segments": segments})
+        terms = {}
+        for segment in segments:
+            for hit in segment.get("term_hits", []):
+                source = hit.get("source")
+                if not source:
+                    continue
+                sense = {key: value for key, value in hit.items() if key != "source"}
+                if sense not in terms.setdefault(source, []):
+                    terms[source].append(sense)
+        state = {"segments": segments}
+        if terms:
+            state["terminology"] = [
+                {"source": source, "senses": senses}
+                for source, senses in terms.items()
+            ]
+        write_json(self.job / "state.json", state)
         if pre is None:
             pre = [{"id": segment["id"], "issues": []} for segment in segments]
         write_json(self.job / "errors_precheck.json", pre)
 
-        chunk_segments = representatives if representatives is not None else segments
-        write_json(
-            self.chunks / "chunk_00.json",
-            {"chunk_id": 0, "segments": chunk_segments},
+        result = self.run_chunk(
+            "split",
+            "--state",
+            self.job / "state.json",
+            "--errors",
+            self.job / "errors_precheck.json",
+            "--outdir",
+            self.chunks,
         )
-        if dedup_map is None:
-            dedup_map = {str(segment["id"]): [segment["id"]] for segment in chunk_segments}
-        write_json(self.chunks / "dedup_map.json", dedup_map)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        chunk_segments = read_json(self.chunks / "chunk_00.json")["segments"]
+        if representatives is not None:
+            self.assertEqual(
+                [segment["id"] for segment in chunk_segments],
+                [segment["id"] for segment in representatives],
+            )
+        if dedup_map is not None:
+            self.assertEqual(read_json(self.chunks / "dedup_map.json"), dedup_map)
 
     def write_modules(self, ids, *, issues_by_module=None):
         issues_by_module = issues_by_module or {}
@@ -202,17 +228,17 @@ class CorrectedOwnershipChunkTests(unittest.TestCase):
         self.assertIn("grammar", result.stderr)
         self.assertIn("1", result.stderr)
 
-    def test_merge_checks_unions_deduplicates_and_filters_accuracy_owned_issues(self):
+    def test_merge_checks_unions_valid_module_owned_issues(self):
         self.make_job([{"id": 0, "source": "x", "target": "x"}])
         punctuation = check_issue(
             category="Punctuation",
             comment="same",
             edit=replacement("x", "X"),
         )
-        unconfirmed_accuracy = check_issue(
-            category="Mistranslation",
+        terminology = check_issue(
+            category="Terminology",
             severity="Major",
-            comment="terminology guessed",
+            comment="terminology finding",
             needs_confirmation=True,
         )
         accuracy = check_issue(
@@ -224,7 +250,7 @@ class CorrectedOwnershipChunkTests(unittest.TestCase):
         self.write_modules(
             [0],
             issues_by_module={
-                "terminology": {0: [punctuation, unconfirmed_accuracy]},
+                "terminology": {0: [terminology]},
                 "accuracy": {0: [accuracy]},
                 "grammar": {0: [punctuation]},
             },
@@ -232,11 +258,14 @@ class CorrectedOwnershipChunkTests(unittest.TestCase):
 
         merged = self.merge_checks()
 
-        self.assertEqual(merged, [{"id": 0, "issues": [punctuation, accuracy]}])
+        self.assertEqual(
+            merged,
+            [{"id": 0, "issues": [terminology, accuracy, punctuation]}],
+        )
         self.assertNotIn("corrected", merged[0])
         self.assertNotIn("errors", merged[0])
 
-    def test_accuracy_owned_issue_uses_only_accuracy_module_edit(self):
+    def test_accuracy_owned_issue_from_terminology_module_is_rejected(self):
         segment = {
             "id": 0,
             "source": "source",
@@ -266,12 +295,11 @@ class CorrectedOwnershipChunkTests(unittest.TestCase):
             },
         )
 
-        checks = self.merge_checks()
-        merged = self.merge_final()
+        result = self.run_chunk("merge-checks", "--job", self.job)
 
-        self.assertEqual(checks, [{"id": 0, "issues": [accuracy_issue]}])
-        self.assertEqual(merged[0]["errors"], [accuracy_issue])
-        self.assertEqual(merged[0]["corrected"], "accurate")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("terminology cannot own category 'Mistranslation'", result.stderr)
+        self.assertFalse((self.chunks / "chunk_00.out.json").exists())
 
     def test_precheck_emits_issues_and_a_local_deterministic_edit(self):
         state_path = self.job / "state.json"
@@ -386,6 +414,10 @@ class CorrectedOwnershipChunkTests(unittest.TestCase):
             "protected_texts": ["original"],
         }
         self.make_job([segment])
+        write_json(
+            self.chunks / "chunk_00.out.json",
+            [{"id": 0, "issues": []}],
+        )
         output = self.job / "errors.json"
 
         with mock.patch.object(
@@ -499,15 +531,11 @@ class CorrectedOwnershipChunkTests(unittest.TestCase):
             ("魔草巫灵", "Old Verdrel", "Verdrel"),
             ("奇丽花", "Old Florora", "Florora"),
         ]
-        segments = []
-        terminology = {}
-        expected = []
-        segment_id = 0
         for source, original, target in terms:
             for confirmed in (False, True):
-                segments.append(
-                    {
-                        "id": segment_id,
+                with self.subTest(source=source, confirmed=confirmed):
+                    segment = {
+                        "id": 0,
                         "source": source,
                         "target": original,
                         "kind": "name",
@@ -520,9 +548,7 @@ class CorrectedOwnershipChunkTests(unittest.TestCase):
                         ],
                         "protected_texts": [],
                     }
-                )
-                terminology[segment_id] = [
-                    check_issue(
+                    issue = check_issue(
                         category="Terminology",
                         severity="Major",
                         comment="use confirmed term",
@@ -532,16 +558,17 @@ class CorrectedOwnershipChunkTests(unittest.TestCase):
                             evidence=confirmed_evidence(source, target),
                         ),
                     )
-                ]
-                expected.append(target if confirmed else None)
-                segment_id += 1
-        self.make_job(segments)
-        self.write_modules(range(len(segments)), issues_by_module={"terminology": terminology})
+                    self.make_job([segment])
+                    self.write_modules(
+                        [0], issues_by_module={"terminology": {0: [issue]}}
+                    )
 
-        self.merge_checks()
-        merged = self.merge_final()
+                    self.merge_checks()
+                    merged = self.merge_final()
 
-        self.assertEqual([row["corrected"] for row in merged], expected)
+                    self.assertEqual(
+                        merged[0]["corrected"], target if confirmed else None
+                    )
 
     def test_conflicting_flower_butterfly_edits_do_not_land(self):
         source = "花衣蝶登场"
@@ -593,13 +620,8 @@ class CorrectedOwnershipChunkTests(unittest.TestCase):
         self.write_modules(
             [0],
             issues_by_module={
-                "terminology": {0: [first_issue]},
-                "proper_names": {0: [second_issue]},
+                "terminology": {0: [first_issue, second_issue]},
             },
-        )
-        write_json(
-            self.chunks / "chunk_00.proper_names.json",
-            [{"id": 0, "issues": [second_issue]}],
         )
 
         self.merge_checks()
@@ -651,12 +673,12 @@ class CorrectedOwnershipChunkTests(unittest.TestCase):
 
     def test_duplicate_broadcast_keeps_errors_and_generated_corrected(self):
         segments = [
-            {"id": 0, "source": "same", "target": "bad-text"},
-            {"id": 1, "source": "same", "target": "bad-text"},
+            {"id": 0, "source": "same source", "target": "bad-text"},
+            {"id": 1, "source": "same source", "target": "bad-text"},
         ]
         representative = {
             "id": 0,
-            "source": "same",
+            "source": "same source",
             "target": "bad-text",
             "kind": "desc",
             "term_hits": [],
@@ -787,20 +809,40 @@ class CorrectedOwnershipPipelineTests(unittest.TestCase):
                 "protected_texts": [],
             }
         ]
-        write_json(
-            sheet_job / "state.json",
-            {
-                "input_path": str(source),
-                "target_col": 1,
-                "headers": ["Source", "Target"],
-                "wordcount": 1,
-                "segments": segments,
-            },
-        )
+        state_data = {
+            "input_path": str(source),
+            "target_col": 1,
+            "headers": ["Source", "Target"],
+            "wordcount": 1,
+            "segments": segments,
+        }
+        write_json(sheet_job / "state.json", state_data)
         write_json(sheet_job / "errors.json", errors)
+        report = openpyxl.Workbook()
+        report.active.title = "LQE Results"
+        report.active.append(["原译", "建议译文"])
+        attach_report_contract(report, state_data, errors)
+        report.save(sheet_job / "Sheet1_lqe.xlsx")
+        report.close()
         return job, source
 
     def run_aggregate(self, job):
+        for child in job.iterdir():
+            if not child.is_dir():
+                continue
+            report_path = child / f"{child.name}_lqe.xlsx"
+            if not report_path.is_file():
+                continue
+            workbook = openpyxl.load_workbook(report_path)
+            try:
+                attach_report_contract(
+                    workbook,
+                    read_json(child / "state.json"),
+                    read_json(child / "errors.json"),
+                )
+                workbook.save(report_path)
+            finally:
+                workbook.close()
         return self.run_script(AGGREGATE_SCRIPT, "--job", job)
 
     def test_build_results_is_required_before_apply(self):
@@ -1019,7 +1061,7 @@ class CorrectedOwnershipPipelineTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("corrected", result.stderr)
 
-    def test_aggregate_applies_only_non_null_program_result(self):
+    def test_aggregate_preserves_legacy_state_correction_fallback(self):
         job, _ = self.make_aggregate_job(
             errors=[{"id": 0, "errors": [], "corrected": None}],
             segments=[
@@ -1041,7 +1083,7 @@ class CorrectedOwnershipPipelineTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         output = openpyxl.load_workbook(job / f"{job.name}_corrected.xlsx")
         try:
-            self.assertEqual(output["Sheet1"]["B2"].value, "原译")
+            self.assertEqual(output["Sheet1"]["B2"].value, "旧状态修正")
         finally:
             output.close()
 
@@ -1462,29 +1504,35 @@ class CorrectedOwnershipOutputTests(unittest.TestCase):
             segments,
             [{"id": 0, "errors": [issue], "corrected": "Realm"}],
         )
-        chunks = state.parent / "chunks"
-        chunks.mkdir()
-        write_json(
-            chunks / "chunk_00.json",
+        state_data = read_json(state)
+        state_data["terminology"] = [
             {
-                "chunk_id": 0,
-                "segments": [
-                    {
-                        **segments[0],
-                        "kind": "name",
-                        "term_hits": [
-                            {
-                                "source": "世界",
-                                "target": "Realm",
-                                "confirmed": True,
-                                "protected": False,
-                            }
-                        ],
-                        "protected_texts": [],
-                    }
-                ],
-            },
+                "source": "世界",
+                "target": "Realm",
+                "confirmed": True,
+                "protected": False,
+            }
+        ]
+        write_json(state, state_data)
+        precheck = state.parent / "errors_precheck.json"
+        write_json(precheck, [{"id": 0, "issues": []}])
+        split = subprocess.run(
+            [
+                sys.executable,
+                str(CHUNK_SCRIPT),
+                "split",
+                "--state",
+                str(state),
+                "--errors",
+                str(precheck),
+                "--outdir",
+                str(state.parent / "chunks"),
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
         )
+        self.assertEqual(split.returncode, 0, split.stderr)
 
         result = self.run_io("export", "--state", state, "--errors", errors)
 
@@ -1565,8 +1613,24 @@ class CorrectedOwnershipOutputTests(unittest.TestCase):
         confirmation = check_issue(needs_confirmation=True)
         safe = check_issue(edit=replacement("原译二", "安全修改"))
         segments = [
-            {"id": 0, "row_index": 0, "source": "one", "target": "原译一"},
-            {"id": 1, "row_index": 1, "source": "two", "target": "原译二"},
+            {
+                "id": 0,
+                "row_index": 0,
+                "source": "one",
+                "target": "原译一",
+                "kind": "desc",
+                "term_hits": [],
+                "protected_texts": [],
+            },
+            {
+                "id": 1,
+                "row_index": 1,
+                "source": "two",
+                "target": "原译二",
+                "kind": "desc",
+                "term_hits": [],
+                "protected_texts": [],
+            },
         ]
         state, errors, output = self.make_export_fixture(
             "protected-export",
@@ -1749,6 +1813,244 @@ class CorrectedOwnershipOutputTests(unittest.TestCase):
                 labels,
                 ["建议修改", "需要人工确认", "仅提醒", "无需修改", "已保护，不修改"],
             )
+        finally:
+            workbook.close()
+
+    def test_report_groups_one_row_per_issue_and_shows_ai_provenance(self):
+        output = self.root / "grouped_issues_lqe.xlsx"
+        state = {
+            "input_path": str(self.root / "sample.xlsx"),
+            "headers": ["原文", "译文"],
+            "rows_raw": [
+                [f"Source {index}", f"Target {index}"] for index in range(4)
+            ],
+            "segments": [
+                {
+                    "id": index,
+                    "source": f"Source {index}",
+                    "target": f"Target {index}",
+                    "kind": "desc",
+                }
+                for index in range(4)
+            ],
+            "wordcount": 4,
+        }
+        edited = check_issue(comment="AI edited this issue.")
+        edited["review_provenance"] = {
+            "finding_origin": "ai_module",
+            "ai_reviewed": True,
+            "ai_edited": True,
+            "review_module": "grammar",
+            "reviewed_segment_id": 0,
+            "edit_origin": "ai_module",
+        }
+        reviewed = check_issue(comment="AI reviewed without editing.")
+        reviewed["review_provenance"] = {
+            "finding_origin": "ai_module",
+            "ai_reviewed": True,
+            "ai_edited": False,
+            "review_module": "accuracy",
+            "reviewed_segment_id": 0,
+            "edit_origin": None,
+        }
+        machine = check_issue(comment="Machine precheck only.")
+        machine["review_provenance"] = {
+            "finding_origin": "machine_precheck",
+            "ai_reviewed": False,
+            "ai_edited": True,
+            "review_module": None,
+            "reviewed_segment_id": None,
+            "edit_origin": None,
+        }
+        legacy = check_issue(comment="Legacy issue without provenance.")
+        history = [{
+            "iteration": 0,
+            "errors": [
+                {
+                    "id": 0,
+                    "errors": [edited, reviewed],
+                    "corrected": "Target 0 fixed",
+                },
+                {"id": 1, "errors": [machine], "corrected": None},
+                {"id": 2, "errors": [legacy], "corrected": None},
+                {"id": 3, "errors": [], "corrected": None},
+            ],
+        }]
+
+        call_quietly(lqe_io._build_xlsx, state, history, 99, 98, output)
+
+        workbook = openpyxl.load_workbook(output, data_only=True)
+        try:
+            sheet = workbook["LQE Results"]
+            headers = [cell.value for cell in sheet[1]]
+            rows = [
+                {
+                    header: sheet.cell(row=row, column=column).value
+                    for column, header in enumerate(headers, start=1)
+                }
+                for row in range(2, sheet.max_row + 1)
+            ]
+            self.assertEqual([row["LQE Segment ID"] for row in rows], [0, 0, 1, 2, 3])
+            self.assertEqual([row["LQE 错误序号"] for row in rows], [1, 2, 1, 1, None])
+            self.assertEqual(
+                [row["LQE AI 复核状态"] for row in rows],
+                [
+                    "已复核（AI 模块记录）",
+                    "已复核（AI 模块记录）",
+                    "未确认（机器预检保留）",
+                    "未知（旧流程未记录）",
+                    "不适用",
+                ],
+            )
+            self.assertEqual(
+                [row["LQE AI 编辑状态"] for row in rows],
+                [
+                    "已生成并验证建议（AI 模块记录）",
+                    "已复核、未生成 AI 建议",
+                    "未由 AI 编辑",
+                    "未知（旧流程未记录）",
+                    "不适用",
+                ],
+            )
+            self.assertEqual(
+                [row["LQE 检查来源"] for row in rows],
+                [
+                    "AI 模块：grammar",
+                    "AI 模块：accuracy",
+                    "机器预检",
+                    "旧流程（来源未记录）",
+                    "不适用",
+                ],
+            )
+            self.assertEqual(
+                [row["错误详情"] for row in rows],
+                [
+                    "[Grammar · Minor] AI edited this issue.",
+                    "[Grammar · Minor] AI reviewed without editing.",
+                    "[Grammar · Minor] Machine precheck only.",
+                    "[Grammar · Minor] Legacy issue without provenance.",
+                    None,
+                ],
+            )
+            self.assertEqual(
+                [row["建议译文"] for row in rows[:2]],
+                ["Target 0 fixed", "Target 0 fixed"],
+            )
+            scorecard = workbook["LQA Scorecard"]
+            header_row = next(
+                row
+                for row in range(1, scorecard.max_row + 1)
+                if scorecard.cell(row, 1).value == "File name"
+            )
+            score_headers = [cell.value for cell in scorecard[header_row]]
+            review_column = score_headers.index("AI 复核状态") + 1
+            edit_column = score_headers.index("AI 编辑状态") + 1
+            source_column = score_headers.index("检查来源") + 1
+            self.assertEqual(
+                [
+                    scorecard.cell(header_row + 1, review_column).value,
+                    scorecard.cell(header_row + 1, edit_column).value,
+                    scorecard.cell(header_row + 1, source_column).value,
+                ],
+                [
+                    "已复核（AI 模块记录）",
+                    "已生成并验证建议（AI 模块记录）",
+                    "AI 模块：grammar",
+                ],
+            )
+        finally:
+            workbook.close()
+
+    def test_current_report_disambiguates_source_headers_and_rejects_forged_audit_rows(self):
+        output = self.root / "audit-contract_lqe.xlsx"
+        state = {
+            "artifact_contract_version": 1,
+            "input_path": str(self.root / "audit-source.xlsx"),
+            "headers": ["LQE Segment ID", "LQE AI 复核状态", "译文"],
+            "rows_raw": [["source-id", "source-status", "Target"]],
+            "source_col": 0,
+            "target_col": 2,
+            "segments": [
+                {
+                    "id": 0,
+                    "source": "Source",
+                    "target": "Target",
+                    "kind": "desc",
+                }
+            ],
+            "wordcount": 1,
+        }
+        reviewed = check_issue(comment="Reviewed issue " + "detail " * 320)
+        reviewed["review_provenance"] = {
+            "finding_origin": "ai_module",
+            "ai_reviewed": True,
+            "ai_edited": False,
+            "review_module": "grammar",
+            "reviewed_segment_id": 0,
+            "edit_origin": None,
+        }
+        results = [{"id": 0, "errors": [reviewed], "corrected": None}]
+        history = [{"iteration": 0, "errors": results}]
+
+        call_quietly(
+            lqe_io._build_xlsx,
+            state,
+            history,
+            99,
+            98,
+            output,
+            report_contract_results=results,
+        )
+
+        workbook = openpyxl.load_workbook(output, rich_text=True)
+        try:
+            sheet = workbook["LQE Results"]
+            headers = [cell.value for cell in sheet[1]]
+            self.assertEqual(len(headers), len(set(headers)))
+            self.assertEqual(headers[-1], "LQE_Iter")
+            generated_segment = "LQE Segment ID（审计 2）"
+            generated_review = "LQE AI 复核状态（审计 2）"
+            self.assertIn(generated_segment, headers)
+            self.assertIn(generated_review, headers)
+            self.assertEqual(
+                sheet.cell(2, headers.index(generated_segment) + 1).value,
+                0,
+            )
+            sheet.cell(2, headers.index(generated_review) + 1).value = "已编辑"
+            with self.assertRaisesRegex(
+                ValueError,
+                "rows do not match",
+            ):
+                attach_report_contract(workbook, state, results)
+        finally:
+            workbook.close()
+
+        workbook = openpyxl.load_workbook(output, rich_text=True)
+        try:
+            scorecard = workbook["LQA Scorecard"]
+            header_row = next(
+                row
+                for row in range(1, scorecard.max_row + 1)
+                if scorecard.cell(row, 1).value == "File name"
+            )
+            headers = [cell.value for cell in scorecard[header_row]]
+            review_column = headers.index("AI 复核状态") + 1
+            detail_row = header_row + 1
+            review_merge = next(
+                cell_range
+                for cell_range in scorecard.merged_cells.ranges
+                if cell_range.min_row == detail_row
+                and cell_range.max_row > detail_row
+                and cell_range.min_col == review_column
+                and cell_range.max_col == review_column
+            )
+            scorecard.unmerge_cells(str(review_merge))
+            scorecard.cell(detail_row + 1, review_column).value = "伪造：已复核"
+            with self.assertRaisesRegex(
+                ValueError,
+                "visible_scorecard_digest",
+            ):
+                validate_report_contract(workbook, state, results)
         finally:
             workbook.close()
 
@@ -1974,12 +2276,18 @@ class CorrectedOwnershipOutputTests(unittest.TestCase):
                         "row_index": 0,
                         "source": "Source",
                         "target": "原译",
+                        "kind": "desc",
+                        "term_hits": [],
+                        "protected_texts": [],
                     },
                     {
                         "id": 1,
                         "row_index": 1,
                         "source": "Reminder",
                         "target": "保留原译",
+                        "kind": "desc",
+                        "term_hits": [],
+                        "protected_texts": [],
                     },
                 ],
             },
@@ -2211,6 +2519,9 @@ class CorrectedOwnershipRegressionTests(unittest.TestCase):
             state,
         )
         self.assertEqual(read.returncode, 0, read.stderr)
+        read_state = read_json(state)
+        read_state.pop("artifact_contract_version", None)
+        write_json(state, read_state)
         write_json(
             checks,
             [
@@ -2337,7 +2648,7 @@ class CorrectedOwnershipProjectTests(unittest.TestCase):
         write_json(candidate_path, payload)
         return job, state_path, candidate_path, payload
 
-    def test_clean_terms_preserves_explicit_flags_and_defaults_missing_false(self):
+    def test_clean_terms_preserves_explicit_flags_and_rejects_missing_flags(self):
         terms = lqe_io._clean_terms(
             [
                 {
@@ -2348,13 +2659,7 @@ class CorrectedOwnershipProjectTests(unittest.TestCase):
                     "definition": "A confirmed name",
                     "confirmed": True,
                     "protected": True,
-                },
-                {
-                    "source": "未标记",
-                    "target": "Unmarked",
-                    "status": "Locked",
-                    "locked": True,
-                },
+                }
             ]
         )
 
@@ -2370,15 +2675,18 @@ class CorrectedOwnershipProjectTests(unittest.TestCase):
                     "confirmed": True,
                     "protected": True,
                 },
-                {
-                    "source": "未标记",
-                    "target": "Unmarked",
-                    "status": "Locked",
-                    "confirmed": False,
-                    "protected": False,
-                },
             ],
         )
+        with self.assertRaisesRegex(ValueError, "confirmation mapping"):
+            lqe_io._clean_terms(
+                [
+                    {
+                        "source": "未标记",
+                        "target": "Unmarked",
+                        "status": "Locked",
+                    }
+                ]
+            )
 
     def test_mastertb_output_writes_explicit_term_flags(self):
         source = self.root / "master.xlsx"
@@ -2400,6 +2708,8 @@ class CorrectedOwnershipProjectTests(unittest.TestCase):
                 str(output),
                 "--target-col",
                 "TH",
+                "--approved-statuses",
+                "",
             ],
             cwd=ROOT,
             text=True,
@@ -2454,6 +2764,8 @@ class CorrectedOwnershipProjectTests(unittest.TestCase):
                 str(output),
                 "--target-col",
                 "TH",
+                "--approved-statuses",
+                "",
                 "--backfill",
                 str(backfill),
             ],
@@ -2550,6 +2862,10 @@ class CorrectedOwnershipProjectTests(unittest.TestCase):
                 "source_lang": "zh",
                 "target_lang": "en",
                 "terminology": "terms.json",
+                "term_status_map": {
+                    "Approved": "unconfirmed",
+                    "Draft": "unconfirmed",
+                },
                 "protected_term_statuses": ["Approved"],
             },
         )
@@ -2695,7 +3011,7 @@ class CorrectedOwnershipProjectTests(unittest.TestCase):
         )
 
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("conflicts with state", result.stderr)
+        self.assertIn("conflicts with input state", result.stderr)
         self.assertEqual(state_path.read_bytes(), original_state)
         self.assertFalse((job / "tm_protected.json").exists())
 
@@ -2734,7 +3050,7 @@ class CorrectedOwnershipProjectTests(unittest.TestCase):
         )
 
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("conflicts with protected input", result.stderr)
+        self.assertIn("conflicts with input tm_candidates_path", result.stderr)
         self.assertEqual(state_path.read_bytes(), original_state)
         self.assertEqual(candidate_path.read_bytes(), original_candidates)
 

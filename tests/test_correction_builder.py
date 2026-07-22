@@ -6,6 +6,7 @@ from scripts.lqe_corrections import (
     build_results,
     build_segment_result,
     normalize_check_entries,
+    verify_results,
 )
 from scripts.lqe_engine import term_senses
 
@@ -20,6 +21,17 @@ def issue(edit=None, **overrides):
     if edit is not None:
         value["edit"] = edit
     value.update(overrides)
+    provenance = value.get("review_provenance")
+    if (
+        edit is not None
+        and isinstance(provenance, dict)
+        and provenance.get("edit_origin") is None
+    ):
+        provenance["edit_origin"] = (
+            "ai_module"
+            if provenance.get("ai_reviewed") is True
+            else "machine_precheck"
+        )
     return value
 
 
@@ -29,6 +41,28 @@ def edit(frm, to, start=None, end=None, evidence=None):
         value["start"] = start
         value["end"] = end
     return value
+
+
+def ai_provenance(module="grammar", *, ai_edited=False):
+    return {
+        "finding_origin": "ai_module",
+        "ai_reviewed": True,
+        "ai_edited": ai_edited,
+        "review_module": module,
+        "reviewed_segment_id": 1,
+        "edit_origin": None,
+    }
+
+
+def machine_provenance(*, ai_edited=False):
+    return {
+        "finding_origin": "machine_precheck",
+        "ai_reviewed": False,
+        "ai_edited": ai_edited,
+        "review_module": None,
+        "reviewed_segment_id": None,
+        "edit_origin": None,
+    }
 
 
 class CorrectionBuilderTests(unittest.TestCase):
@@ -229,6 +263,186 @@ class CorrectionBuilderTests(unittest.TestCase):
         )
         result[0]["issues"][0]["edit"]["to"] = "changed"
         self.assertEqual(entries, before)
+
+    def test_untrusted_model_output_cannot_claim_ai_provenance(self):
+        claimed = issue(
+            edit("a", "b"),
+            review_provenance=ai_provenance(ai_edited=True),
+        )
+
+        normalized = normalize_check_entries(
+            [{"id": 1, "issues": [claimed]}], label="model"
+        )
+        built = build_segment_result(
+            {"id": 1, "target": "a", "kind": "desc", "term_hits": []},
+            [claimed],
+        )
+
+        self.assertNotIn("review_provenance", normalized[0]["issues"][0])
+        self.assertNotIn("review_provenance", built["errors"][0])
+
+    def test_internal_provenance_is_canonical_and_rejects_invalid_combinations(self):
+        claimed = issue(review_provenance=ai_provenance(ai_edited=True))
+        normalized = normalize_check_entries(
+            [{"id": 1, "issues": [claimed]}],
+            label="internal",
+            allow_internal_provenance=True,
+        )
+        self.assertEqual(
+            normalized[0]["issues"][0]["review_provenance"],
+            ai_provenance(ai_edited=False),
+        )
+
+        invalid = (
+            {"ai_reviewed": False, "origin": "ai_module", "module": "grammar"},
+            {"ai_reviewed": True, "origin": "ai_module", "module": None},
+            {
+                "ai_reviewed": True,
+                "origin": "machine_precheck",
+                "module": None,
+            },
+            {
+                "ai_reviewed": False,
+                "origin": "machine_precheck",
+                "module": "grammar",
+            },
+            {"ai_reviewed": True, "origin": "other", "module": "grammar"},
+            {"ai_reviewed": True, "origin": [], "module": "grammar"},
+            {
+                "ai_reviewed": True,
+                "origin": "ai_module",
+                "module": "grammar",
+                "extra": True,
+            },
+        )
+        for provenance in invalid:
+            with self.subTest(provenance=provenance):
+                with self.assertRaisesRegex(CheckFormatError, "provenance"):
+                    normalize_check_entries(
+                        [
+                            {
+                                "id": 1,
+                                "issues": [
+                                    issue(review_provenance=provenance)
+                                ],
+                            }
+                        ],
+                        label="internal",
+                        allow_internal_provenance=True,
+                    )
+
+        with self.assertRaisesRegex(CheckFormatError, "provenance is required"):
+            normalize_check_entries(
+                [{"id": 1, "issues": [issue()]}],
+                label="current",
+                allow_internal_provenance=True,
+                require_internal_provenance=True,
+            )
+
+    def test_ai_edited_is_true_only_for_a_verified_applied_ai_edit(self):
+        segment = {
+            "id": 1,
+            "target": "bad {count}",
+            "kind": "desc",
+            "term_hits": [],
+        }
+        issues = [
+            issue(
+                edit("bad", "good"),
+                comment="safe AI edit",
+                review_provenance=ai_provenance(ai_edited=False),
+            ),
+            issue(
+                edit("{count}", "count"),
+                comment="unsafe AI edit",
+                review_provenance=ai_provenance(ai_edited=True),
+            ),
+            issue(
+                comment="reviewed without edit",
+                review_provenance=ai_provenance(ai_edited=True),
+            ),
+        ]
+
+        result = build_segment_result(
+            segment, issues, allow_internal_provenance=True
+        )
+
+        self.assertEqual(result["corrected"], "good {count}")
+        self.assertTrue(
+            result["errors"][0]["review_provenance"]["ai_edited"]
+        )
+        self.assertFalse(
+            result["errors"][1]["review_provenance"]["ai_edited"]
+        )
+        self.assertTrue(result["errors"][1]["needs_confirmation"])
+        self.assertIsNone(result["errors"][1]["edit"])
+        self.assertFalse(
+            result["errors"][2]["review_provenance"]["ai_edited"]
+        )
+
+    def test_noop_conflict_and_machine_edits_do_not_claim_ai_editing(self):
+        segment = {
+            "id": 1,
+            "target": "abcdef",
+            "kind": "desc",
+            "term_hits": [],
+        }
+        issues = [
+            issue(
+                edit("a", "a", 0, 1),
+                comment="AI no-op",
+                review_provenance=ai_provenance(ai_edited=True),
+            ),
+            issue(
+                edit("bc", "BC", 1, 3),
+                comment="first conflict",
+                review_provenance=ai_provenance(ai_edited=True),
+            ),
+            issue(
+                edit("cd", "XX", 2, 4),
+                comment="second conflict",
+                review_provenance=ai_provenance(ai_edited=True),
+            ),
+            issue(
+                edit("f", "F", 5, 6),
+                comment="machine edit",
+                review_provenance=machine_provenance(ai_edited=True),
+            ),
+        ]
+
+        result = build_segment_result(
+            segment, issues, allow_internal_provenance=True
+        )
+
+        self.assertEqual(result["corrected"], "abcdeF")
+        self.assertTrue(all(
+            not error["review_provenance"]["ai_edited"]
+            for error in result["errors"]
+        ))
+
+    def test_verify_results_recomputes_ai_edited_instead_of_trusting_input(self):
+        segment = {"id": 1, "target": "bad", "kind": "desc", "term_hits": []}
+        result = {
+            "id": 1,
+            "errors": [
+                issue(
+                    edit("bad", "good"),
+                    review_provenance=ai_provenance(ai_edited=False),
+                )
+            ],
+            "corrected": "good",
+        }
+
+        verified = verify_results(
+            [segment],
+            [result],
+            "results",
+            allow_internal_provenance=True,
+        )
+
+        self.assertTrue(
+            verified[0]["errors"][0]["review_provenance"]["ai_edited"]
+        )
 
     def test_normalize_requires_core_issue_fields(self):
         base = {
@@ -489,7 +703,7 @@ class CorrectionBuilderTests(unittest.TestCase):
         self.assertFalse(result["errors"][1]["needs_confirmation"])
         self.assertIsNotNone(result["errors"][1]["edit"])
 
-    def test_desc_confirmed_term_evidence_requires_matched_text(self):
+    def test_desc_confirmed_term_without_matched_text_authorizes_edit(self):
         segment = {
             "id": 1,
             "target": "Old Name",
@@ -509,149 +723,7 @@ class CorrectionBuilderTests(unittest.TestCase):
             [issue(edit("Old Name", "New Name", evidence=evidence))],
         )
 
-        self.assertIsNone(result["corrected"])
-        self.assertTrue(result["errors"][0]["needs_confirmation"])
-        self.assertIsNone(result["errors"][0]["edit"])
-
-    def test_desc_confirmed_term_span_must_match_edit(self):
-        segment = {
-            "id": 1,
-            "target": "Old Name and Old Name",
-            "kind": "desc",
-            "term_hits": [
-                {
-                    "source": "旧名",
-                    "target": "New Name",
-                    "confirmed": True,
-                    "matched_text": "Old Name",
-                    "span": [0, 8],
-                }
-            ],
-        }
-        evidence = {
-            "type": "confirmed_term",
-            "source": "旧名",
-            "target": "New Name",
-        }
-
-        result = build_segment_result(
-            segment,
-            [issue(edit("Old Name", "New Name", 13, 21, evidence=evidence))],
-        )
-
-        self.assertIsNone(result["corrected"])
-        self.assertTrue(result["errors"][0]["needs_confirmation"])
-        self.assertIsNone(result["errors"][0]["edit"])
-
-    def test_desc_confirmed_term_without_span_rejects_repeated_matched_text(self):
-        segment = {
-            "id": 1,
-            "target": "Old Name and Old Name",
-            "kind": "desc",
-            "term_hits": [
-                {
-                    "source": "旧名",
-                    "target": "New Name",
-                    "confirmed": True,
-                    "matched_text": "Old Name",
-                }
-            ],
-        }
-        evidence = {
-            "type": "confirmed_term",
-            "source": "旧名",
-            "target": "New Name",
-        }
-
-        result = build_segment_result(
-            segment,
-            [issue(edit("Old Name", "New Name", 13, 21, evidence=evidence))],
-        )
-
-        self.assertIsNone(result["corrected"])
-        self.assertTrue(result["errors"][0]["needs_confirmation"])
-        self.assertIsNone(result["errors"][0]["edit"])
-
-    def test_desc_confirmed_term_without_span_allows_unique_matched_text(self):
-        segment = {
-            "id": 1,
-            "target": "Meet Old Name today.",
-            "kind": "desc",
-            "term_hits": [
-                {
-                    "source": "旧名",
-                    "target": "New Name",
-                    "confirmed": True,
-                    "matched_text": "Old Name",
-                }
-            ],
-        }
-        evidence = {
-            "type": "confirmed_term",
-            "source": "旧名",
-            "target": "New Name",
-        }
-
-        result = build_segment_result(
-            segment,
-            [issue(edit("Old Name", "New Name", 5, 13, evidence=evidence))],
-        )
-
-        self.assertEqual(result["corrected"], "Meet New Name today.")
-        self.assertFalse(result["errors"][0]["needs_confirmation"])
-        self.assertIsNotNone(result["errors"][0]["edit"])
-
-    def test_desc_edit_touching_matched_text_requires_confirmed_evidence(self):
-        segment = {
-            "id": 1,
-            "target": "Meet Old Name today.",
-            "kind": "desc",
-            "term_hits": [
-                {
-                    "source": "旧名",
-                    "target": "New Name",
-                    "confirmed": True,
-                    "matched_text": "Old Name",
-                }
-            ],
-        }
-
-        result = build_segment_result(
-            segment,
-            [issue(edit("Old Name", "Other Name", 5, 13))],
-        )
-
-        self.assertIsNone(result["corrected"])
-        self.assertTrue(result["errors"][0]["needs_confirmation"])
-        self.assertIsNone(result["errors"][0]["edit"])
-
-    def test_desc_matching_confirmed_term_evidence_authorizes_edit(self):
-        segment = {
-            "id": 1,
-            "target": "Meet Old Name today.",
-            "kind": "desc",
-            "term_hits": [
-                {
-                    "source": "旧名",
-                    "target": "New Name",
-                    "confirmed": True,
-                    "matched_text": "Old Name",
-                    "span": [5, 13],
-                }
-            ],
-        }
-        evidence = {
-            "type": "confirmed_term",
-            "source": "旧名",
-            "target": "New Name",
-        }
-
-        result = build_segment_result(
-            segment,
-            [issue(edit("Old Name", "New Name", 5, 13, evidence=evidence))],
-        )
-
-        self.assertEqual(result["corrected"], "Meet New Name today.")
+        self.assertEqual(result["corrected"], "New Name")
         self.assertFalse(result["errors"][0]["needs_confirmation"])
         self.assertIsNotNone(result["errors"][0]["edit"])
 

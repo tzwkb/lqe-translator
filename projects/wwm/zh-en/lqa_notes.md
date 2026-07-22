@@ -1,7 +1,7 @@
 # WWM/ZH-EN — LQA 人工结果分析与案例库
 
 > 来源：《【AI】【英】0512【globaltrunk】【0511新增】_LQE Report.xlsx》（客户对 AI 中→英译文的人工质量评估，含 Error Severity / Error Definition / LQA Scorecard 三表）+《LQA template to evaluate current cooperating translators.xlsx》。
-> 本文是 **wwm/zh-en 项目专有**的人工案例和历史报告分析。通用方法论见 `docs/质量检查项清单.md`；强制术语定译见 `confirmed_rules.md`《0512 确认记录》。"第 N 段"指 LQE 报告错误明细的 Segment 编号。凡归纳推断均注明"归纳"。
+> 本文是 **wwm/zh-en 项目专有**的人工案例和历史报告分析。通用运行方法见 `SKILL.md`；强制术语定译见 `confirmed_rules.md`《0512 确认记录》。"第 N 段"指 LQE 报告错误明细的 Segment 编号。凡归纳推断均注明"归纳"。
 
 ## 报告基础数据（0512 评分卡）
 

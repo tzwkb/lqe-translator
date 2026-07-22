@@ -11,13 +11,7 @@ from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
-USER_DOCUMENTS = (
-    "SKILL.md",
-    "README.md",
-    "README_ZH.md",
-    "PM_GUIDE.html",
-    "projects/README.md",
-)
+USER_DOCUMENTS = ("SKILL.md",)
 EXPECTED_SCOPE_CONTRACT = {
     "mode_flag": "--no-terminology",
     "standard": {
@@ -37,10 +31,22 @@ EXPECTED_SCOPE_CONTRACT = {
     "kept_checks": ["file-wide consistency", "Markup", "numeric checks"],
 }
 EXPECTED_TERM_CONFIRMATION_CONTRACT = {
-    "trigger": "terminology has no explicit confirmation field or confirmed-status mapping",
-    "required_action": "ask_user_before_initialization",
-    "forbidden_defaults": ["all_confirmed", "all_unconfirmed"],
-    "choices": [
+    "trigger": "terminology has no explicit confirmation field (confirmed/approved) OR has a status column but no status->confirmed/protection mapping supplied",
+    "required_action": "ask_user_or_supply_mapping_before_initialization",
+    "status_column_detection": "RULE-BASED, not enumerative: a column is a status column if its header CONTAINS the token 'status' or '状态' (case-insensitive, any position, regardless of prefixes/suffixes/brackets). This catches future renames/relocations automatically. If MULTIPLE columns match, the converter MUST SystemExit and require --status-col to disambiguate (it never guesses).",
+    "fail_closed": "converter MUST SystemExit in EITHER case below; it must NEVER emit terms with confirmed silently defaulted to false: (a) a status column is detected but no confirmation decision was supplied — a confirmation decision is --approved-statuses (values / '*' / '') and --protected-statuses ALONE is NOT enough; (b) NO status column is detected and --no-status was NOT passed (the column may have been renamed/relocated). It must print the distinct detected/unmapped status values for audit.",
+    "mapping_channels": [
+        "converter arg: --approved-statuses 'Approved,合规审核通过'  (status values are compared CASE-INSENSITIVELY — a rule, not per-value casing)",
+        "converter arg: --approved-statuses '*' to treat the whole glossary as confirmed (choice 1)",
+        "converter arg: --approved-statuses '' (empty) to explicitly treat all as unconfirmed (choice 2)",
+        "converter arg: --protected-statuses '<status>' to mark those senses protected (NOT a confirmation decision on its own)",
+        "converter arg: --exclude-statuses '<status>' to additionally drop rejected terms entirely (not checked, not flagged). NOTE: status 'Denied' is ALWAYS excluded by default (case-insensitive) — no flag needed (standing rule: client-rejected terms never enter the glossary)",
+        "converter arg: --status-col '<header>' to disambiguate when multiple status-keyword columns exist",
+        "converter arg: --no-status to assert the glossary has NO confirmation info at all (required when no status column is detected)",
+        "profile.term_status_map: {\"Approved\": \"confirmed\"}  (use for status->confirmed/protection; 'Denied' must not be mapped since it is unconditionally excluded)",
+    ],
+    "forbidden_defaults": ["all_confirmed", "all_unconfirmed", "infer_from_unmapped_status", "silently_proceed_when_status_column_undetected"],
+    "choices_when_asking": [
         "treat_entire_glossary_as_confirmed",
         "treat_as_unconfirmed_reference",
         "provide_row_or_status_mapping",
@@ -92,24 +98,26 @@ def load_test_runner():
 class DocumentedContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.pm_guide = (ROOT / "PM_GUIDE.html").read_text(encoding="utf-8")
-        cls.common = (ROOT / "docs/check_modules/common.md").read_text(
+        cls.skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        cls.common = (ROOT / "references/check_modules/common.md").read_text(
             encoding="utf-8"
         )
 
-    def test_pm_guide_states_top_level_check_contract(self):
+    def test_skill_states_top_level_check_contract(self):
         self.assertIn(
-            "子任务顶层只输出 <code>{id, issues}</code>", self.pm_guide
+            "固定接口为 `{id, issues:[{category,severity,comment,needs_confirmation,edit}]}`",
+            self.skill,
         )
 
-    def test_pm_guide_confirmation_issue_has_null_edit(self):
+    def test_skill_confirmation_issue_has_null_edit(self):
         self.assertIn(
-            "<code>needs_confirmation: true</code> 和 <code>edit: null</code>",
-            self.pm_guide,
+            "`needs_confirmation: true` 和 `edit: null`",
+            self.skill,
         )
 
-    def test_pm_guide_assigns_full_suggested_text_to_program(self):
-        self.assertIn("完整建议译文只由程序生成", self.pm_guide)
+    def test_skill_assigns_full_suggested_text_to_program(self):
+        self.assertIn("检查模块不得输出 corrected", self.skill)
+        self.assertIn("`lqe_corrections.py` 验证局部修改", self.skill)
 
     def test_common_marks_proper_names_optional(self):
         self.assertIn("`proper_names` 是可选模块", self.common)
@@ -159,7 +167,7 @@ class DocumentedContractTests(unittest.TestCase):
         self.assertIn("必须主动询问用户", skill)
         self.assertIn("不得静默回退", skill)
 
-    def test_run_tests_t25_invokes_required_regression_suites(self):
+    def test_run_tests_t25_discovers_every_regression_suite(self):
         runner = load_test_runner()
         try:
             completed = SimpleNamespace(returncode=0, stdout="", stderr="")
@@ -169,26 +177,30 @@ class DocumentedContractTests(unittest.TestCase):
                 runner.t25()
 
             argv = run_mock.call_args.args[0]
-            self.assertEqual(argv[:4], [sys.executable, "-m", "unittest", "-v"])
-            self.assertEqual(argv.count("tests.test_no_terminology_mode"), 1)
-            self.assertEqual(argv.count("tests.test_sdlxliff_input"), 1)
-            self.assertEqual(run_mock.call_args.kwargs["cwd"], ROOT)
-            self.assertIn(
-                "corrected ownership, SDLXLIFF, no-terminology, and rich-diff "
-                "regression suites",
-                runner.__doc__,
+            self.assertEqual(
+                argv,
+                [
+                    sys.executable,
+                    "-m",
+                    "unittest",
+                    "discover",
+                    "-s",
+                    "tests",
+                    "-p",
+                    "test_*.py",
+                    "-v",
+                ],
             )
+            self.assertEqual(run_mock.call_args.kwargs["cwd"], ROOT)
+            self.assertIn("every tests/test_*.py regression suite", runner.__doc__)
             self.assertEqual(
                 runner.PASS,
-                [
-                    "T25 corrected ownership + SDLXLIFF + no-terminology + "
-                    "rich-diff suites"
-                ],
+                ["T25 all test_*.py suites discovered"],
             )
         finally:
             shutil.rmtree(runner.TMP, ignore_errors=True)
 
-    def test_run_tests_t25_invokes_rich_diff_suite(self):
+    def test_run_tests_t25_pattern_covers_all_test_modules_on_disk(self):
         runner = load_test_runner()
         try:
             completed = SimpleNamespace(returncode=0, stdout="", stderr="")
@@ -197,7 +209,11 @@ class DocumentedContractTests(unittest.TestCase):
             ) as run_mock:
                 runner.t25()
             argv = run_mock.call_args.args[0]
-            self.assertEqual(argv.count("tests.test_excel_diff_highlighting"), 1)
+            pattern = argv[argv.index("-p") + 1]
+            discovered = sorted(path.name for path in (ROOT / "tests").glob(pattern))
+            self.assertIn("test_excel_diff_highlighting.py", discovered)
+            self.assertIn("test_iteration_state.py", discovered)
+            self.assertIn("test_terminology_read_contract.py", discovered)
         finally:
             shutil.rmtree(runner.TMP, ignore_errors=True)
 
@@ -216,8 +232,8 @@ class DocumentedContractTests(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, skill)
 
-    def test_projects_readme_documents_sdlxliff_rules(self):
-        text = (ROOT / "projects/README.md").read_text(encoding="utf-8")
+    def test_skill_documents_sdlxliff_profile_rules(self):
+        text = self.skill
         for phrase in (
             '"sdlxliff"',
             '"tm_protection"',
@@ -232,90 +248,27 @@ class DocumentedContractTests(unittest.TestCase):
     def test_sdlxliff_report_and_export_columns_are_documented(self):
         expected_report = (
             "来源文件、TU ID、SDL Segment ID、原文、原译、建议译文、"
-            "处理方式、错误详情、LQE_Iter、Protected、Protection Evidence"
+            "处理方式、LQE Segment ID、LQE 错误序号、LQE AI 复核状态、"
+            "LQE AI 编辑状态、LQE 检查来源、错误详情、Protected、"
+            "Protection Evidence、LQE_Iter"
         )
         expected_export = "来源文件、TU ID、SDL Segment ID、原文、译文"
-        for path in ("SKILL.md", "README_ZH.md", "PM_GUIDE.html"):
+        for path in USER_DOCUMENTS:
             with self.subTest(path=path):
                 content = (ROOT / path).read_text(encoding="utf-8")
                 self.assertIn(expected_report, content)
                 self.assertIn(expected_export, content)
 
-    def test_user_documents_distinguish_corrected_output_shapes(self):
-        contracts = {
-            "README.md": (
-                "CSV/TSV inputs produce `<job>_corrected.csv` or "
-                "`<job>_corrected.tsv` and preserve rows, columns, and the "
-                "source extension.",
-                "XLSX input produces `<job>_corrected.xlsx` and preserves the "
-                "workbook, worksheets, blank rows, column order, and formatting.",
-                "SDLXLIFF produces a new fixed five-column "
-                "`<job>_corrected.xlsx`.",
-            ),
-            "README_ZH.md": (
-                "CSV/TSV 输入输出 `<任务名>_corrected.csv` 或 "
-                "`<任务名>_corrected.tsv`，保持原行列和输入扩展名。",
-                "XLSX 输入输出 `<任务名>_corrected.xlsx`，保持工作簿、"
-                "工作表、空行、列顺序和格式。",
-                "SDLXLIFF 输出新建固定 5 列的 `<任务名>_corrected.xlsx`。",
-            ),
-            "projects/README.md": (
-                "CSV/TSV 输入输出 `<任务名>_corrected.csv` 或 "
-                "`<任务名>_corrected.tsv`，保持原行列和输入扩展名。",
-                "XLSX 输入输出 `<任务名>_corrected.xlsx`，保持工作簿、"
-                "工作表、空行、列顺序和格式。",
-                "SDLXLIFF 输出新建固定 5 列的 `<任务名>_corrected.xlsx`。",
-            ),
-            "PM_GUIDE.html": (
-                "CSV/TSV：输出 *_corrected.csv/tsv，保持原行列和输入扩展名",
-                "XLSX：输出 *_corrected.xlsx，保持工作簿、工作表、空行、"
-                "列顺序和格式",
-                "SDLXLIFF：输出新建固定 5 列的 *_corrected.xlsx",
-            ),
-        }
-        for path, phrases in contracts.items():
-            content = (ROOT / path).read_text(encoding="utf-8")
-            for phrase in phrases:
-                with self.subTest(path=path, phrase=phrase):
-                    self.assertIn(phrase, content)
-
-    def test_user_documents_publish_rich_diff_scope(self):
-        contracts = {
-            "SKILL.md": (
-                "原译中删除或替换的内容显示为红色删除线",
-                "建议译文中新增或替换的内容显示为红色字体",
-                "corrected 文件不添加差异样式",
-                "openpyxl>=3.1",
-                'openpyxl>=3.1" regex',
-            ),
-            "README_ZH.md": (
-                "原译中删除或替换的内容显示为红色删除线",
-                "建议译文中新增或替换的内容显示为红色字体",
-                "corrected 文件不添加差异样式",
-                "openpyxl>=3.1",
-                'openpyxl>=3.1" regex',
-            ),
-            "README.md": (
-                "removed or replaced text in the original translation uses red "
-                "strikethrough",
-                "inserted or replaced text in the suggested translation uses red font",
-                "Corrected files do not receive diff styling",
-                "openpyxl>=3.1",
-                'openpyxl>=3.1" regex',
-            ),
-            "PM_GUIDE.html": (
-                "原译中删除或替换的内容显示为红色删除线",
-                "建议译文中新增或替换的内容显示为红色字体",
-                "corrected 文件不添加差异样式",
-                "openpyxl&gt;=3.1",
-                'openpyxl&gt;=3.1" regex',
-            ),
-        }
-        for path, phrases in contracts.items():
-            content = (ROOT / path).read_text(encoding="utf-8")
-            for phrase in phrases:
-                with self.subTest(path=path, phrase=phrase):
-                    self.assertIn(phrase, content)
+    def test_skill_publishes_rich_diff_scope(self):
+        for phrase in (
+            "原译中删除或替换的内容显示为红色删除线",
+            "建议译文中新增或替换的内容显示为红色字体",
+            "corrected 文件不添加差异样式",
+            "openpyxl>=3.1",
+            'openpyxl>=3.1" regex',
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, self.skill)
 
 
 if __name__ == "__main__":

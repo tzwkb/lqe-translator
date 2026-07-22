@@ -4,7 +4,7 @@
 
 ## 检查内容
 
-1. 复核 `precheck`：保留确定的标记、长度、格式和空白问题；数值、含义等准确性问题交给 `accuracy`。
+1. 复核 `precheck`：保留确定的标记、长度、格式和空白问题时原样带对应 `precheck_ref`；数值、含义等准确性问题交给 `accuracy`。
 2. 检查 `term_hits`：每个候选已展开成单独记录，包含 `source`、`target`、`confirmed`、`protected` 及可选的 `status/category/definition`。
 3. 同一来源概念在全文使用不同译法时报告 Inconsistency；术语表内的冲突仍归 Terminology。
 4. 只有违反明确风格指南的写法才报告 Company style；单纯不自然交给 `naturalness`。

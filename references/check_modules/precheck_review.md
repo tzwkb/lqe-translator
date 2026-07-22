@@ -17,4 +17,4 @@
 [{"id": 0, "issues": [{"precheck_ref": "precheck:0:0123456789abcdef", "category": "Markup", "severity": "Major", "comment": "The target drops one inline tag.", "needs_confirmation": true, "edit": null}]}]
 ```
 
-只向指定的 `chunk_NN.precheck_review.json` 写合法 JSON 数组，不加说明文字或 Markdown 围栏。
+只写 common.md 所述的合法 JSON 数组草稿，不加说明文字或 Markdown 围栏；正式 `chunk_NN.precheck_review.json` 必须经 `publish-module` 发布。

@@ -5,21 +5,112 @@ from __future__ import annotations
 import copy
 import re
 
+from lqe_engine import current_target
+
 
 class CheckFormatError(ValueError):
     pass
 
 
-_ISSUE_FIELDS = ("category", "severity", "comment", "repeated")
+_ISSUE_FIELDS = (
+    "category",
+    "severity",
+    "comment",
+    "protected",
+    "repeated",
+)
 _EDIT_REQUIRED_FIELDS = {"from", "to", "evidence"}
 _EDIT_OPTIONAL_FIELDS = {"start", "end"}
+_PROVENANCE_FIELDS = {
+    "finding_origin",
+    "ai_reviewed",
+    "review_module",
+    "reviewed_segment_id",
+    "edit_origin",
+    "ai_edited",
+}
+_PROVENANCE_ORIGINS = {"ai_module", "machine_precheck", "script_derived"}
 _VARIABLE_RE = re.compile(r"\{[^{}]*\}|%(?:\d+\$)?[sd]")
 _TAG_RE = re.compile(
     r"<[^<>]+>|\[[^\[\]]+\]|#(?:G|C|Y|E)(?=$|[^A-Za-z])"
 )
 
 
-def _canonical_issue(value: object, *, label: str) -> dict:
+def _canonical_review_provenance(value: object, *, label: str) -> dict:
+    if not isinstance(value, dict):
+        raise CheckFormatError(f"{label}: review_provenance must be an object")
+    if set(value) != _PROVENANCE_FIELDS:
+        raise CheckFormatError(f"{label}: review_provenance has invalid fields")
+
+    ai_reviewed = value["ai_reviewed"]
+    if type(ai_reviewed) is not bool:
+        raise CheckFormatError(f"{label}: ai_reviewed must be boolean")
+    if type(value["ai_edited"]) is not bool:
+        raise CheckFormatError(f"{label}: ai_edited must be boolean")
+
+    finding_origin = value["finding_origin"]
+    if finding_origin not in _PROVENANCE_ORIGINS:
+        raise CheckFormatError(
+            f"{label}: review_provenance finding_origin is invalid"
+        )
+    edit_origin = value["edit_origin"]
+    if edit_origin is not None and edit_origin not in _PROVENANCE_ORIGINS:
+        raise CheckFormatError(
+            f"{label}: review_provenance edit_origin is invalid"
+        )
+    review_module = value["review_module"]
+    if review_module is not None and (
+        not isinstance(review_module, str) or not review_module.strip()
+    ):
+        raise CheckFormatError(
+            f"{label}: review_provenance review_module is invalid"
+        )
+    reviewed_segment_id = value["reviewed_segment_id"]
+    if reviewed_segment_id is not None and type(reviewed_segment_id) is not int:
+        raise CheckFormatError(
+            f"{label}: review_provenance reviewed_segment_id is invalid"
+        )
+
+    if ai_reviewed:
+        if review_module is None or reviewed_segment_id is None:
+            raise CheckFormatError(
+                f"{label}: AI-reviewed provenance requires review_module and "
+                "reviewed_segment_id"
+            )
+    elif review_module is not None or reviewed_segment_id is not None:
+        raise CheckFormatError(
+            f"{label}: unreviewed provenance cannot name a review module or segment"
+        )
+    if finding_origin == "ai_module" and not ai_reviewed:
+        raise CheckFormatError(
+            f"{label}: AI-origin finding must be AI-reviewed"
+        )
+    if finding_origin == "ai_module" and edit_origin == "machine_precheck":
+        raise CheckFormatError(
+            f"{label}: AI-origin finding cannot claim a machine edit"
+        )
+    if edit_origin == "ai_module" and not ai_reviewed:
+        raise CheckFormatError(
+            f"{label}: AI-origin edit requires AI review"
+        )
+
+    return {
+        "finding_origin": finding_origin,
+        "ai_reviewed": ai_reviewed,
+        "ai_edited": False,
+        "review_module": review_module,
+        "reviewed_segment_id": reviewed_segment_id,
+        "edit_origin": edit_origin,
+    }
+
+
+def _canonical_issue(
+    value: object,
+    *,
+    label: str,
+    allow_internal_provenance: bool = False,
+    require_internal_provenance: bool = False,
+) -> dict:
     if not isinstance(value, dict):
         raise CheckFormatError(f"{label}: issue must be an object")
 
@@ -33,6 +124,9 @@ def _canonical_issue(value: object, *, label: str) -> dict:
     needs_confirmation = value["needs_confirmation"]
     if type(needs_confirmation) is not bool:
         raise CheckFormatError(f"{label}: needs_confirmation must be boolean")
+    for field in ("protected", "repeated"):
+        if field in value and type(value[field]) is not bool:
+            raise CheckFormatError(f"{label}: {field} must be boolean")
 
     if "edit" in value:
         edit = value["edit"]
@@ -50,12 +144,33 @@ def _canonical_issue(value: object, *, label: str) -> dict:
         if not isinstance(precheck_ref, str) or not precheck_ref.strip():
             raise CheckFormatError(f"{label}: precheck_ref must be a non-empty string")
         result["precheck_ref"] = precheck_ref
+    if require_internal_provenance and "review_provenance" not in value:
+        raise CheckFormatError(f"{label}: review_provenance is required")
+    if allow_internal_provenance and "review_provenance" in value:
+        result["review_provenance"] = _canonical_review_provenance(
+            value["review_provenance"], label=label
+        )
+        edit_origin = result["review_provenance"]["edit_origin"]
+        if (edit is None) != (edit_origin is None):
+            raise CheckFormatError(
+                f"{label}: edit_origin must be null exactly when edit is null"
+            )
     result["needs_confirmation"] = needs_confirmation
     result["edit"] = edit
     return result
 
 
-def normalize_check_entries(entries: object, *, label: str) -> list[dict]:
+def normalize_check_entries(
+    entries: object,
+    *,
+    label: str,
+    allow_internal_provenance: bool = False,
+    require_internal_provenance: bool = False,
+) -> list[dict]:
+    if require_internal_provenance and not allow_internal_provenance:
+        raise CheckFormatError(
+            f"{label}: requiring provenance also requires internal provenance mode"
+        )
     if not isinstance(entries, list):
         raise CheckFormatError(f"{label}: check entries must be an array")
 
@@ -80,7 +195,12 @@ def normalize_check_entries(entries: object, *, label: str) -> list[dict]:
             {
                 "id": segment_id,
                 "issues": [
-                    _canonical_issue(issue, label=f"{entry_label}.issues[{issue_index}]")
+                    _canonical_issue(
+                        issue,
+                        label=f"{entry_label}.issues[{issue_index}]",
+                        allow_internal_provenance=allow_internal_provenance,
+                        require_internal_provenance=require_internal_provenance,
+                    )
                     for issue_index, issue in enumerate(issues)
                 ],
             }
@@ -194,37 +314,6 @@ def _requires_term_evidence(segment: dict, resolved: dict, original: str) -> boo
     return any(target and target in resolved["to"] for target in targets)
 
 
-def _hit_span_matches(hit: dict, resolved: dict, original: str) -> bool:
-    expected = (resolved["start"], resolved["end"])
-    has_coordinates = False
-    if "span" in hit:
-        has_coordinates = True
-        span = hit["span"]
-        if isinstance(span, dict):
-            actual = (span.get("start"), span.get("end"))
-        elif isinstance(span, (list, tuple)) and len(span) == 2:
-            actual = tuple(span)
-        else:
-            return False
-        if not all(type(value) is int for value in actual) or actual != expected:
-            return False
-    if "start" in hit or "end" in hit:
-        has_coordinates = True
-        actual = (hit.get("start"), hit.get("end"))
-        if not all(type(value) is int for value in actual) or actual != expected:
-            return False
-    if not has_coordinates:
-        matched_text = hit.get("matched_text")
-        if not isinstance(matched_text, str) or not matched_text:
-            return False
-        starts = _occurrence_starts(original, matched_text)
-        return len(starts) == 1 and expected == (
-            starts[0],
-            starts[0] + len(matched_text),
-        )
-    return True
-
-
 def _has_matching_confirmed_term(
     segment: dict, resolved: dict, original: str
 ) -> bool:
@@ -254,14 +343,19 @@ def _has_matching_confirmed_term(
     for hit in term_hits:
         if not isinstance(hit, dict):
             continue
-        if (
+        if not (
             hit.get("source") == evidence.get("source")
             and hit.get("target") == evidence.get("target")
             and hit.get("confirmed") is True
-            and hit.get("matched_text") == resolved["from"]
-            and _hit_span_matches(hit, resolved, original)
         ):
-            return True
+            continue
+        matched_text = hit.get("matched_text")
+        if matched_text is not None and matched_text != resolved["from"]:
+            # The hit records the exact rendering found in the target; an edit
+            # that cites this confirmed term but rewrites a different surface
+            # form is misattributed and must not be auto-applied.
+            continue
+        return True
     return False
 
 
@@ -289,17 +383,32 @@ def _damages_protected_text(segment: dict, original: str, resolved: dict) -> boo
     )
 
 
-def build_segment_result(segment: dict, issues: list[dict]) -> dict:
+def build_segment_result(
+    segment: dict,
+    issues: list[dict],
+    *,
+    allow_internal_provenance: bool = False,
+    require_internal_provenance: bool = False,
+) -> dict:
+    if require_internal_provenance and not allow_internal_provenance:
+        raise CheckFormatError(
+            "requiring provenance also requires internal provenance mode"
+        )
     if not isinstance(segment, dict) or type(segment.get("id")) is not int:
         raise CheckFormatError("segment id must be an integer")
-    original = segment.get("target")
+    original = current_target(segment)
     if not isinstance(original, str):
         raise CheckFormatError(f"segment {segment['id']}: target must be a string")
     if not isinstance(issues, list):
         raise CheckFormatError(f"segment {segment['id']}: issues must be an array")
 
     errors = [
-        _canonical_issue(value, label=f"segment {segment['id']}.issues[{index}]")
+        _canonical_issue(
+            value,
+            label=f"segment {segment['id']}.issues[{index}]",
+            allow_internal_provenance=allow_internal_provenance,
+            require_internal_provenance=require_internal_provenance,
+        )
         for index, value in enumerate(issues)
     ]
     resolved_by_index = {}
@@ -328,10 +437,14 @@ def build_segment_result(segment: dict, issues: list[dict]) -> dict:
         ):
             error["needs_confirmation"] = True
             error["edit"] = None
+            if "review_provenance" in error:
+                error["review_provenance"]["edit_origin"] = None
             continue
         if _damages_protected_text(segment, original, resolved):
             error["needs_confirmation"] = True
             error["edit"] = None
+            if "review_provenance" in error:
+                error["review_provenance"]["edit_origin"] = None
             continue
         resolved_by_index[index] = resolved
 
@@ -344,6 +457,8 @@ def build_segment_result(segment: dict, issues: list[dict]) -> dict:
     for index in conflicts:
         errors[index]["needs_confirmation"] = True
         errors[index]["edit"] = None
+        if "review_provenance" in errors[index]:
+            errors[index]["review_provenance"]["edit_origin"] = None
 
     unique_edits = {}
     for index, resolved in resolved_items:
@@ -362,6 +477,18 @@ def build_segment_result(segment: dict, issues: list[dict]) -> dict:
             + corrected[resolved["end"] :]
         )
 
+    for index, error in enumerate(errors):
+        provenance = error.get("review_provenance")
+        resolved = resolved_by_index.get(index)
+        if not isinstance(provenance, dict) or resolved is None:
+            continue
+        provenance["ai_edited"] = bool(
+            provenance["ai_reviewed"]
+            and provenance["edit_origin"] == "ai_module"
+            and index not in conflicts
+            and resolved["from"] != resolved["to"]
+        )
+
     return {
         "id": segment["id"],
         "errors": errors,
@@ -369,7 +496,14 @@ def build_segment_result(segment: dict, issues: list[dict]) -> dict:
     }
 
 
-def verify_results(segments: list[dict], results: object, label: str) -> list[dict]:
+def verify_results(
+    segments: list[dict],
+    results: object,
+    label: str,
+    *,
+    allow_internal_provenance: bool = False,
+    require_internal_provenance: bool = False,
+) -> list[dict]:
     if not isinstance(results, list):
         raise CheckFormatError(f"{label}: results must be an array")
 
@@ -404,19 +538,40 @@ def verify_results(segments: list[dict], results: object, label: str) -> list[di
     verified = []
     for segment in segments:
         entry = by_id[segment["id"]]
-        rebuilt = build_segment_result(segment, entry["errors"])
+        rebuilt = build_segment_result(
+            segment,
+            entry["errors"],
+            allow_internal_provenance=allow_internal_provenance,
+            require_internal_provenance=require_internal_provenance,
+        )
         if entry["corrected"] != rebuilt["corrected"]:
             raise CheckFormatError(
                 f"{label} segment {segment['id']}: corrected mismatch"
             )
-        verified.append(copy.deepcopy(entry))
+        verified.append(rebuilt)
     return verified
 
 
-def build_results(segments: list[dict], check_entries: list[dict]) -> list[dict]:
-    normalized = normalize_check_entries(check_entries, label="checks")
+def build_results(
+    segments: list[dict],
+    check_entries: list[dict],
+    *,
+    allow_internal_provenance: bool = False,
+    require_internal_provenance: bool = False,
+) -> list[dict]:
+    normalized = normalize_check_entries(
+        check_entries,
+        label="checks",
+        allow_internal_provenance=allow_internal_provenance,
+        require_internal_provenance=require_internal_provenance,
+    )
     issues_by_id = {entry["id"]: entry["issues"] for entry in normalized}
     return [
-        build_segment_result(segment, issues_by_id.get(segment.get("id"), []))
+        build_segment_result(
+            segment,
+            issues_by_id.get(segment.get("id"), []),
+            allow_internal_provenance=allow_internal_provenance,
+            require_internal_provenance=require_internal_provenance,
+        )
         for segment in segments
     ]

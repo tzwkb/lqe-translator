@@ -156,6 +156,20 @@ def test_integration():
     r = run_lqe("read", "--input", str(inp), "--source-col", "原文", "--target-col", "译文",
                 "--target-lang", "en", "--out", str(job / "state.json"))
     check("intg read rc", r.returncode == 0, r.stderr[-200:])
+    state = json.loads((job / "state.json").read_text(encoding="utf-8"))
+    state.pop("artifact_contract_version", None)
+    state["terminology"] = [
+        {
+            "source": "退出游戏",
+            "target": "Quit Game",
+            "confirmed": True,
+            "protected": False,
+        }
+    ]
+    (job / "state.json").write_text(
+        json.dumps(state, ensure_ascii=False),
+        encoding="utf-8",
+    )
     r = run("build", "--libraries", str(tm), "--out", str(job / "tm_index.json"))
     check("intg build rc", r.returncode == 0, r.stderr[-200:])
     r = run("tm-match", "--state", str(job / "state.json"), "--index", str(job / "tm_index.json"),
@@ -164,9 +178,14 @@ def test_integration():
     protected = json.loads((job / "tm_protected.json").read_text(encoding="utf-8"))
     check("intg protects only exact match", protected.get("protected_ids") == [0], protected)
     errors = [
-        {"id": 0, "errors": [{"category": "Mistranslation", "severity": "Major", "comment": "x"}],
+        {"id": 0, "errors": [{"category": "Mistranslation", "severity": "Major", "comment": "x",
+                                "needs_confirmation": False,
+                                "edit": {"from": "Click Start", "to": "SHOULD BE SKIPPED", "evidence": None}}],
          "corrected": "SHOULD BE SKIPPED"},
-        {"id": 1, "errors": [{"category": "Mistranslation", "severity": "Major", "comment": "x"}],
+        {"id": 1, "errors": [{"category": "Mistranslation", "severity": "Major", "comment": "x",
+                                "needs_confirmation": False,
+                                "edit": {"from": "Exit Game", "to": "Quit Game", "evidence": {
+                                    "type": "confirmed_term", "source": "退出游戏", "target": "Quit Game"}}}],
          "corrected": "Quit Game"},
         {"id": 2, "errors": [], "corrected": None},
     ]

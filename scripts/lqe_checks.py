@@ -14,8 +14,9 @@ from pathlib import Path
 from lqe_engine import (
     read_json, load_terms as _load_terms, group_terms as _group_terms,
     RE_CJK as _RE_CJK, _target_lang, _load_lang, _lang_toggle_defaults,
-    terminology_enabled, validate_scope_entries,
+    current_target, terminology_enabled, validate_scope_entries,
 )
+from lqe_paths import state_reference_paths, validate_artifact_paths, write_json_atomic
 
 _RE_DASH     = re.compile(r'—')
 _RE_NUM      = re.compile(r'(?<!\d)(\d{4,})(?!\d)')
@@ -216,7 +217,14 @@ def _check_issues(errors: list[dict]) -> list[dict]:
 
 
 def run_pre_check(state_path: Path, out_path: Path | None = None):
+    state_path = Path(state_path)
     state = read_json(state_path)
+    out = Path(out_path) if out_path is not None else state_path.parent / "errors_precheck.json"
+    validate_artifact_paths(
+        {"pre-check results": out},
+        {"state": state_path, **state_reference_paths(state)},
+        context="pre-check",
+    )
     segments = state["segments"]
 
     terms = _load_terms(state)
@@ -250,7 +258,7 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
     src_first, src_variants = {}, defaultdict(set)
     tgt_first, tgt_sources = {}, defaultdict(set)
     for seg in segments:
-        t_ = seg["target"]
+        t_ = current_target(seg)
         if '…' in t_:
             uni_ids.add(seg["id"])
         if _RE_ELLIPSIS_DOTS.search(t_):
@@ -273,7 +281,7 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
 
     for seg in segments:
         src = seg["source"]
-        tgt = seg["target"]
+        tgt = current_target(seg)
         errs = []
 
         tgt_has_cjk = bool(_RE_CJK.search(tgt))
@@ -548,8 +556,7 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
     except ValueError as exc:
         raise SystemExit(f"[pre-check] {exc}") from exc
 
-    out = out_path or state_path.parent / "errors_precheck.json"
-    out.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json_atomic(out, results)
 
     dist = Counter(e["category"] for r in results for e in r["issues"])
     flagged = sum(1 for r in results if r["issues"])

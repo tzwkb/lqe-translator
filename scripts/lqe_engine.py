@@ -48,6 +48,17 @@ def normalize_category(cat: str) -> str:
     return _PARENT_REMAP.get(cat, cat)
 
 
+def current_target(segment: dict) -> str:
+    current = segment.get("current_target")
+    if isinstance(current, str):
+        return current
+    corrected = segment.get("corrected")
+    if isinstance(corrected, str):
+        return corrected
+    target = segment.get("target", "")
+    return target if isinstance(target, str) else str(target or "")
+
+
 import json
 from pathlib import Path
 
@@ -208,26 +219,10 @@ def terminology_enabled(state: dict) -> bool:
     return bool(get_check_scope(state)["terminology_enabled"])
 
 
-def scope_issue_problem(state: dict, issue: dict) -> str | None:
-    if terminology_enabled(state):
-        return None
+def issue_contract_problem(issue: dict) -> str | None:
     if not isinstance(issue, dict):
         return "issue must be an object"
     category = issue.get("category")
-    category_key = str(category or "").strip().casefold()
-    if category_key == "terminology":
-        return "Terminology issue is disabled by check scope"
-    comment = issue.get("comment")
-    if str(comment or "").lstrip().casefold().startswith("term review:"):
-        return "TERM REVIEW evidence is disabled by check scope"
-    edit = issue.get("edit")
-    evidence = edit.get("evidence") if isinstance(edit, dict) else None
-    evidence_type = evidence.get("type") if isinstance(evidence, dict) else None
-    if (
-        isinstance(evidence_type, str)
-        and evidence_type.strip().casefold() == "confirmed_term"
-    ):
-        return "confirmed_term edit evidence is disabled by check scope"
     if not isinstance(category, str):
         return "category must be a string"
     if category not in VALID_CATEGORIES:
@@ -237,10 +232,37 @@ def scope_issue_problem(state: dict, issue: dict) -> str | None:
         return "severity must be a string"
     if severity not in VALID_SEVERITIES:
         return f"unsupported severity {severity!r}"
+    comment = issue.get("comment")
     if not isinstance(comment, str):
         return "comment must be a string"
     if not comment.strip():
         return "comment must be non-empty"
+    for field in ("needs_confirmation", "protected", "repeated"):
+        if field in issue and type(issue[field]) is not bool:
+            return f"{field} must be boolean"
+    return None
+
+
+def scope_issue_problem(state: dict, issue: dict) -> str | None:
+    problem = issue_contract_problem(issue)
+    if problem:
+        return problem
+    if terminology_enabled(state):
+        return None
+    category = issue["category"]
+    if category.strip().casefold() == "terminology":
+        return "Terminology issue is disabled by check scope"
+    comment = issue["comment"]
+    if comment.lstrip().casefold().startswith("term review:"):
+        return "TERM REVIEW evidence is disabled by check scope"
+    edit = issue.get("edit")
+    evidence = edit.get("evidence") if isinstance(edit, dict) else None
+    evidence_type = evidence.get("type") if isinstance(evidence, dict) else None
+    if (
+        isinstance(evidence_type, str)
+        and evidence_type.strip().casefold() == "confirmed_term"
+    ):
+        return "confirmed_term edit evidence is disabled by check scope"
     return None
 
 
@@ -264,12 +286,30 @@ def read_json(path):
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
+ARTIFACT_CONTRACT_VERSION = 1
+
+
+def requires_bound_artifacts(state: dict) -> bool:
+    version = state.get("artifact_contract_version")
+    if version is None:
+        return False
+    if version != ARTIFACT_CONTRACT_VERSION:
+        raise ValueError(
+            "unsupported state artifact_contract_version: "
+            f"{version!r}"
+        )
+    return True
+
+
 def load_terms(state: dict) -> list[dict]:
     if not terminology_enabled(state):
         return []
     path = state.get("terms_path", "")
-    if path and Path(path).exists():
-        return json.loads(Path(path).read_text(encoding="utf-8"))
+    if path:
+        terms_path = Path(path)
+        if not terms_path.is_file():
+            raise ValueError(f"configured terminology file is missing: {terms_path}")
+        return json.loads(terms_path.read_text(encoding="utf-8"))
     if state.get("terminology"):
         return state["terminology"]
     return []

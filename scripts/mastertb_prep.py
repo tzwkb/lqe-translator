@@ -22,12 +22,35 @@ import argparse
 import json
 import re
 import sys
+import tempfile
 from collections import Counter, OrderedDict, defaultdict
 from pathlib import Path
 
 import openpyxl
 
+from lqe_chunk import (
+    build_trusted_module_outputs,
+    load_module_output,
+    verification_generation_lease,
+    with_precheck_refs,
+)
 from lqe_corrections import CheckFormatError, build_results, normalize_check_entries
+from lqe_engine import (
+    get_check_scope,
+    load_terms,
+    requires_bound_artifacts,
+    validate_scope_entries,
+)
+from lqe_paths import publish_replacement_transaction, write_json_atomic
+from lqe_result_contract import build_result_contract, result_contract_path
+from lqe_split_contract import (
+    add_chunk_payload_digest,
+    build_split_manifest,
+    build_split_revision,
+    make_path_reference,
+    generation_lock,
+    publish_generation,
+)
 
 ZW = {0x200b: None, 0x200c: None, 0x200d: None, 0xfeff: None, 0x2060: None}
 SRC_HDR = "术语 ZHCN"
@@ -165,8 +188,8 @@ def cmd_prep(a):
 CHECK_CONTEXT = """\
 # MasterTB 术语表自检上下文
 
-每个检查任务先读 `docs/check_modules/common.md`、自己的模块文件和
-`docs/check_modules/term_audit.md`，再读任务目录中的项目背景、语言说明、
+每个检查任务先读 `references/check_modules/common.md`、自己的模块文件和
+`references/check_modules/term_audit.md`，再读任务目录中的项目背景、语言说明、
 确认规则和风格指南。
 
 输入是 chunk JSON 的 `segments[]`。`source` 是中文术语，`target` 是待检查的
@@ -176,14 +199,14 @@ CHECK_CONTEXT = """\
 四个必需模块分别写 `terminology`、`accuracy`、`grammar` 和 `naturalness`
 结果；`proper_names` 仅用于术语表自检中的 name 段，可选。
 
-每个模块只输出覆盖其分配 id 的 JSON 数组：
+每个模块先输出覆盖其分配 id 的 JSON 数组草稿：
 
 ```json
 [{"id": 123, "issues": [{"category": "Mistranslation", "severity": "Major",
   "comment": "说明问题", "needs_confirmation": true, "edit": null}]}]
 ```
 
-不得输出 `corrected`。安全局部修改和需要人工确认的规则以模块文档为准。
+不得输出 `corrected` 或 `review_provenance`。安全局部修改和需要人工确认的规则以模块文档为准。草稿完成后必须按 `references/check_modules/common.md` 使用 `lqe_chunk.py publish-module` 和当前 chunk 指纹发布正式绑定文件，不能直接把裸数组写到正式模块路径。
 """
 
 
@@ -206,7 +229,9 @@ def _kind(category, zhcn):
 
 def cmd_chunks(a):
     job = Path(a.job_dir)
-    state = json.loads((job / "state.json").read_text("utf-8"))
+    state_path = job / "state.json"
+    precheck_path = job / "errors_precheck.json"
+    state = json.loads(state_path.read_text("utf-8"))
     ctx = json.loads((job / "context.json").read_text("utf-8"))
     segs = state["segments"]
     if len(segs) != len(ctx):
@@ -217,15 +242,39 @@ def cmd_chunks(a):
         if c["zhcn"] != s["source"] or c["th"] != s["target"]:
             sys.exit(f"[err] id {s['id']} misaligned: state({s['source']!r}/{s['target']!r}) "
                      f"vs ctx({c['zhcn']!r}/{c['th']!r})")
-    precheck = {}
-    pc = job / "errors_precheck.json"
-    if pc.exists():
-        for e in json.loads(pc.read_text("utf-8")):
-            precheck[e["id"]] = e.get("issues", [])
+    if not precheck_path.exists():
+        write_json_atomic(
+            precheck_path,
+            [{"id": segment["id"], "issues": []} for segment in segs],
+        )
+    precheck_entries = normalize_check_entries(
+        json.loads(precheck_path.read_text("utf-8")),
+        label=precheck_path.name,
+    )
+    validate_scope_entries(
+        state,
+        precheck_entries,
+        issues_key="issues",
+        label=precheck_path.name,
+    )
+    precheck = {
+        entry["id"]: with_precheck_refs(entry["id"], entry["issues"])
+        for entry in precheck_entries
+    }
     out = job / "chunks"
-    out.mkdir(exist_ok=True)
     size = a.size
+    terms = load_terms(state)
+    revision = build_split_revision(
+        state,
+        precheck_entries,
+        terms,
+        get_check_scope(state),
+        size=size,
+        char_budget=0,
+    )
     n = (len(segs) + size - 1) // size
+    chunk_payloads = []
+    dedup_map = {str(segment["id"]): [segment["id"]] for segment in segs}
     for ci in range(n):
         block = segs[ci * size:(ci + 1) * size]
         segments = []
@@ -244,10 +293,50 @@ def cmd_chunks(a):
                 "target_comment": c["th_comment"],
                 "target_status": c["th_status"], "scope": c["scope"],
             })
-        doc = {"chunk_id": ci, "segments": segments}
-        (out / f"chunk_{ci:02d}.json").write_text(
-            json.dumps(doc, ensure_ascii=False, indent=1), encoding="utf-8")
-    (out / "_CHECK_CONTEXT.md").write_text(CHECK_CONTEXT, encoding="utf-8")
+        chunk_payloads.append(
+            add_chunk_payload_digest(
+                {
+                    "chunk_id": ci,
+                    "iteration": state.get("iteration", 0),
+                    "state_fingerprint": revision["state_fingerprint"],
+                    "split_fingerprint": revision["split_fingerprint"],
+                    "segments": segments,
+                }
+            )
+        )
+    manifest = build_split_manifest(
+        revision,
+        chunks=chunk_payloads,
+        dedup_map=dedup_map,
+        input_references={
+            "state": make_path_reference(state_path, job),
+            "precheck": make_path_reference(precheck_path, job),
+            "terms": None,
+            "terms_mode": "state",
+        },
+    )
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(
+        dir=out.parent,
+        prefix=".chunks.generation.",
+    ) as staging_name:
+        staging = Path(staging_name)
+        write_json_atomic(staging / "dedup_map.json", dedup_map)
+        write_json_atomic(staging / "split_manifest.json", manifest)
+        for payload in chunk_payloads:
+            write_json_atomic(
+                staging / f"chunk_{payload['chunk_id']:02d}.json",
+                payload,
+            )
+        (staging / "_CHECK_CONTEXT.md").write_text(
+            CHECK_CONTEXT,
+            encoding="utf-8",
+        )
+        publish_generation(
+            staging,
+            out,
+            archive_label=f"iter_{state.get('iteration', 0)}_mastertb",
+        )
     print(f"[ok] {n} chunks (size {size}, 含 kind 标记) -> {out}")
     print("     必需检查模块：")
     for module in _REQUIRED_MODULES:
@@ -259,17 +348,22 @@ def cmd_chunks(a):
 
 
 # ---------------------------------------------------------------- merge
-def _load_findings(path):
+def _load_findings(path, base, state):
     if not path.exists():
         return {}
-    doc = json.loads(path.read_text("utf-8"))
-    entries = normalize_check_entries(doc, label=str(path))
+    bound = requires_bound_artifacts(state)
+    entries = load_module_output(
+        path,
+        base,
+        "merged",
+        state,
+        allow_internal_provenance=bound,
+        require_internal_provenance=bound,
+    )
     return {entry["id"]: entry for entry in entries}
 
 
-def cmd_merge(a):
-    job = Path(a.job_dir)
-    state = json.loads((job / "state.json").read_text("utf-8"))
+def _cmd_merge_locked(a, job: Path, state: dict, manifest: dict, revalidate):
     ids = [s["id"] for s in state["segments"]]
     out = job / "chunks"
     chunk_numbers = sorted(
@@ -281,6 +375,14 @@ def cmd_merge(a):
     incomplete = []
     merged = {}
     expected_all = set()
+    trusted_chunks = {}
+    if requires_bound_artifacts(state):
+        trusted_chunks, problems = build_trusted_module_outputs(job, state)
+        if problems:
+            raise SystemExit(
+                "[err] bound module validation failed: "
+                + "; ".join(problems[:50])
+            )
     for ci in chunk_numbers:
         chunk_path = out / f"chunk_{ci:02d}.json"
         chunk = json.loads(chunk_path.read_text("utf-8"))
@@ -303,7 +405,7 @@ def cmd_merge(a):
             problem["missing_merged_output"] = True
         else:
             try:
-                entries = _load_findings(merged_path)
+                entries = _load_findings(merged_path, chunk, state)
             except (json.JSONDecodeError, CheckFormatError) as exc:
                 raise SystemExit(f"[err] invalid {merged_path.name}: {exc}") from exc
             actual = set(entries)
@@ -314,6 +416,19 @@ def cmd_merge(a):
             if extra_ids:
                 problem["extra_ids"] = extra_ids
             if not missing_ids and not extra_ids:
+                if requires_bound_artifacts(state):
+                    trusted = trusted_chunks.get(ci)
+                    trusted_entries = trusted[2] if trusted is not None else None
+                    trusted_ids = trusted[1] if trusted is not None else []
+                    loaded_entries = [entries[key] for key in trusted_ids]
+                    if loaded_entries != trusted_entries:
+                        raise SystemExit(
+                            f"[err] {merged_path.name} differs from current "
+                            "bound module outputs"
+                        )
+                    entries = {
+                        entry["id"]: entry for entry in trusted_entries
+                    }
                 merged.update(entries)
         if len(problem) > 1:
             incomplete.append(problem)
@@ -343,6 +458,7 @@ def cmd_merge(a):
         errors_path = job / "errors.json"
         if errors_path.exists():
             errors_path.unlink()
+        result_contract_path(errors_path).unlink(missing_ok=True)
         details = []
         for problem in incomplete:
             label = f"chunk_{problem['chunk']:02d}" if isinstance(problem["chunk"], int) else "all chunks"
@@ -372,13 +488,55 @@ def cmd_merge(a):
                         "comment": f"[一致性] 同源 '{src}' 跨词条出现多种泰译 {variants}；需统一。",
                         "needs_confirmation": False,
                         "edit": None,
+                        **(
+                            {
+                                "review_provenance": {
+                                    "finding_origin": "script_derived",
+                                    "ai_reviewed": False,
+                                    "ai_edited": False,
+                                    "review_module": None,
+                                    "reviewed_segment_id": None,
+                                    "edit_origin": None,
+                                }
+                            }
+                            if requires_bound_artifacts(state)
+                            else {}
+                        ),
                     })
                     folded += 1
 
     checks = [merged[i] for i in ids]
-    errors = build_results(state["segments"], checks)
-    (job / "errors.json").write_text(
-        json.dumps(errors, ensure_ascii=False, indent=1), encoding="utf-8")
+    bound = requires_bound_artifacts(state)
+    errors = build_results(
+        state["segments"],
+        checks,
+        allow_internal_provenance=bound,
+        require_internal_provenance=bound,
+    )
+    errors_path = job / "errors.json"
+    revalidate()
+    if requires_bound_artifacts(state):
+        contract_path = result_contract_path(errors_path)
+        with tempfile.TemporaryDirectory(
+            dir=job,
+            prefix=".mastertb-results.",
+        ) as staging_name:
+            staging = Path(staging_name)
+            staged_errors = staging / errors_path.name
+            staged_contract = staging / contract_path.name
+            write_json_atomic(staged_errors, errors)
+            write_json_atomic(
+                staged_contract,
+                build_result_contract(manifest, errors),
+            )
+            publish_replacement_transaction(
+                [
+                    (staged_errors, errors_path),
+                    (staged_contract, contract_path),
+                ]
+            )
+    else:
+        write_json_atomic(errors_path, errors)
     flagged = sum(1 for e in errors if e["errors"])
     nerr = sum(len(e["errors"]) for e in errors)
     print(f"[ok] merged check results for {nchunks} chunks -> errors.json")
@@ -392,6 +550,31 @@ def cmd_merge(a):
     }
     (job / "recall_status.json").write_text(
         json.dumps(status, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def cmd_merge(a):
+    job = Path(a.job_dir)
+    initial_state = json.loads((job / "state.json").read_text("utf-8"))
+    bound = requires_bound_artifacts(initial_state)
+    if not bound:
+        with generation_lock(job / "chunks", exclusive=False):
+            state = json.loads((job / "state.json").read_text("utf-8"))
+
+            def revalidate():
+                live = json.loads((job / "state.json").read_text("utf-8"))
+                if live != state:
+                    raise ValueError("state changed during MasterTB merge")
+
+            _cmd_merge_locked(a, job, state, None, revalidate)
+        return
+    with verification_generation_lease(
+        job / "state.json",
+        exclusive=False,
+        require_generation=bound,
+    ) as (state, _, manifest, revalidate):
+        if bound and manifest is None:
+            raise SystemExit("[err] verified chunk generation is required")
+        _cmd_merge_locked(a, job, state, manifest, revalidate)
 
 
 # ---------------------------------------------------------------- report

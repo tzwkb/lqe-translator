@@ -18,8 +18,10 @@ from pathlib import Path
 from lqe_corrections import CheckFormatError, build_results, normalize_check_entries
 from lqe_engine import (
     RE_CJK as _RE_CJK,
+    current_target,
     get_check_scope,
     load_terms,
+    requires_bound_artifacts,
     term_senses,
     terminology_enabled,
     validate_scope_entries,
@@ -27,8 +29,9 @@ from lqe_engine import (
 from lqe_chunk import (
     _PRECHECK_REVIEW_CATEGORIES,
     _precheck_provenance_problem,
-    _with_precheck_refs,
+    with_precheck_refs,
 )
+from lqe_split_contract import generation_lock
 
 
 def _est_output_chars(seg, term_hits):
@@ -84,7 +87,7 @@ def cmd_plan(args):
         except ValueError as exc:
             raise SystemExit(f"[plan] {exc}") from exc
         pre = {
-            entry["id"]: _with_precheck_refs(entry["id"], entry["issues"])
+            entry["id"]: with_precheck_refs(entry["id"], entry["issues"])
             for entry in pre_entries
         }
 
@@ -134,7 +137,7 @@ def cmd_plan(args):
     for i, batch in enumerate(batches):
         lines = []
         for s, hits in batch:
-            sid, src, tgt = s["id"], s["source"], s["target"]
+            sid, src, tgt = s["id"], s["source"], current_target(s)
             hh = []
             for term in hits:
                 flags = (
@@ -179,9 +182,7 @@ def cmd_plan(args):
         print(f"  batch_{m['batch']:02d}: {m['n']:>3} segs  ids {m['id_min']}-{m['id_max']}  ~{m['est_output_chars']//1000}k chars{flag}")
 
 
-def cmd_merge(args):
-    job = Path(args.job)
-    state = json.loads((job / "state.json").read_text(encoding="utf-8"))
+def _cmd_merge_locked(args, job: Path, state: dict):
     precheck_by_id = {}
     precheck_path = job / "errors_precheck.json"
     if precheck_path.exists():
@@ -193,7 +194,7 @@ def cmd_merge(args):
         except (json.JSONDecodeError, CheckFormatError) as exc:
             raise SystemExit(f"[merge] invalid pre-check results: {exc}") from exc
         precheck_by_id = {
-            entry["id"]: _with_precheck_refs(entry["id"], entry["issues"])
+            entry["id"]: with_precheck_refs(entry["id"], entry["issues"])
             for entry in precheck_entries
         }
     evals = sorted((job / "evals").glob("eval_*.json"))
@@ -242,6 +243,11 @@ def cmd_merge(args):
                 raise SystemExit(
                     f"[merge] precheck provenance for id {entry['id']}: {problem}"
                 )
+    if requires_bound_artifacts(state):
+        raise SystemExit(
+            "[merge] legacy batch outputs cannot publish into a current job; "
+            "use lqe_chunk.py split/publish-module/merge"
+        )
     out = build_results(state["segments"], list(merged.values()))
     (job / "errors.json").write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
 
@@ -250,6 +256,13 @@ def cmd_merge(args):
         f"{len(seg_ids)}/{len(seg_ids)} segs covered → errors.json"
     )
     print("[merge] complete — 全段检查完成，可以计算最终分")
+
+
+def cmd_merge(args):
+    job = Path(args.job)
+    with generation_lock(job / "chunks", exclusive=True):
+        state = json.loads((job / "state.json").read_text(encoding="utf-8"))
+        _cmd_merge_locked(args, job, state)
 
 
 def main():

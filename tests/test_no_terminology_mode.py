@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -19,6 +20,7 @@ FINALIZE_SCRIPT = SCRIPTS / "finalize_job.sh"
 
 sys.path.insert(0, str(SCRIPTS))
 
+from lqe_chunk import build_module_output
 from lqe_engine import (
     NO_TERMINOLOGY_REQUIRED_MODULES,
     OPTIONAL_MODULES,
@@ -57,7 +59,17 @@ class NoTerminologyScopeTests(unittest.TestCase):
         self.source = self.root / "source.csv"
         self.source.write_text("Source,Target\nA,Alpha\n", encoding="utf-8")
         self.terms = self.root / "project" / "terms.json"
-        write_json(self.terms, [{"source": "A", "target": "Alpha"}])
+        write_json(
+            self.terms,
+            [
+                {
+                    "source": "A",
+                    "target": "Alpha",
+                    "confirmed": False,
+                    "protected": False,
+                }
+            ],
+        )
         self.profile = self.root / "project" / "profile.json"
         write_json(
             self.profile,
@@ -271,19 +283,43 @@ class NoTerminologyScopeTests(unittest.TestCase):
         state = {"check_scope": build_check_scope(True)}
         cases = (
             (None, "issue must be an object"),
-            ({"category": "Terminology"}, "Terminology issue is disabled"),
-            ({"category": " terminology "}, "Terminology issue is disabled"),
             (
-                {"category": "Other", "comment": "  TERM REVIEW: verify"},
-                "TERM REVIEW evidence is disabled",
+                {
+                    "category": "Terminology",
+                    "severity": "Major",
+                    "comment": "forbidden",
+                },
+                "Terminology issue is disabled",
             ),
             (
-                {"category": "Other", "comment": "  term review: verify"},
+                {
+                    "category": " terminology ",
+                    "severity": "Major",
+                    "comment": "forbidden",
+                },
+                "unsupported category",
+            ),
+            (
+                {
+                    "category": "Other",
+                    "severity": "Minor",
+                    "comment": "  TERM REVIEW: verify",
+                },
                 "TERM REVIEW evidence is disabled",
             ),
             (
                 {
                     "category": "Other",
+                    "severity": "Minor",
+                    "comment": "  term review: verify",
+                },
+                "TERM REVIEW evidence is disabled",
+            ),
+            (
+                {
+                    "category": "Other",
+                    "severity": "Minor",
+                    "comment": "term evidence",
                     "edit": {"evidence": {"type": "confirmed_term"}},
                 },
                 "confirmed_term edit evidence is disabled",
@@ -291,6 +327,8 @@ class NoTerminologyScopeTests(unittest.TestCase):
             (
                 {
                     "category": "Other",
+                    "severity": "Minor",
+                    "comment": "term evidence",
                     "edit": {"evidence": {"type": "Confirmed_Term"}},
                 },
                 "confirmed_term edit evidence is disabled",
@@ -323,7 +361,16 @@ class NoTerminologyScopeTests(unittest.TestCase):
                 },
             )
         )
-        self.assertIsNone(scope_issue_problem({}, {"category": "Terminology"}))
+        self.assertIsNone(
+            scope_issue_problem(
+                {},
+                {
+                    "category": "Terminology",
+                    "severity": "Major",
+                    "comment": "valid in standard mode",
+                },
+            )
+        )
 
     def test_validate_scope_entries_supports_check_and_final_shapes(self):
         state = {"check_scope": build_check_scope(True)}
@@ -768,7 +815,10 @@ class NoTerminologyPrecheckTests(unittest.TestCase):
         self.assertIn("precheck provenance", result.stderr)
         self.assertFalse((self.job / "errors.json").exists())
 
-    def test_batch_merge_accepts_referenced_precheck_issue(self):
+    def test_current_job_rejects_legacy_batch_publication(self):
+        state = read_json(self.state)
+        state["artifact_contract_version"] = 1
+        write_json(self.state, state)
         write_json(
             self.job / "errors_precheck.json",
             [
@@ -801,8 +851,9 @@ class NoTerminologyPrecheckTests(unittest.TestCase):
 
         result = self.run_batch("merge", "--job", self.job)
 
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue((self.job / "errors.json").exists())
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("legacy batch outputs cannot publish", result.stderr)
+        self.assertFalse((self.job / "errors.json").exists())
 
 
 class NoTerminologyModuleTests(unittest.TestCase):
@@ -812,6 +863,7 @@ class NoTerminologyModuleTests(unittest.TestCase):
         self.job = self.root / "job"
         self.chunks = self.job / "chunks"
         self.chunks.mkdir(parents=True)
+        self.generation = 0
 
     def tearDown(self):
         self.tempdir.cleanup()
@@ -837,8 +889,10 @@ class NoTerminologyModuleTests(unittest.TestCase):
             "--json",
         )
 
-    def make_chunk_job(self, *, no_terminology):
+    def make_chunk_job(self, *, no_terminology, precheck_issues=None):
+        self.generation += 1
         state = {
+            "iteration": self.generation,
             "wordcount": 1,
             "segments": [{"id": 0, "source": "A", "target": "A"}],
         }
@@ -846,24 +900,19 @@ class NoTerminologyModuleTests(unittest.TestCase):
             state["check_scope"] = build_check_scope(True, "test")
         write_json(self.job / "state.json", state)
         write_json(
-            self.job / "errors_precheck.json", [{"id": 0, "issues": []}]
+            self.job / "errors_precheck.json",
+            [{"id": 0, "issues": precheck_issues or []}],
         )
-        write_json(
-            self.chunks / "chunk_00.json",
-            {
-                "chunk_id": 0,
-                "segments": [
-                    {
-                        "id": 0,
-                        "source": "A",
-                        "target": "A",
-                        "kind": "name",
-                        "term_hits": [],
-                        "protected_texts": [],
-                    }
-                ],
-            },
+        result = self.run_chunk(
+            "split",
+            "--state",
+            self.job / "state.json",
+            "--errors",
+            self.job / "errors_precheck.json",
+            "--outdir",
+            self.chunks,
         )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def make_no_term_chunk_job(self):
         self.make_chunk_job(no_terminology=True)
@@ -1024,20 +1073,21 @@ class NoTerminologyModuleTests(unittest.TestCase):
         self.assertFalse((self.chunks / "chunk_00.out.json").exists())
 
     def test_precheck_review_can_refine_existing_issue_without_new_edit(self):
-        self.make_no_term_chunk_job()
-        chunk_path = self.chunks / "chunk_00.json"
-        chunk = read_json(chunk_path)
-        chunk["segments"][0]["precheck"] = [
+        self.make_chunk_job(
+            no_terminology=True,
+            precheck_issues=[
             {
-                "precheck_ref": "precheck:0:test",
                 "category": "Markup",
                 "severity": "Minor",
                 "comment": "machine finding",
                 "needs_confirmation": True,
                 "edit": None,
             }
-        ]
-        write_json(chunk_path, chunk)
+            ],
+        )
+        precheck_ref = read_json(self.chunks / "chunk_00.json")["segments"][0][
+            "precheck"
+        ][0]["precheck_ref"]
         self.write_modules(
             ("precheck_review", "accuracy", "grammar", "naturalness")
         )
@@ -1048,7 +1098,7 @@ class NoTerminologyModuleTests(unittest.TestCase):
                     "id": 0,
                     "issues": [
                         {
-                            "precheck_ref": "precheck:0:test",
+                            "precheck_ref": precheck_ref,
                             "category": "Markup",
                             "severity": "Major",
                             "comment": "confirmed and clarified",
@@ -1068,27 +1118,28 @@ class NoTerminologyModuleTests(unittest.TestCase):
         self.assertEqual(output[0]["issues"][0]["comment"], "confirmed and clarified")
 
     def test_precheck_review_rejects_changed_edit_and_duplicate_claim(self):
-        self.make_no_term_chunk_job()
-        chunk_path = self.chunks / "chunk_00.json"
-        chunk = read_json(chunk_path)
-        chunk["segments"][0]["precheck"] = [
+        self.make_chunk_job(
+            no_terminology=True,
+            precheck_issues=[
             {
-                "precheck_ref": "precheck:0:test",
                 "category": "Locale convention",
                 "severity": "Minor",
                 "comment": "machine finding",
                 "needs_confirmation": False,
                 "edit": {"from": "A", "to": "B", "evidence": None},
             }
-        ]
-        write_json(chunk_path, chunk)
+            ],
+        )
+        precheck_ref = read_json(self.chunks / "chunk_00.json")["segments"][0][
+            "precheck"
+        ][0]["precheck_ref"]
         self.write_modules(
             ("precheck_review", "accuracy", "grammar", "naturalness")
         )
         cases = {
             "changed-edit": [
                 {
-                    "precheck_ref": "precheck:0:test",
+                    "precheck_ref": precheck_ref,
                     "category": "Locale convention",
                     "severity": "Minor",
                     "comment": "changed correction",
@@ -1098,7 +1149,7 @@ class NoTerminologyModuleTests(unittest.TestCase):
             ],
             "duplicate-claim": [
                 {
-                    "precheck_ref": "precheck:0:test",
+                    "precheck_ref": precheck_ref,
                     "category": "Locale convention",
                     "severity": "Minor",
                     "comment": comment,
@@ -1180,6 +1231,96 @@ class NoTerminologyModuleTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("unsupported severity", result.stderr)
+
+    def test_validate_applies_common_issue_contract_in_standard_mode(self):
+        cases = (
+            (
+                "category",
+                {
+                    "category": "Unknown",
+                    "severity": "Minor",
+                    "comment": "unknown category",
+                    "needs_confirmation": True,
+                    "edit": None,
+                },
+                "unsupported category",
+            ),
+            (
+                "severity",
+                {
+                    "category": "Grammar",
+                    "severity": "Severe",
+                    "comment": "unknown severity",
+                    "needs_confirmation": True,
+                    "edit": None,
+                },
+                "unsupported severity",
+            ),
+            (
+                "comment",
+                {
+                    "category": "Grammar",
+                    "severity": "Minor",
+                    "comment": "   ",
+                    "needs_confirmation": True,
+                    "edit": None,
+                },
+                "comment must be non-empty",
+            ),
+        )
+        for name, issue, message in cases:
+            with self.subTest(name=name):
+                self.make_legacy_chunk_job()
+                self.write_modules(
+                    ("terminology", "accuracy", "grammar", "naturalness")
+                )
+                write_json(
+                    self.chunks / "chunk_00.grammar.json",
+                    [{"id": 0, "issues": [issue]}],
+                )
+
+                result = self.run_chunk("validate-checks", "--job", self.job)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stderr)
+                self.assertFalse((self.chunks / "chunk_00.out.json").exists())
+
+    def test_validate_enforces_module_category_ownership_in_standard_mode(self):
+        cases = (
+            ("grammar", "Markup"),
+            ("naturalness", "Other"),
+            ("accuracy", "Grammar"),
+            ("terminology", "Grammar"),
+        )
+        for module, category in cases:
+            with self.subTest(module=module, category=category):
+                self.make_legacy_chunk_job()
+                self.write_modules(
+                    ("terminology", "accuracy", "grammar", "naturalness")
+                )
+                write_json(
+                    self.chunks / f"chunk_00.{module}.json",
+                    [
+                        {
+                            "id": 0,
+                            "issues": [
+                                {
+                                    "category": category,
+                                    "severity": "Minor",
+                                    "comment": "wrong owner",
+                                    "needs_confirmation": True,
+                                    "edit": None,
+                                }
+                            ],
+                        }
+                    ],
+                )
+
+                result = self.run_chunk("validate-checks", "--job", self.job)
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(f"{module} cannot own", result.stderr)
+                self.assertFalse((self.chunks / "chunk_00.out.json").exists())
 
     def test_legacy_state_still_requires_standard_four_modules(self):
         self.make_legacy_chunk_job()
@@ -1318,10 +1459,38 @@ class NoTerminologyFinalizeTests(unittest.TestCase):
             capture_output=True,
         )
 
+    def run_chunk(self, *args):
+        return subprocess.run(
+            [sys.executable, str(CHUNK_SCRIPT), *map(str, args)],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+
+    def split_job(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(CHUNK_SCRIPT),
+                "split",
+                "--state",
+                str(self.state),
+                "--errors",
+                str(self.job / "errors_precheck.json"),
+                "--outdir",
+                str(self.job / "chunks"),
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def run_finalize(self):
         return subprocess.run(
             ["bash", str(FINALIZE_SCRIPT), str(self.job), "1", "single"],
             cwd=ROOT,
+            env={**os.environ, "PYTHON": sys.executable},
             text=True,
             capture_output=True,
         )
@@ -1349,27 +1518,27 @@ class NoTerminologyFinalizeTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
         write_json(self.job / "errors_precheck.json", [{"id": 0, "issues": []}])
-        write_json(
-            self.job / "chunks" / "chunk_00.json",
-            {
-                "chunk_id": 0,
-                "segments": [
-                    {
-                        "id": 0,
-                        "source": "A",
-                        "target": "Alpha",
-                        "kind": "name",
-                        "term_hits": [],
-                        "protected_texts": [],
-                    }
-                ],
-            },
-        )
+        self.split_job()
+        base = read_json(self.job / "chunks" / "chunk_00.json")
         for module in NO_TERMINOLOGY_REQUIRED_MODULES:
-            write_json(
-                self.job / "chunks" / f"chunk_00.{module}.json",
-                [{"id": 0, "issues": []}],
+            draft = self.job / f"{module}.draft.json"
+            write_json(draft, [{"id": 0, "issues": []}])
+            published = self.run_chunk(
+                "publish-module",
+                "--job",
+                self.job,
+                "--chunk",
+                0,
+                "--module",
+                module,
+                "--input",
+                draft,
+                "--split-fingerprint",
+                base["split_fingerprint"],
+                "--chunk-payload-digest",
+                base["payload_digest"],
             )
+            self.assertEqual(published.returncode, 0, published.stderr)
 
     def write_raw_checks(self, *, category="Terminology", comment="forbidden"):
         write_json(
@@ -1426,9 +1595,29 @@ class NoTerminologyFinalizeTests(unittest.TestCase):
             result.stdout,
         )
         self.assertTrue((self.job / "errors.json").exists())
+        self.assertTrue((self.job / "errors.contract.json").exists())
         self.assertFalse(any(self.job.glob("chunks/*.terminology.json")))
         self.assertTrue(list(self.job.glob("*_lqe.xlsx")))
         self.assertTrue(list(self.job.glob("*_corrected.xlsx")))
+
+    def test_tampered_results_fail_bound_contract(self):
+        finalized = self.run_finalize()
+        self.assertEqual(finalized.returncode, 0, finalized.stderr)
+        errors_path = self.job / "errors.json"
+        errors = read_json(errors_path)
+        errors[0]["corrected"] = "Tampered"
+        write_json(errors_path, errors)
+
+        exported = self.run_io(
+            "export",
+            "--state",
+            self.state,
+            "--errors",
+            errors_path,
+        )
+
+        self.assertNotEqual(exported.returncode, 0)
+        self.assertIn("result contract is stale", exported.stderr)
 
     def test_report_records_disabled_terminology_and_enabled_modules(self):
         result = self.run_finalize()
@@ -1467,7 +1656,9 @@ class NoTerminologyFinalizeTests(unittest.TestCase):
     def test_standard_report_records_enabled_terminology(self):
         state = read_json(self.state)
         state["check_scope"] = build_check_scope(False, "test")
+        state.pop("artifact_contract_version", None)
         write_json(self.state, state)
+        self.split_job()
         write_json(
             self.job / "errors.json",
             [{"id": 0, "errors": [], "corrected": None}],

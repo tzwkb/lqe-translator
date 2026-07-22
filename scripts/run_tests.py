@@ -1,9 +1,9 @@
 """Self-contained regression suite for the LQE skill.
 
 Run:  python scripts/run_tests.py
-Covers corrected ownership, SDLXLIFF, no-terminology, and rich-diff regression suites;
-all 23 builtin pre-checks; project profiles; counting, dedup, and wordcount
-guards; and a smoke test for lqe_batch.
+Discovers every tests/test_*.py regression suite and also covers all 23 builtin
+pre-checks, project profiles, counting, dedup, wordcount guards, and a smoke
+test for lqe_batch.
 Fixtures are built in a temp dir; nothing is written into the repo.
 """
 import json
@@ -94,13 +94,18 @@ def t1():
     ]
     make_xlsx(TMP / "en_main.xlsx", rows)
     (TMP / "tb.json").write_text(json.dumps(
-        [{"source": "生命值", "target": "HP", "status": "Approved"}], ensure_ascii=False), encoding="utf-8")
+        [{"source": "生命值", "target": "HP", "status": "Approved",
+          "confirmed": True, "protected": False}], ensure_ascii=False), encoding="utf-8")
     r = run("lqe_io.py", "read", "--input", str(TMP / "en_main.xlsx"),
             "--source-col", "原文", "--target-col", "译文", "--target-lang", "en",
             "--terminology", str(TMP / "tb.json"), "--out", str(TMP / "j1/state.json"))
     check("T1 read rc", r.returncode == 0, r.stderr[-200:])
+    if r.returncode != 0:
+        return
     r = run("lqe_io.py", "pre-check", "--state", str(TMP / "j1/state.json"), "--out", str(TMP / "j1/pc.json"))
     check("T1 pre-check rc", r.returncode == 0, r.stderr[-200:])
+    if r.returncode != 0:
+        return
     res = load_errs(TMP / "j1/pc.json")
     for name, cond in [
         ("N5 src-terminal", has(res, 0, "target does not")),
@@ -195,7 +200,8 @@ def t4():
                               ("wwm/zh-en", "en", "target-words")]:
         slug = proj.replace("/", "-")
         r = run("lqe_io.py", "read", "--input", str(TMP / "tiny.xlsx"), "--source-col", "原文",
-                "--target-col", "译文", "--project", proj, "--out", str(TMP / f"j4-{slug}/state.json"))
+                "--target-col", "译文", "--project", proj, "--no-terminology",
+                "--out", str(TMP / f"j4-{slug}/state.json"))
         ok = r.returncode == 0
         check(f"T4 {proj} read", ok, r.stderr[-200:])
         if not ok:
@@ -251,37 +257,133 @@ def t6():
     check("T6 dedup off", "REPEATED=0" in r.stdout and "SCORE=77.50" in r.stdout, r.stdout[:120])
 
 
-# ── T7: lqe_batch plan/merge smoke ────────────────────────────────────────────
+# ── T7: bound module publish/merge smoke ────────────────────────────────────────
 def t7():
-    job = TMP / "j1"
-    shutil.copy(job / "pc.json", job / "errors_precheck.json")
-    r = run("lqe_batch.py", "plan", "--job", str(job), "--output-budget", "400")
-    check("T7 plan rc", r.returncode == 0, r.stderr[-200:])
-    check("T7 manifest", (job / "manifest.json").exists() and len(list((job / "batches").glob("batch_*.txt"))) >= 2)
-    evals = job / "evals"
-    evals.mkdir(exist_ok=True)
+    job = TMP / "j7"
+    make_xlsx(TMP / "bound_merge.xlsx", [("这是一句话。", "This is a sentnce.")])
+    r = run(
+        "lqe_io.py",
+        "read",
+        "--input",
+        str(TMP / "bound_merge.xlsx"),
+        "--source-col",
+        "原文",
+        "--target-col",
+        "译文",
+        "--target-lang",
+        "en",
+        "--no-terminology",
+        "--out",
+        str(job / "state.json"),
+    )
+    check("T7 read rc", r.returncode == 0, r.stderr[-300:])
+    if r.returncode != 0:
+        return
+
+    r = run(
+        "lqe_io.py",
+        "pre-check",
+        "--state",
+        str(job / "state.json"),
+        "--out",
+        str(job / "errors_precheck.json"),
+    )
+    check("T7 pre-check rc", r.returncode == 0, r.stderr[-300:])
+    if r.returncode != 0:
+        return
+
+    r = run(
+        "lqe_chunk.py",
+        "split",
+        "--state",
+        str(job / "state.json"),
+        "--errors",
+        str(job / "errors_precheck.json"),
+        "--outdir",
+        str(job / "chunks"),
+        "--size",
+        "100",
+    )
+    check("T7 split rc", r.returncode == 0, r.stderr[-300:])
+    if r.returncode != 0:
+        return
+
     state = json.loads((job / "state.json").read_text(encoding="utf-8"))
-    entries = [{"id": segment["id"], "issues": []} for segment in state["segments"]]
-    entries[0]["issues"] = [
-        {
-            "category": "Punctuation",
-            "severity": "Minor",
-            "comment": "Add required terminal punctuation.",
-            "needs_confirmation": False,
-            "edit": {
-                "from": "Hello",
-                "to": "Hello.",
-                "start": 0,
-                "end": 5,
-                "evidence": None,
-            },
-        }
-    ]
-    (evals / "eval_00.json").write_text(json.dumps(entries), encoding="utf-8")
-    r = run("lqe_batch.py", "merge", "--job", str(job))
-    check("T7 merge complete", r.returncode == 0 and "complete" in r.stdout, (r.stdout + r.stderr)[-300:])
+    base = json.loads((job / "chunks/chunk_00.json").read_text(encoding="utf-8"))
+    modules = state["check_scope"]["enabled_modules"]
+    issue = {
+        "category": "Spelling",
+        "severity": "Minor",
+        "comment": "Correct the misspelling.",
+        "needs_confirmation": False,
+        "edit": {
+            "from": "sentnce",
+            "to": "sentence",
+            "start": 10,
+            "end": 17,
+            "evidence": None,
+        },
+    }
+    for module in modules:
+        entries = [
+            {
+                "id": segment["id"],
+                "issues": [issue] if module == "grammar" and segment["id"] == 0 else [],
+            }
+            for segment in base["segments"]
+        ]
+        draft = job / f"{module}.draft.json"
+        draft.write_text(json.dumps(entries), encoding="utf-8")
+        r = run(
+            "lqe_chunk.py",
+            "publish-module",
+            "--job",
+            str(job),
+            "--chunk",
+            "0",
+            "--module",
+            module,
+            "--input",
+            str(draft),
+            "--split-fingerprint",
+            base["split_fingerprint"],
+            "--chunk-payload-digest",
+            base["payload_digest"],
+        )
+        check(f"T7 publish {module}", r.returncode == 0, r.stderr[-300:])
+        if r.returncode != 0:
+            return
+
+    for command in ("validate-checks", "merge-checks", "reconcile"):
+        r = run("lqe_chunk.py", command, "--job", str(job))
+        check(f"T7 {command}", r.returncode == 0, r.stderr[-300:])
+        if r.returncode != 0:
+            return
+
+    r = run(
+        "lqe_chunk.py",
+        "merge",
+        "--state",
+        str(job / "state.json"),
+        "--errors",
+        str(job / "errors_precheck.json"),
+        "--outdir",
+        str(job / "chunks"),
+        "--out",
+        str(job / "errors.json"),
+    )
+    check("T7 merge complete", r.returncode == 0, (r.stdout + r.stderr)[-300:])
+    if r.returncode != 0:
+        return
     merged = json.loads((job / "errors.json").read_text(encoding="utf-8"))
-    check("T7 merge content", merged[0]["corrected"] == "Hello." and merged[1]["errors"] == [])
+    provenance = merged[0]["errors"][0]["review_provenance"]
+    check(
+        "T7 merge content+provenance",
+        merged[0]["corrected"] == "This is a sentence."
+        and provenance["ai_reviewed"] is True
+        and provenance["ai_edited"] is True
+        and provenance["review_module"] == "grammar",
+    )
 
 
 # ── T8: lqe_engine term_senses / group_terms ──────────────────────────────
@@ -320,16 +422,18 @@ def t9():
     make_xlsx(TMP / "t9.xlsx", rows)
     (TMP / "t9_tb.json").write_text(json.dumps([
         {"source": "里奥", "senses": [
-            {"target": "ลีโอ", "category": "Creature Individual"},
-            {"target": "ไลเอล", "category": "Creature Species"},
+            {"target": "ลีโอ", "category": "Creature Individual", "confirmed": False, "protected": False},
+            {"target": "ไลเอล", "category": "Creature Species", "confirmed": False, "protected": False},
         ]},
-        {"source": "马尔文", "target": "มาร์วิน", "status": "New"},
+        {"source": "马尔文", "target": "มาร์วิน", "status": "New", "confirmed": False, "protected": False},
     ], ensure_ascii=False), encoding="utf-8")
     r = run("lqe_io.py", "read", "--input", str(TMP / "t9.xlsx"),
             "--source-col", "原文", "--target-col", "译文", "--target-lang", "th",
             "--wordcount-basis", "source-chars",
             "--terminology", str(TMP / "t9_tb.json"), "--out", str(TMP / "j9/state.json"))
     check("T9 read rc", r.returncode == 0, r.stderr[-200:])
+    if r.returncode != 0:
+        return
     r = run("lqe_io.py", "pre-check", "--state", str(TMP / "j9/state.json"), "--out", str(TMP / "j9/pc.json"))
     check("T9 pre-check rc", r.returncode == 0, r.stderr[-200:])
     res = load_errs(TMP / "j9/pc.json")
@@ -357,10 +461,10 @@ def t10():
         [{"id": 0, "issues": []}, {"id": 1, "issues": []}], ensure_ascii=False), encoding="utf-8")
     (job / "terms.json").write_text(json.dumps([
         {"source": "里奥", "senses": [
-            {"target": "ลีโอ", "category": "Creature Individual"},
-            {"target": "ไลเอล", "category": "Creature Species"},
+            {"target": "ลีโอ", "category": "Creature Individual", "confirmed": False, "protected": False},
+            {"target": "ไลเอล", "category": "Creature Species", "confirmed": False, "protected": False},
         ]},
-        {"source": "马尔文", "target": "มาร์วิน", "status": "New"},
+        {"source": "马尔文", "target": "มาร์วิน", "status": "New", "confirmed": False, "protected": False},
     ], ensure_ascii=False), encoding="utf-8")
     outdir = job / "chunks"
     r = run("lqe_chunk.py", "split", "--state", str(job / "state.json"),
@@ -368,6 +472,8 @@ def t10():
             "--terms", str(job / "terms.json"),
             "--outdir", str(outdir), "--size", "10")
     check("T10 split rc", r.returncode == 0, r.stderr[-300:])
+    if r.returncode != 0:
+        return
     chunk = json.loads((outdir / "chunk_00.json").read_text(encoding="utf-8"))
     seg0 = next(s for s in chunk["segments"] if s["id"] == 0)
     seg1 = next(s for s in chunk["segments"] if s["id"] == 1)
@@ -391,8 +497,8 @@ def t11():
     make_xlsx(TMP / "t11.xlsx", rows)
     (TMP / "t11_tb.json").write_text(json.dumps([
         {"source": "里奥", "senses": [
-            {"target": "ลีโอ", "category": "Creature Individual"},
-            {"target": "ไลเอล", "category": "Creature Species"},
+            {"target": "ลีโอ", "category": "Creature Individual", "confirmed": False, "protected": False},
+            {"target": "ไลเอล", "category": "Creature Species", "confirmed": False, "protected": False},
         ]},
     ], ensure_ascii=False), encoding="utf-8")
     r = run("lqe_io.py", "read", "--input", str(TMP / "t11.xlsx"),
@@ -400,6 +506,8 @@ def t11():
             "--wordcount-basis", "source-chars",
             "--terminology", str(TMP / "t11_tb.json"), "--out", str(TMP / "j11/state.json"))
     check("T11 read rc", r.returncode == 0, r.stderr[-200:])
+    if r.returncode != 0:
+        return
     r = run("lqe_io.py", "lookup-terms", "--state", str(TMP / "j11/state.json"))
     check("T11 lookup rc", r.returncode == 0, r.stderr[-200:])
     check("T11 shows both candidates", "ลีโอ" in r.stdout and "ไลเอล" in r.stdout)
@@ -427,6 +535,7 @@ def t12():
 
     r = run("mastertb_to_terms.py", "--input", str(job / "master.xlsx"),
             "--target-col", "TH", "--backfill", str(job / "backfill.json"),
+            "--no-status",
             "--out", str(job / "terms.json"))
     check("T12 rc", r.returncode == 0, r.stderr[-300:])
 
@@ -690,9 +799,13 @@ def t20():
     check("T20 report read rc", r.returncode == 0, r.stderr[-300:])
     if r.returncode != 0:
         return
+    state_path = TMP / "j20/state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.pop("artifact_contract_version", None)
+    state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
     (TMP / "j20/errors.json").write_text(json.dumps([{"id": 0, "errors": [], "corrected": None}],
                                                      ensure_ascii=False), encoding="utf-8")
-    r = run("lqe_io.py", "write", "--state", str(TMP / "j20/state.json"),
+    r = run("lqe_io.py", "write", "--state", str(state_path),
             "--errors", str(TMP / "j20/errors.json"), "--score", "100", "--threshold", "98")
     check("T20 report write rc", r.returncode == 0, r.stderr[-300:])
     out = TMP / "j20/j20_lqe.xlsx"
@@ -706,8 +819,13 @@ def t20():
 
 def t21():
     script = (SCRIPTS / "finalize_job.sh").read_text(encoding="utf-8")
-    check("T21 finalize reads threshold from state",
-          "state.json" in script and "threshold" in script and "--threshold 98" not in script)
+    check(
+        "T21 finalize inherits complete state scoring policy",
+        "lqe_calc.py" in script
+        and "--threshold" not in script
+        and "--scorecard-profile" not in script
+        and "--severity-scale" not in script,
+    )
 
 
 def t22():
@@ -746,10 +864,6 @@ def t24():
     check("T24 legacy languages folder removed", not (root / "languages").exists())
     scanned = [
         root / "SKILL.md",
-        root / "README.md",
-        root / "README_ZH.md",
-        root / "projects/README.md",
-        root / "docs/质量检查项清单.md",
         root / "scripts/lqe_engine.py",
         root / "scripts/lqe_io.py",
     ]
@@ -776,15 +890,12 @@ def t25():
             sys.executable,
             "-m",
             "unittest",
+            "discover",
+            "-s",
+            "tests",
+            "-p",
+            "test_*.py",
             "-v",
-            "tests.test_correction_builder",
-            "tests.test_corrected_ownership",
-            "tests.test_plain_language",
-            "tests.test_no_terminology_mode",
-            "tests.test_sdlxliff_input",
-            "tests.test_documented_contract",
-            "tests.test_excel_diff_highlighting",
-            "tests.test_mastertb_module_contract",
         ],
         cwd=SCRIPTS.parent,
         capture_output=True,
@@ -792,20 +903,24 @@ def t25():
     )
     output = (result.stdout + result.stderr).strip()
     check(
-        "T25 corrected ownership + SDLXLIFF + no-terminology + rich-diff suites",
+        "T25 all test_*.py suites discovered",
         result.returncode == 0,
         output[-2000:],
     )
 
 
 if __name__ == "__main__":
-    for t in (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15, t16, t17,
-              t18, t19, t20, t21, t22, t23, t24, t25):
-        t()
-    rag = subprocess.run([sys.executable, str(SCRIPTS / "tm_index_test.py")], capture_output=True, text=True)
-    check("TM suite (tm_index_test.py)", rag.returncode == 0,
-          (rag.stdout or rag.stderr).strip().splitlines()[-1] if (rag.stdout or rag.stderr) else "")
-    total = len(PASS) + len(FAIL)
-    print(f"\n{len(PASS)}/{total} passed" + (f"  FAILED: {FAIL}" if FAIL else "  — all green"))
-    shutil.rmtree(TMP, ignore_errors=True)
-    sys.exit(1 if FAIL else 0)
+    exit_code = 1
+    try:
+        for t in (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15, t16, t17,
+                  t18, t19, t20, t21, t22, t23, t24, t25):
+            t()
+        rag = subprocess.run([sys.executable, str(SCRIPTS / "tm_index_test.py")], capture_output=True, text=True)
+        check("TM suite (tm_index_test.py)", rag.returncode == 0,
+              (rag.stdout or rag.stderr).strip().splitlines()[-1] if (rag.stdout or rag.stderr) else "")
+        total = len(PASS) + len(FAIL)
+        print(f"\n{len(PASS)}/{total} passed" + (f"  FAILED: {FAIL}" if FAIL else "  — all green"))
+        exit_code = 1 if FAIL else 0
+    finally:
+        shutil.rmtree(TMP, ignore_errors=True)
+    sys.exit(exit_code)

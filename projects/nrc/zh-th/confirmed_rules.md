@@ -31,7 +31,7 @@
 ## TB 更新 2026-06-30（Master TB 0630 导入，脚本 `mastertb_to_terms.py`）
 - 源文件 `../common/ROCO_MasterTB_0630.xlsx`（表头改中文双语列名，与 0629 版 Subject/ZH-CN/Domain/Note 不同；脚本按列名定位，不受影响）。旧库快照 `terms_th_pre0630.bak.json`
 - 162 条译法随新表更新，含修复 65 条历史遗留 `target="0"` 占位符。838 条主表待填充，3 条回填自旧库，其余尚无泰语译法（不入 TB）
-- **同名多义**：伊贝儿/里奥/裘卡/黄蜂后/呱呱/克制 在「物种 Species」与「个体/NPC」两分类下译法被 0630 故意拆开（0629 两分类译法一致，无冲突）。terms_th.json 现已支持一个 source 挂多个 `senses`（见 `docs/TERM_MULTISENSE_DESIGN.md`），两个语义都已收进 TB，不再只保留一个——评估时 AI 结合段落语境（个体/角色 vs 物种）判断该用哪个，都不匹配才报 Terminology
+- **同名多义**：伊贝儿/里奥/裘卡/黄蜂后/呱呱/克制 在「物种 Species」与「个体/NPC」两分类下译法被 0630 故意拆开（0629 两分类译法一致，无冲突）。terms_th.json 现已支持一个 source 挂多个 `senses`，两个语义都已收进 TB，不再只保留一个——评估时 AI 结合段落语境（个体/角色 vs 物种）判断该用哪个，都不匹配才报 Terminology
   - 全部多义分组清单见 `terms_th.multisense.json`（每次重新导入自动重新生成，供人工核对是否确实有意区分）
 
 ## TB 更新 2026-07-16（Master TB 0716 TH 导入）
