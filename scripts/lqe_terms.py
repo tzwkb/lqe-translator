@@ -49,6 +49,99 @@ class TermContractError(ValueError):
     pass
 
 
+def parse_terminology_comment(comment: object) -> dict | None:
+    """Recover canonical terminology fields from legacy display comments.
+
+    New issues carry structured fields. This parser exists only for old artifacts
+    and treats apostrophes inside targets as data, not closing delimiters.
+    """
+    if not isinstance(comment, str):
+        return None
+    marker = "' → expected "
+    marker_at = comment.find(marker)
+    if marker_at <= 0:
+        return None
+    source_at = comment.rfind("'", 0, marker_at)
+    if source_at < 0:
+        return None
+    source = comment[source_at + 1:marker_at]
+    if not source:
+        return None
+
+    candidates = comment[marker_at + len(marker):].strip()
+    protected_suffix = " [PROTECTED]"
+    if candidates.endswith(protected_suffix):
+        candidates = candidates[:-len(protected_suffix)]
+
+    targets = []
+    position = 0
+    while position < len(candidates):
+        if candidates[position] != "'":
+            return None
+        target_at = position + 1
+        quote_at = candidates.find("'", target_at)
+        closing_at = None
+        next_at = None
+        while quote_at >= 0:
+            suffix_at = quote_at + 1
+            if suffix_at < len(candidates) and candidates[suffix_at] == "(":
+                category_end = candidates.find(")", suffix_at + 1)
+                if category_end < 0:
+                    quote_at = candidates.find("'", quote_at + 1)
+                    continue
+                suffix_at = category_end + 1
+            if candidates.startswith("[TB:", suffix_at):
+                status_end = candidates.find("]", suffix_at + 4)
+                if status_end < 0:
+                    quote_at = candidates.find("'", quote_at + 1)
+                    continue
+                suffix_at = status_end + 1
+
+            if suffix_at == len(candidates):
+                closing_at = quote_at
+                next_at = len(candidates)
+                break
+            if candidates.startswith(" or '", suffix_at):
+                closing_at = quote_at
+                next_at = suffix_at + len(" or ")
+                break
+            if candidates.startswith((";", " but ", ", but "), suffix_at):
+                closing_at = quote_at
+                next_at = len(candidates)
+                break
+            quote_at = candidates.find("'", quote_at + 1)
+
+        if closing_at is None:
+            return None
+        target = candidates[target_at:closing_at]
+        if not target:
+            return None
+        targets.append(target)
+        position = next_at
+
+    if not targets:
+        return None
+    return {"term_source": source, "expected_targets": targets}
+
+
+def terminology_issue_fields(issue: object) -> dict | None:
+    if not isinstance(issue, dict):
+        return None
+    source = issue.get("term_source")
+    targets = issue.get("expected_targets")
+    if (
+        isinstance(source, str)
+        and source
+        and isinstance(targets, list)
+        and targets
+        and all(isinstance(target, str) and target for target in targets)
+    ):
+        return {"term_source": source, "expected_targets": list(targets)}
+    if issue.get("category") != "Terminology":
+        return None
+    return parse_terminology_comment(issue.get("comment"))
+
+
 def clean_term_text(value: object) -> str:
     if value is None:
         return ""

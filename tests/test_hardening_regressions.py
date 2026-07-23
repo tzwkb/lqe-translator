@@ -506,8 +506,8 @@ class ErrorLevelProtectionRegressionTests(unittest.TestCase):
                 for row in range(1, scorecard.max_row + 1)
                 if scorecard.cell(row=row, column=1).value == "TOTAL"
             )
-            self.assertEqual(scorecard.cell(total_row, 11).value, 0)
-            self.assertEqual(scorecard.cell(total_row, 12).value, 0)
+            self.assertEqual(scorecard.cell(total_row, 7).value, 0)
+            self.assertEqual(scorecard.cell(total_row, 8).value, 0)
 
             results = workbook["LQE Results"]
             headers = [cell.value for cell in results[1]]

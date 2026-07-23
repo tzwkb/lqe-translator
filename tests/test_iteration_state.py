@@ -312,7 +312,7 @@ class IterationStateTests(unittest.TestCase):
         try:
             sheet = workbook["LQE Results"]
             headers = [cell.value for cell in sheet[1]]
-            suggestion = headers.index("建议译文") + 1
+            suggestion = headers.index("AI/建议译文") + 1
             self.assertEqual(sheet.cell(row=2, column=suggestion).value, "Applied pass")
         finally:
             workbook.close()

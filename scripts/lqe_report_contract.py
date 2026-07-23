@@ -49,21 +49,6 @@ def _validate_current_results_shape(workbook, state: dict, results: list[dict]) 
     }
     if "LQA Scorecard" not in workbook.sheetnames:
         raise ValueError("current report is missing LQA Scorecard")
-    scorecard = workbook["LQA Scorecard"]
-    detail_headers = next(
-        (
-            [cell.value for cell in scorecard[row]]
-            for row in range(1, scorecard.max_row + 1)
-            if scorecard.cell(row, 1).value == "File name"
-        ),
-        None,
-    )
-    if detail_headers is None or not {
-        "AI 复核状态",
-        "AI 编辑状态",
-        "检查来源",
-    }.issubset(set(detail_headers)):
-        raise ValueError("LQA Scorecard is missing provenance columns")
     try:
         detail_column = headers.index("错误详情") + 1
     except ValueError as exc:

@@ -8,7 +8,7 @@ English | [中文](README_ZH.md)
 
 Agent skill for game-localization LQE: deterministic pre-checks, focused AI check modules, validated local edits, scoring, and Excel deliverables.
 
-> Project managers can use the standalone [PM guide](PM_GUIDE.html). Development records are retained in `docs/`.
+> The PM guide is maintained outside the runtime Skill in the Langlobal development docs.
 
 ## What the workflow guarantees
 
@@ -27,18 +27,22 @@ lqe-translator/
 ├── scripts/
 │   ├── lqe_io.py           # Read, pre-check, protect, report, and export
 │   ├── lqe_chunk.py        # Split, validate, merge, and reconcile module results
+│   ├── lqe_review.py       # Build compact review packets and publish sparse drafts
+│   ├── lqe_suggestions.py  # Publish report-only full-sentence references
 │   ├── lqe_corrections.py  # Validate local edits and build full-text results
 │   ├── lqe_calc.py         # Calculate the LQE score
 │   └── finalize_job.sh     # Validate through export in one command
-├── references/check_modules/
-│   ├── common.md
-│   ├── terminology.md
-│   ├── precheck_review.md
-│   ├── accuracy.md
-│   ├── grammar.md
-│   ├── naturalness.md
-│   ├── proper_names.md
-│   └── term_audit.md
+├── references/
+│   ├── suggestions.md
+│   └── check_modules/
+│       ├── common.md
+│       ├── terminology.md
+│       ├── precheck_review.md
+│       ├── accuracy.md
+│       ├── grammar.md
+│       ├── naturalness.md
+│       ├── proper_names.md
+│       └── term_audit.md
 ├── target_languages/<code>/
 │   ├── attributes.json
 │   └── eval_notes.md
@@ -57,6 +61,8 @@ lqe-translator/
     ├── errors_precheck.json
     ├── errors.json
     ├── chunks/
+    ├── review_packets/
+    ├── reference_suggestions.json
     ├── <job>_lqe.xlsx
     └── <job>_corrected.<csv|tsv|xlsx>
 ```
@@ -203,9 +209,14 @@ python3 "$SCRIPTS/lqe_chunk.py" split \
   --errors "$JOB/errors_precheck.json" \
   --outdir "$JOB/chunks" \
   --size 100
+
+python3 "$SCRIPTS/lqe_review.py" prepare --job "$JOB"
+python3 "$SCRIPTS/lqe_review.py" auto-publish --job "$JOB"
 ```
 
 `split` reads terminology through the state in standard mode. `--terms <file>` is an optional standard-mode override and is rejected in no-terminology mode. Split inputs are fingerprinted; when the state, current target, scope, pre-check, terms, or split settings change, stale chunk artifacts are archived and old module outputs cannot be reused.
+
+`prepare` creates generation-bound, module-specific `review_packets`, `batch_plan.json`, and `cost_report.json`. Non-terminology modules no longer receive terminology or pre-check fields they do not use. Protected segments and inapplicable `precheck_review` rows are deterministically filled with empty results. `auto-publish` handles only packets that require no AI review.
 
 For every `chunk_NN.json`, produce the files selected by `state.check_scope`:
 
@@ -223,38 +234,46 @@ chunk_NN.grammar.json
 chunk_NN.naturalness.json
 ```
 
-Each module reads `references/check_modules/common.md`, its own specification, and the job context. It must cover every assigned id, including rows with no findings.
+Assign bounded workers from `batch_plan.json`. One worker handles at most four packets and no more than 25,000 source-plus-target characters or 100,000 packet bytes; an oversized packet runs alone. Every new batch starts a new worker and reloads the module specification and job context.
 
-The model writes the JSON array to a draft file. Publish it with `lqe_chunk.py publish-module`, passing the `split_fingerprint` and `payload_digest` from the chunk it reviewed. The publisher validates coverage and ownership under the generation lock and creates the formal bound envelope. Current jobs reject naked arrays at formal module paths and reject stale fingerprints.
+The model writes a compact draft: `reviewed_ids` exactly copies the packet, while `findings` contains only ids with issues. Publish it with `lqe_review.py publish --job "$JOB" --chunk <NN> --module <module> --input <draft.json>`. The publisher restores formal full-id coverage and validates ownership, pre-check references, and generation binding under the existing contract.
 
 `precheck_review` confirms or removes non-terminology pre-check findings in the Markup, Length, Locale convention, Company style, Inconsistency, and Other categories. It must not create Terminology issues, `TERM REVIEW:` evidence, or `confirmed_term` edits.
 
-The only model-facing contract is:
+The compact draft contract is:
 
 ```json
-[
-  {
-    "id": 0,
-    "issues": [
-      {
-        "category": "Grammar",
-        "severity": "Minor",
-        "comment": "The verb form does not agree with the subject.",
-        "needs_confirmation": false,
-        "edit": {
-          "from": "are",
-          "to": "is",
-          "start": 4,
-          "end": 7,
-          "evidence": null
+{
+  "schema": "lqe.compact-module-draft",
+  "version": 1,
+  "module": "grammar",
+  "chunk_id": 0,
+  "packet_digest": "<packet.packet_digest>",
+  "reviewed_ids": [0, 1, 2],
+  "findings": [
+    {
+      "id": 1,
+      "issues": [
+        {
+          "category": "Grammar",
+          "severity": "Minor",
+          "comment": "The verb form does not agree with the subject.",
+          "needs_confirmation": false,
+          "edit": {
+            "from": "are",
+            "to": "is",
+            "evidence": null
+          }
         }
-      }
-    ]
-  }
-]
+      ]
+    }
+  ]
+}
 ```
 
 Use `needs_confirmation: true` and `edit: null` for a new name, missing terminology, multiple reasonable options, or a rewrite. A terminology or proper-name edit also requires one unique `confirmed: true` candidate and `confirmed_term` evidence.
+
+Machine-generated Terminology issues also carry read-only `term_source` and `expected_targets`; models do not need to emit or rewrite them, and the publisher preserves them through `precheck_ref`.
 
 ### 5. Validate, merge, score, and export
 
@@ -304,13 +323,17 @@ Every input produces `<job>_lqe.xlsx` with the score, issues, suggested text, re
 - XLSX input produces `<job>_corrected.xlsx` and preserves the workbook, worksheets, blank rows, column order, and formatting.
 - SDLXLIFF produces a new fixed five-column `<job>_corrected.xlsx`.
 
-LQE reports use rich text for translation diffs: removed or replaced text in the original translation uses red strikethrough, and inserted or replaced text in the suggested translation uses red font. `LQE Results` emits one row per issue, keeps issues from the same `LQE Segment ID` contiguous, and retains one row for a segment with no issue. The audit columns distinguish direct AI review, deduplicated reuse, retained machine pre-checks, and legacy unknowns. “Suggestion generated and verified” means the AI edit passed script validation and appears in the suggested translation; it does not mean the edit was written back to state. “AI module record” is locally content-bound workflow evidence, not an external host/orchestrator identity signature. Scorecard history carries the same provenance. Corrected files do not receive diff styling.
+Reports have three visible worksheets: `说明·导读`, `LQA Scorecard`, and `LQE Results`; `_LQE_CONTRACT` remains very hidden. The guide is first and is the default opening sheet, with a three-step reading flow, Scorecard guidance, definitions for all ten review columns, status and decision guidance, and a delivery checklist. The Scorecard shows the verdict, score, compact category summary, and all per-issue review rows without hidden rows or columns.
 
-User-facing reports label rows as suggested change, needs human confirmation, keep original, or protected. The word `corrected` is reserved for internal data and the standard output filename.
+The Scorecard issue area and `LQE Results` share ten review columns: `Segment ID`, `原文`, `原译`, `AI/建议译文`, `建议状态`, `错误类别`, `严重度`, `问题说明`, `审校结论`, and `审校终稿或备注`. The Scorecard combines parent and sub-category and omits file name, iteration, processing, and AI provenance columns; those audit fields remain in the hidden Results area. The Results reviewer view uses one visible row per segment; extra per-issue audit rows and clean segments are hidden. Status values are `可直接采用`, `建议待确认`, `部分修正，仍需确认`, `未生成建议，需人工处理`, and `已保护`.
+
+Terminology detail exports must read `term_source` and `expected_targets` from each issue, or the hidden `术语原文（结构化）` and `术语库译文（结构化）` Results columns. Do not reverse-parse terms from `comment` with quote-delimited regexes: apostrophes and punctuation are data. Legacy artifacts can be read with `lqe_terms.terminology_issue_fields()`.
+
+Rich-text diffs use red strikethrough for removed/replaced original text and red font for inserted/replaced suggested text. Safe local edits can enter the corrected workflow. Full-sentence entries in the separate `reference_suggestions.json` artifact are report-only and always marked `建议待确认`. Corrected files do not receive diff styling.
 
 In verified internal results, `corrected: ""` is a valid deletion of the whole target; only `corrected: null` means no suggested change. Write, apply, export, and aggregation preserve that distinction.
 
-For SDLXLIFF, `LQE Results` uses these 16 columns: `来源文件`, `TU ID`, `SDL Segment ID`, `原文`, `原译`, `建议译文`, `处理方式`, `LQE Segment ID`, `LQE 错误序号`, `LQE AI 复核状态`, `LQE AI 编辑状态`, `LQE 检查来源`, `错误详情`, `Protected`, `Protection Evidence`, `LQE_Iter`. Tabular and SDLXLIFF reports always place `LQE_Iter` last. `source_manifest.json` stores input SHA-256 hashes, declared languages, extension namespaces, rule matches, exclusions, and locked/TM evidence. The new corrected workbook uses five columns: `来源文件`, `TU ID`, `SDL Segment ID`, `原文`, `译文`.
+Tabular and SDLXLIFF reports use the same ten-column reviewer view. Source file, TU ID, SDL Segment ID, processing, per-issue provenance, protection evidence, and `LQE_Iter` remain in the hidden audit area; `LQE_Iter` is always last. `source_manifest.json` stores input SHA-256 hashes, declared languages, extension namespaces, rule matches, exclusions, and locked/TM evidence. The new corrected workbook uses five columns: `来源文件`, `TU ID`, `SDL Segment ID`, `原文`, `译文`.
 
 The first release does not write back to SDLXLIFF XML. `export` creates `<job>_corrected.xlsx` and leaves every source XML file unchanged.
 

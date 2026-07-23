@@ -1341,6 +1341,8 @@ def _issue_key(issue):
         issue.get("category"),
         issue.get("severity"),
         issue.get("comment"),
+        issue.get("term_source"),
+        json.dumps(issue.get("expected_targets"), ensure_ascii=False),
         json.dumps(issue.get("edit"), ensure_ascii=False, sort_keys=True),
     )
 
@@ -1365,6 +1367,10 @@ def _mark_ai_reviewed(
     finding_origin = (
         "machine_precheck" if original is not None else "ai_module"
     )
+    if original is not None:
+        for field in ("term_source", "expected_targets"):
+            if field in original:
+                reviewed[field] = copy.deepcopy(original[field])
     edit = issue.get("edit")
     if edit is None:
         edit_origin = None

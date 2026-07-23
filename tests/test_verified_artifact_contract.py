@@ -198,9 +198,9 @@ class VerifiedArtifactContractTests(unittest.TestCase):
                 for row in range(1, sheet.max_row + 1)
                 if sheet.cell(row=row, column=1).value == "TOTAL"
             )
-            self.assertEqual(sheet.cell(total_row, 4).value, 0)
-            self.assertEqual(sheet.cell(total_row, 11).value, 0)
-            self.assertEqual(sheet.cell(total_row, 12).value, 0)
+            self.assertEqual(sheet.cell(total_row, 4).value, "0 / 0")
+            self.assertEqual(sheet.cell(total_row, 7).value, 0)
+            self.assertEqual(sheet.cell(total_row, 8).value, 0)
         finally:
             workbook.close()
 

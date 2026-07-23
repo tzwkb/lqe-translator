@@ -358,7 +358,7 @@ class ScoringPolicyTests(unittest.TestCase):
                 for row in range(1, scorecard.max_row + 1)
                 if scorecard.cell(row=row, column=1).value == "TOTAL"
             )
-            self.assertEqual(scorecard.cell(row=total_row, column=11).value, 25)
+            self.assertEqual(scorecard.cell(row=total_row, column=7).value, 25)
         finally:
             workbook.close()
 

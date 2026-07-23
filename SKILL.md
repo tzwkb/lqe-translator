@@ -236,7 +236,7 @@ python "$SCRIPTS/lqe_io.py" pre-check \
 
 ## 6. 检查模块
 
-大文件按模块并行检查；小文件也使用同一协议。模块说明位于：
+大文件和小文件都按模块并行检查，并按 `review_packets/batch_plan.json` 分配有界 worker。每个 worker 最多处理 4 个 packet，同时不得超过 25,000 原译字符或 100,000 packet 字节；单个超限 packet 独占一个 worker。模块说明位于：
 
 流程要求 subagent 并行检查时，如果因并发上限、权限、工具不可用或运行环境限制而无法启用，**必须主动询问用户**如何处理；**不得静默回退**为主 Agent 单跑、跳过模块、缩小覆盖范围或降低检查标准。用户明确同意替代方案后才能继续。
 
@@ -249,11 +249,12 @@ references/check_modules/grammar.md
 references/check_modules/naturalness.md
 references/check_modules/proper_names.md
 references/check_modules/term_audit.md
+references/suggestions.md
 ```
 
-每个子任务读取 `common.md`、自己的模块文件、项目上下文和 chunk。模型只提交检查结果，不生成整段最终译文。
+每个 worker 只处理 batch plan 中的一个批次，并在批次开始时读取 `common.md`、自己的模块文件和项目上下文。新批次必须新建 worker 并重新读取上下文；发生上下文压缩、异常重复判断或连续格式错误时也立即重开。模型只提交检查结果，不生成整段最终译文。
 
-唯一输出协议：
+正式问题接口：
 
 ```json
 [
@@ -278,9 +279,9 @@ references/check_modules/term_audit.md
 ]
 ```
 
-固定接口为 `{id, issues:[{category,severity,comment,needs_confirmation,edit}]}`。检查模块不得输出 corrected；`lqe_corrections.py` 验证局部修改后生成该内部字段。
+固定接口为 `{id, issues:[{category,severity,comment,needs_confirmation,edit}]}`（模型输出）。机器预检生成的 Terminology issue 另带只读的 `term_source` 和 `expected_targets`；模型无需输出或改写，publisher 会按 `precheck_ref` 保留。默认模型草稿使用第 7 节的紧凑包装，只列确有问题的接口项；publisher 补齐无问题 id。检查模块不得输出 corrected；`lqe_corrections.py` 验证局部修改后生成该内部字段。
 
-- 所有必需模块覆盖全部 id；无问题写 `issues: []`。
+- 所有必需模块的正式产物覆盖全部 id；无问题项由 publisher 写成 `issues: []`。
 - `comment` 统一用英文。
 - 安全、唯一、局部的改法写 `needs_confirmation: false` 和 `edit`。
 - 新译名、术语表错误或缺词、多个合理方案、整句重写写 `needs_confirmation: true` 和 `edit: null`。
@@ -310,6 +311,15 @@ python "$SCRIPTS/lqe_chunk.py" split \
 
 `split` 会从 state 读取当前模式允许的术语，按相同源文和译文去重、过滤被更长术语覆盖的命中、保留术语候选标记，并为每段写 `kind`。标准模式可用 `--terms <file>` 显式覆盖术语源；无术语模式禁止该参数。密集内容可加 `--char-budget N`。
 
+默认紧接着生成低成本模块输入，并自动发布无需 AI 的确定性空结果：
+
+```bash
+python "$SCRIPTS/lqe_review.py" prepare --job "$JOB"
+python "$SCRIPTS/lqe_review.py" auto-publish --job "$JOB"
+```
+
+`prepare` 在 `review_packets/<module>/` 生成与当前 split generation 绑定的模块专用 packet，并写出 `batch_plan.json` 和 `cost_report.json`。非术语模块不携带术语和预检冗余；受保护段不进入任何 packet；`precheck_review` 只携带其负责类别的已有预检。正式 chunk 保持不变。packet 的 `requires_ai: false` 只能来自这些确定性空结果，`auto-publish` 不处理仍需判断的 packet。
+
 必需输出由 `state.check_scope` 决定：
 
 ```text
@@ -326,16 +336,46 @@ chunk_NN.grammar.json
 chunk_NN.naturalness.json
 ```
 
-模型先把唯一输出协议写成 JSON 数组草稿，再用当前 `chunk_NN.json` 的 `split_fingerprint` 与 `payload_digest` 发布正式文件：
+按 `batch_plan.json` 的模块与批次启动 worker；同一 worker 不得跨批次。每个 worker 处理本批次全部 `requires_ai: true` 的 packet。草稿中的 `reviewed_ids` 必须完整复制 packet 的同名数组；`findings` 只写有问题的 id：
 
-```bash
-python "$SCRIPTS/lqe_chunk.py" publish-module \
-  --job "$JOB" --chunk <NN> --module <module> --input <草稿.json> \
-  --split-fingerprint <chunk.split_fingerprint> \
-  --chunk-payload-digest <chunk.payload_digest>
+```json
+{
+  "schema": "lqe.compact-module-draft",
+  "version": 1,
+  "module": "grammar",
+  "chunk_id": 0,
+  "packet_digest": "<packet.packet_digest>",
+  "reviewed_ids": [0, 1, 2],
+  "findings": [
+    {
+      "id": 1,
+      "issues": [
+        {
+          "category": "Spelling",
+          "severity": "Minor",
+          "comment": "The word is misspelled.",
+          "needs_confirmation": false,
+          "edit": {
+            "from": "eror",
+            "to": "error",
+            "evidence": null
+          }
+        }
+      ]
+    }
+  ]
+}
 ```
 
-当前 schema 拒绝正式路径中的裸数组和旧 generation 指纹。术语表自检可再发布 `proper_names`。段数超过 30 时按 `common.md` 用 `ckpt-append`、`ckpt-finalize` 先生成草稿。
+用紧凑 publisher 补齐空项并发布正式文件：
+
+```bash
+python "$SCRIPTS/lqe_review.py" publish \
+  --job "$JOB" --chunk <NN> --module <module> \
+  --input <紧凑草稿.json>
+```
+
+publisher 会从当前正式 chunk 重新派生 packet，拒绝错误 `packet_digest`、缺失审阅 id、空 finding、越权类别、错误预检引用和旧 generation。原 `lqe_chunk.py publish-module` 完整数组入口只保留给历史任务和可选 `proper_names`。packet 超过 30 段时按 `common.md` 每最多 20 个 id 原子更新紧凑草稿。
 
 结构检查与合并：
 
@@ -354,13 +394,25 @@ python "$SCRIPTS/lqe_chunk.py" merge \
 
 `merge` 原子发布 `errors.json` 与 `errors.contract.json`，绑定当前 split generation。calc、write、apply、export 和聚合持有 generation lease，并拒绝缺 generation、契约缺失/篡改或旧证据。当前任务不得使用 `build-results` 或旧 `lqe_batch merge` 绕过模块发布流程。
 
+需要为审校提供整句参考译文时，在 merge 和 calc 后运行独立建议流程：
+
+```bash
+python "$SCRIPTS/lqe_suggestions.py" prepare --job "$JOB" \
+  [--categories "Company style,Unidiomatic"] [--only-missing]
+# suggestion worker 按 references/suggestions.md 生成紧凑草稿
+python "$SCRIPTS/lqe_suggestions.py" publish \
+  --job "$JOB" --input <参考建议草稿.json>
+```
+
+参考建议允许整句改写。`--categories` 可建立类别限定的有界审阅包，`--only-missing` 只纳入尚无安全局部建议的段；草稿可只提交有可靠方案的 id。publisher 仍强制保留变量、标签、换行和 `protected_texts`，并拒绝受保护段。正式产物 `reference_suggestions.json` 只供报告展示，不写入 `corrected`，不进入 apply、export 或 corrected 文件。未提交建议的有问题段在报告中标为“未生成建议，需人工处理”。
+
 一键收尾：
 
 ```bash
 bash "$SCRIPTS/finalize_job.sh" "$JOB" <nchunks> [single|iterate]
 ```
 
-`single` 只生成本轮报告和建议译文；`iterate` 在未达标时仅应用脚本重新验证通过的局部 edit。用户未明确选择时使用 `single`。状态机：PASS 才创建 `.finalized`；FAIL+single 不改当前译文且不完成；FAIL+iterate 只有至少应用一处安全局部修改时，才更新 `current_target`、`iteration + 1`、设置 `pending_recheck=true` 并返回 `PENDING-RECHECK`。如果没有可应用修改，则写出本轮报告，并通过 `export --errors` 写出已验证的错误覆盖，返回 `REVIEW-REQUIRED`，清除 `.iteration_pending`，不推进 iteration。下一轮必须重新预检、分块和检查；state/译文/scope/预检/术语指纹变化时旧 chunks 会归档，旧模块输出不可复用。
+`single` 只生成本轮报告和已验证局部建议；已有 `reference_suggestions.json` 时同时显示报告专用参考译文。`iterate` 在未达标时仅应用脚本重新验证通过的局部 edit。用户未明确选择时使用 `single`。状态机：PASS 才创建 `.finalized`；FAIL+single 不改当前译文且不完成；FAIL+iterate 只有至少应用一处安全局部修改时，才更新 `current_target`、`iteration + 1`、设置 `pending_recheck=true` 并返回 `PENDING-RECHECK`。如果没有可应用修改，则写出本轮报告，并通过 `export --errors` 写出已验证的错误覆盖，返回 `REVIEW-REQUIRED`，清除 `.iteration_pending`，不推进 iteration。下一轮必须重新预检、分块和检查；state/译文/scope/预检/术语指纹变化时旧 chunks 会归档，旧模块输出不可复用。
 
 ## 8. 评分
 
@@ -408,13 +460,19 @@ python "$SCRIPTS/lqe_io.py" export \
   --errors "$JOB/errors.json"
 ```
 
-`write --score` 是一致性输入；脚本按 state policy 和 errors 重新计算，分数不一致时告警并采用重算值。报告面向用户显示“建议修改、需要人工确认、保持原译、已保护”。`*_corrected.<ext>` 是标准交付文件名；其中 corrected 仅是内部机器字段和标准文件名的一部分。
+`write --score` 是一致性输入；脚本按 state policy 和 errors 重新计算，分数不一致时告警并采用重算值。报告中的建议状态固定为“可直接采用”“建议待确认”“部分修正，仍需确认”“未生成建议，需人工处理”“已保护”。`*_corrected.<ext>` 是标准交付文件名；其中 corrected 仅是内部机器字段和标准文件名的一部分。
 
 内部结果中的 `corrected: ""` 是合法的整段删除；只有 `corrected: null` 表示没有建议修改。write、apply、export 和聚合不得把空字符串当成字段缺失。
 
-LQE 报告使用富文本显示修改差异：原译中删除或替换的内容显示为红色删除线，建议译文中新增或替换的内容显示为红色字体。`LQE Results` 每个错误一行，同一 `LQE Segment ID` 连续；无错误段保留一行。`LQE AI 复核状态`、`LQE AI 编辑状态`、`LQE 检查来源` 区分直接复核、重复段复用、机器预检保留和旧流程未知；“已生成并验证建议”表示 AI edit 通过脚本验证并纳入建议译文，不表示已写回 state。Scorecard 历史明细同步保留这些状态。正式 module entries 同时受内容摘要和独立本地发布收据绑定；“AI 模块记录”是本地流程证据，不是 host/orchestrator 的外部身份签名。corrected 文件不添加差异样式。
+LQE 报告保留三张可见工作表：`说明·导读`、`LQA Scorecard` 和 `LQE Results`；绑定 state/errors 和可见内容摘要的 `_LQE_CONTRACT` 必须保持 veryHidden。`说明·导读` 固定排在第一张并作为默认打开页，包含三步阅读路径、Scorecard 读法、10 列释义、建议状态、审校结论和交付提示。Scorecard 完整显示判定、分数、类别汇总和逐错误审校行，不隐藏行列；类别汇总将每个严重度的总数与重复数合并显示。
 
-SDLXLIFF 的 `LQE Results` 固定为 16 列：来源文件、TU ID、SDL Segment ID、原文、原译、建议译文、处理方式、LQE Segment ID、LQE 错误序号、LQE AI 复核状态、LQE AI 编辑状态、LQE 检查来源、错误详情、Protected、Protection Evidence、LQE_Iter。表格与 SDLXLIFF 报告都把 `LQE_Iter` 固定在最后一列。其余 SDL 私有字段、文件 SHA-256、语言、扩展 namespace、规则命中、排除和保护证据写入 `source_manifest.json`。SDL corrected Excel 固定为 5 列：来源文件、TU ID、SDL Segment ID、原文、译文。
+`LQA Scorecard` 的逐错误区域和 `LQE Results` 的一段一行审校区域共用 10 列：Segment ID、原文、原译、AI/建议译文、建议状态、错误类别、严重度、问题说明、审校结论、审校终稿或备注。Scorecard 合并父类别和子类别，不再显示文件名、迭代、处理方式和 AI provenance 等技术列；这些审计字段保留在 `LQE Results` 隐藏区。`LQE Results` 的多错误段在可见首行汇总；额外逐错误审计行、无问题段和原始来源字段保留但隐藏。`审校结论` 使用“接受、修改后接受、拒绝、待确认”下拉值。
+
+术语不一致明细必须读取 issue 的 `term_source` 和 `expected_targets`，或读取 `LQE Results` 隐藏区的“术语原文（结构化）”“术语库译文（结构化）”。禁止从 `comment` / “问题说明”用单引号正则反解析术语；所有格撇号和术语内标点属于字段内容。旧产物只能通过 `lqe_terms.terminology_issue_fields()` 兼容读取。
+
+报告使用富文本显示修改差异：原译中删除或替换的内容显示为红色删除线，AI/建议译文中新增或替换的内容显示为红色字体。安全局部 edit 生成的建议可进入 corrected 流程；`reference_suggestions.json` 的整句参考译文始终标为“建议待确认”，只用于审校。`LQE AI 复核状态`、`LQE AI 编辑状态`、`LQE 检查来源` 等逐错误 provenance 列保留在隐藏审计区。正式 module entries 同时受内容摘要和独立本地发布收据绑定；“AI 模块记录”是本地流程证据，不是 host/orchestrator 的外部身份签名。corrected 文件不添加差异样式。
+
+表格与 SDLXLIFF 报告都采用同一 10 列审校视图，并把来源文件、TU ID、SDL Segment ID、处理方式、逐错误 provenance、保护证据和 `LQE_Iter` 保留在隐藏审计区；`LQE_Iter` 固定为最后一列。其余 SDL 私有字段、文件 SHA-256、语言、扩展 namespace、规则命中、排除和保护证据写入 `source_manifest.json`。SDL corrected Excel 固定为 5 列：来源文件、TU ID、SDL Segment ID、原文、译文。
 
 第一版不回写 SDLXLIFF XML；`export` 只生成 `<任务名>_corrected.xlsx`，原始 XML 保持不变。
 
@@ -450,6 +508,9 @@ jobs/<文件名>/
 ├── errors_precheck.json
 ├── errors.json
 ├── chunks/
+├── review_packets/
+├── reference_suggestions.packet.json
+├── reference_suggestions.json
 ├── <任务名>_lqe.xlsx
 └── <任务名>_corrected.<ext>   # SDLXLIFF job 固定为 .xlsx
 ```

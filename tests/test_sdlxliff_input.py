@@ -2344,39 +2344,57 @@ class SDLXLIFFOutputTests(unittest.TestCase):
         workbook = openpyxl.load_workbook(report, data_only=True)
         try:
             sheet = workbook["LQE Results"]
+            headers = [cell.value for cell in sheet[1]]
             self.assertEqual(
-                [cell.value for cell in sheet[1]],
+                headers[:10],
                 [
-                    "来源文件",
-                    "TU ID",
-                    "SDL Segment ID",
+                    "Segment ID",
                     "原文",
                     "原译",
-                    "建议译文",
-                    "处理方式",
-                    "LQE Segment ID",
-                    "LQE 错误序号",
-                    "LQE AI 复核状态",
-                    "LQE AI 编辑状态",
-                    "LQE 检查来源",
-                    "错误详情",
-                    "Protected",
-                    "Protection Evidence",
-                    "LQE_Iter",
+                    "AI/建议译文",
+                    "建议状态",
+                    "错误类别",
+                    "严重度",
+                    "问题说明",
+                    "审校结论",
+                    "审校终稿或备注",
                 ],
             )
             rows = list(sheet.iter_rows(min_row=2, values_only=True))
-            self.assertEqual([row[0] for row in rows], ["dialogs.xml", "dialogs.xml", "ui.xml"])
-            self.assertEqual(rows[1][13], "Yes")
-            self.assertIn("SOURCE_LOCKED", rows[1][14])
-            self.assertIn('"locked"', rows[1][14])
-            scorecard_values = [
-                cell.value for row in workbook["LQA Scorecard"] for cell in row
-            ]
-            self.assertIn("dialogs.xml", scorecard_values)
-            self.assertIn("ui.xml", scorecard_values)
-            self.assertIn("Protected", scorecard_values)
-            self.assertIn("Protection Evidence", scorecard_values)
+            filename = headers.index("来源文件")
+            protected = headers.index("Protected")
+            protection_evidence = headers.index("Protection Evidence")
+            self.assertEqual(
+                [row[filename] for row in rows],
+                ["dialogs.xml", "dialogs.xml", "ui.xml"],
+            )
+            self.assertEqual(rows[1][protected], "Yes")
+            self.assertIn("SOURCE_LOCKED", rows[1][protection_evidence])
+            self.assertIn('"locked"', rows[1][protection_evidence])
+            self.assertTrue(
+                all(
+                    sheet.column_dimensions[
+                        openpyxl.utils.get_column_letter(column)
+                    ].hidden
+                    for column in range(11, sheet.max_column + 1)
+                )
+            )
+            scorecard = workbook["LQA Scorecard"]
+            scorecard_header = next(
+                row
+                for row in range(1, scorecard.max_row + 1)
+                if scorecard.cell(row, 1).value == "Segment ID"
+            )
+            self.assertEqual(
+                [cell.value for cell in scorecard[scorecard_header]],
+                headers[:10],
+            )
+            self.assertTrue(
+                all(
+                    not scorecard.row_dimensions[row].hidden
+                    for row in range(1, scorecard.max_row + 1)
+                )
+            )
         finally:
             workbook.close()
 

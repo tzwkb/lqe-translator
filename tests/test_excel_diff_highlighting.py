@@ -415,25 +415,25 @@ class RichDiffReportTests(unittest.TestCase):
             scorecard = workbook["LQA Scorecard"]
             score_header_row = next(
                 row for row in range(1, scorecard.max_row + 1)
-                if scorecard.cell(row=row, column=1).value == "File name"
+                if scorecard.cell(row=row, column=1).value == "Segment ID"
             )
             score_rows = {
-                scorecard.cell(row=row, column=2).value: row
+                scorecard.cell(row=row, column=1).value: row
                 for row in range(score_header_row + 1, scorecard.max_row + 1)
-                if scorecard.cell(row=row, column=2).value in {0, 1}
+                if scorecard.cell(row=row, column=1).value in {0, 1}
             }
 
             results = workbook["LQE Results"]
             result_headers = [cell.value for cell in results[1]]
             result_original_col = result_headers.index("原译") + 1
-            result_suggested_col = result_headers.index("建议译文") + 1
+            result_suggested_col = result_headers.index("AI/建议译文") + 1
             result_rows = {
                 str(results.cell(row=row, column=result_original_col).value): row
                 for row in range(2, results.max_row + 1)
             }
 
             sheet_rows = (
-                ("LQA Scorecard", scorecard, score_rows[0], score_rows[1], 4, 5),
+                ("LQA Scorecard", scorecard, score_rows[0], score_rows[1], 3, 4),
                 (
                     "LQE Results",
                     results,
@@ -510,13 +510,18 @@ class RichDiffReportTests(unittest.TestCase):
 
         workbook = openpyxl.load_workbook(output, rich_text=True)
         try:
-            for sheet_name in ("LQA Scorecard", "LQE Results"):
-                sheet = workbook[sheet_name]
-                self.assertTrue(sheet.merged_cells.ranges, sheet_name)
-                self.assertLessEqual(
-                    max(row.height or 0 for row in sheet.row_dimensions.values()),
-                    409,
-                )
+            scorecard = workbook["LQA Scorecard"]
+            results = workbook["LQE Results"]
+            self.assertTrue(scorecard.merged_cells.ranges)
+            self.assertFalse(results.merged_cells.ranges)
+            self.assertLessEqual(
+                max(row.height or 0 for row in scorecard.row_dimensions.values()),
+                409,
+            )
+            self.assertLessEqual(
+                max(row.height or 0 for row in results.row_dimensions.values()),
+                120,
+            )
         finally:
             workbook.close()
 
@@ -555,7 +560,7 @@ class RichDiffReportTests(unittest.TestCase):
                 ]
                 self.assertTrue(matched, sheet_name)
                 row = matched[0].row
-                self.assertEqual(sheet.row_dimensions[row].height, 407)
+                self.assertEqual(sheet.row_dimensions[row].height, 120)
                 self.assertEqual(matched[0].font.sz, 9)
         finally:
             workbook.close()
@@ -636,23 +641,28 @@ class RichDiffReportTests(unittest.TestCase):
             segment_column = headers.index("LQE Segment ID") + 1
             issue_column = headers.index("LQE 错误序号") + 1
             detail_column = headers.index("错误详情") + 1
-            self.assertEqual(results.max_row, 32)
+            audit_rows = [
+                row
+                for row in range(2, results.max_row + 1)
+                if results.cell(row, segment_column).value is not None
+            ]
+            self.assertEqual(len(audit_rows), 31)
             self.assertEqual(
-                [results.cell(row, segment_column).value for row in range(2, 33)],
+                [results.cell(row, segment_column).value for row in audit_rows],
                 [0] * 31,
             )
             self.assertEqual(
-                [results.cell(row, issue_column).value for row in range(2, 33)],
+                [results.cell(row, issue_column).value for row in audit_rows],
                 list(range(1, 32)),
             )
             self.assertEqual(
-                results.cell(32, detail_column).value,
+                results.cell(audit_rows[-1], detail_column).value,
                 "[Grammar · Minor] Issue 30",
             )
             self.assertTrue(
                 all(
                     (results.row_dimensions[row].height or 0) <= 409
-                    for row in range(2, 33)
+                    for row in range(2, results.max_row + 1)
                 )
             )
         finally:
@@ -725,7 +735,7 @@ class RichDiffReportTests(unittest.TestCase):
         with patch.object(lqe_io, "_validate_scope_or_exit"):
             with patch.object(
                 lqe_io,
-                "_fit_or_span_wrapped_row",
+                "_set_row_font_size",
                 side_effect=ValueError("injected layout failure"),
             ):
                 with self.assertRaisesRegex(
@@ -928,17 +938,17 @@ class RichDiffReportTests(unittest.TestCase):
             scorecard = workbook["LQA Scorecard"]
             header_row = next(
                 row for row in range(1, scorecard.max_row + 1)
-                if scorecard.cell(row=row, column=1).value == "File name"
+                if scorecard.cell(row=row, column=1).value == "Segment ID"
             )
-            score_original = scorecard.cell(header_row + 1, 4).value
-            score_suggested = scorecard.cell(header_row + 1, 5).value
+            score_original = scorecard.cell(header_row + 1, 3).value
+            score_suggested = scorecard.cell(header_row + 1, 4).value
             self.assertEqual([block.text for block in changed_blocks(score_original)], ["old"])
             self.assertEqual([block.text for block in changed_blocks(score_suggested)], ["new"])
 
             results = workbook["LQE Results"]
             headers = [cell.value for cell in results[1]]
             original_col = headers.index("原译") + 1
-            suggested_col = headers.index("建议译文") + 1
+            suggested_col = headers.index("AI/建议译文") + 1
             result_original = results.cell(2, original_col).value
             result_suggested = results.cell(2, suggested_col).value
             self.assertEqual([block.text for block in changed_blocks(result_original)], ["old"])
@@ -959,7 +969,7 @@ class RichDiffReportTests(unittest.TestCase):
             results = workbook["LQE Results"]
             headers = [cell.value for cell in results[1]]
             self.assertEqual(results.cell(2, headers.index("原译") + 1).value, "Save old file")
-            self.assertEqual(results.cell(2, headers.index("建议译文") + 1).value, "Save new file")
+            self.assertEqual(results.cell(2, headers.index("AI/建议译文") + 1).value, "Save new file")
         finally:
             workbook.close()
 
@@ -986,7 +996,21 @@ class RichDiffReportTests(unittest.TestCase):
         try:
             results = workbook["LQE Results"]
             headers = [cell.value for cell in results[1]]
-            self.assertEqual(headers[:4], ["来源相对路径", "原文", "原译", "建议译文"])
+            self.assertEqual(
+                headers[:10],
+                [
+                    "Segment ID",
+                    "原文",
+                    "原译",
+                    "AI/建议译文",
+                    "建议状态",
+                    "错误类别",
+                    "严重度",
+                    "问题说明",
+                    "审校结论",
+                    "审校终稿或备注",
+                ],
+            )
             self.assertEqual(results.cell(2, 2).value, "Source text")
             original = results.cell(2, 3).value
             suggested = results.cell(2, 4).value
@@ -1027,10 +1051,10 @@ class RichDiffReportTests(unittest.TestCase):
             scorecard = workbook["LQA Scorecard"]
             header_row = next(
                 row for row in range(1, scorecard.max_row + 1)
-                if scorecard.cell(row=row, column=1).value == "File name"
+                if scorecard.cell(row=row, column=1).value == "Segment ID"
             )
             detail_ids = [
-                scorecard.cell(row=row, column=2).value
+                scorecard.cell(row=row, column=1).value
                 for row in range(header_row + 1, scorecard.max_row + 1)
             ]
             self.assertNotIn(0, detail_ids)
@@ -1038,7 +1062,7 @@ class RichDiffReportTests(unittest.TestCase):
             results = workbook["LQE Results"]
             headers = [cell.value for cell in results[1]]
             original = results.cell(2, headers.index("原译") + 1).value
-            suggested = results.cell(2, headers.index("建议译文") + 1).value
+            suggested = results.cell(2, headers.index("AI/建议译文") + 1).value
             processing = results.cell(2, headers.index("处理方式") + 1).value
             self.assertIsInstance(original, str)
             self.assertIsNone(suggested)

@@ -939,7 +939,6 @@ class AggregateScoringPolicyTests(unittest.TestCase):
                 sorted(str(value) for value in copied.merged_cells.ranges),
                 sorted(str(value) for value in original.merged_cells.ranges),
             )
-            self.assertTrue(copied.merged_cells.ranges)
         finally:
             aggregate.close()
             child_book.close()
