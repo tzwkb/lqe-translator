@@ -52,6 +52,16 @@ EXPECTED_TERM_CONFIRMATION_CONTRACT = {
         "provide_row_or_status_mapping",
     ],
 }
+EXPECTED_MULTISHEET_DELIVERY_CONTRACT = {
+    "default_report_mode": "separate",
+    "default_unit": "child_job",
+    "default_outputs": ["<child>_lqe.xlsx", "<child>_corrected.<ext>"],
+    "aggregate_requires": "explicit_user_request",
+    "forbidden_without_request": [
+        "<parent>_lqe.xlsx",
+        "combined child Results/Scorecard workbook",
+    ],
+}
 
 
 def scope_contract_blocks(content: str) -> list[str]:
@@ -80,6 +90,21 @@ def parse_term_confirmation_contract(content: str) -> dict:
     if len(blocks) != 1:
         raise AssertionError(
             "expected one visible data-lqe-term-confirmation-contract block, "
+            f"found {len(blocks)}"
+        )
+    return json.loads(html.unescape(blocks[0]))
+
+
+def parse_multisheet_delivery_contract(content: str) -> dict:
+    blocks = re.findall(
+        r"<pre(?=[^>]*\bdata-lqe-multisheet-delivery-contract\b)[^>]*>"
+        r"(.*?)</pre>",
+        content,
+        re.DOTALL,
+    )
+    if len(blocks) != 1:
+        raise AssertionError(
+            "expected one visible data-lqe-multisheet-delivery-contract block, "
             f"found {len(blocks)}"
         )
     return json.loads(html.unescape(blocks[0]))
@@ -184,6 +209,14 @@ class DocumentedContractTests(unittest.TestCase):
         self.assertIn("流程要求 subagent", skill)
         self.assertIn("必须主动询问用户", skill)
         self.assertIn("不得静默回退", skill)
+
+    def test_skill_defaults_multisheet_delivery_to_separate_reports(self):
+        self.assertEqual(
+            parse_multisheet_delivery_contract(self.skill),
+            EXPECTED_MULTISHEET_DELIVERY_CONTRACT,
+        )
+        self.assertIn("不运行聚合脚本", self.skill)
+        self.assertIn("只有用户明确要求跨工作表聚合时才运行", self.skill)
 
     def test_run_tests_t25_discovers_every_regression_suite(self):
         runner = load_test_runner()

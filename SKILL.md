@@ -478,7 +478,25 @@ LQE 报告保留三张可见工作表：`说明·导读`、`LQA Scorecard` 和 `
 
 ## 10. 多工作表
 
-每个工作表单独建立子 job，完成检查后聚合：
+默认交付模式是分开报告：每个工作表单独建立子 job，并分别保留各自的
+`<子任务名>_lqe.xlsx` 和 corrected 文件。未收到用户明确的“合并报告”“汇总报告”
+或“恢复原工作簿结构”要求时，到子 job 交付为止，不运行聚合脚本，不生成父级
+`<文件名>_lqe.xlsx`，也不把多个子任务的 Results/Scorecard 复制进同一个报告。
+
+<pre data-lqe-multisheet-delivery-contract>
+{
+  "default_report_mode": "separate",
+  "default_unit": "child_job",
+  "default_outputs": ["&lt;child&gt;_lqe.xlsx", "&lt;child&gt;_corrected.&lt;ext&gt;"],
+  "aggregate_requires": "explicit_user_request",
+  "forbidden_without_request": [
+    "&lt;parent&gt;_lqe.xlsx",
+    "combined child Results/Scorecard workbook"
+  ]
+}
+</pre>
+
+只有用户明确要求跨工作表聚合时才运行：
 
 ```bash
 python "$SCRIPTS/aggregate_sheets.py" \
@@ -486,7 +504,7 @@ python "$SCRIPTS/aggregate_sheets.py" \
   [--sheets 剧情,功能,社媒]
 ```
 
-聚合结果放在父 job 目录，保留原工作簿工作表、空行、列顺序和格式，只替换目标列。聚合会按每个子 job 的当前 state、`errors.contract.json` 和已验证 chunk generation 重新校验结果，并复用 chunk 中的术语命中上下文；子报告隐藏的 `_LQE_CONTRACT` 同时绑定 state/errors、可见 `LQE Results` 内容及逐错误 provenance 行结构。聚合复制每个子任务的 Results 与 Scorecard（含合并行和历史 AI 状态）。发布前会按稳定顺序重新取得全部子任务 lease；缺失、损坏、过期或未绑定的结果/报告、过期 chunk 证据、输入文件漂移都会失败，原有父级产物保持不变。子任务默认各自继承 policy；除阈值外的策略不一致时失败。显式 `--threshold` 只覆盖阈值；任一子任务 FAIL 则汇总 FAIL。
+显式聚合结果放在父 job 目录，保留原工作簿工作表、空行、列顺序和格式，只替换目标列。聚合会按每个子 job 的当前 state、`errors.contract.json` 和已验证 chunk generation 重新校验结果，并复用 chunk 中的术语命中上下文；子报告隐藏的 `_LQE_CONTRACT` 同时绑定 state/errors、可见 `LQE Results` 内容及逐错误 provenance 行结构。聚合复制每个子任务的 Results 与 Scorecard（含合并行和历史 AI 状态）。发布前会按稳定顺序重新取得全部子任务 lease；缺失、损坏、过期或未绑定的结果/报告、过期 chunk 证据、输入文件漂移都会失败，原有父级产物保持不变。子任务默认各自继承 policy；除阈值外的策略不一致时失败。显式 `--threshold` 只覆盖阈值；任一子任务 FAIL 则汇总 FAIL。
 
 缺少 `input_sha256` 的旧 state 仅兼容核对已选 source/target 单元格，不能证明其他公式或样式未漂移；正式交付前应重新 `read` 升级为当前 state contract。
 
