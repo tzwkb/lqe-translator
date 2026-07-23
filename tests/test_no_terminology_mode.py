@@ -1642,9 +1642,9 @@ class NoTerminologyFinalizeTests(unittest.TestCase):
             self.assertEqual(
                 [
                     scorecard.cell(row=terminology_row, column=col).value
-                    for col in range(3, 13)
+                    for col in range(3, 9)
                 ],
-                [0] * 10,
+                ["0 / 0"] * 4 + [0, 0],
             )
         finally:
             workbook.close()

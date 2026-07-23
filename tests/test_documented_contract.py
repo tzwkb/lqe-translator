@@ -119,6 +119,24 @@ class DocumentedContractTests(unittest.TestCase):
         self.assertIn("检查模块不得输出 corrected", self.skill)
         self.assertIn("`lqe_corrections.py` 验证局部修改", self.skill)
 
+    def test_skill_documents_compact_review_workflow(self):
+        for phrase in (
+            'lqe_review.py" prepare',
+            'lqe_review.py" auto-publish',
+            'lqe_review.py" publish',
+            '"schema": "lqe.compact-module-draft"',
+            '"reviewed_ids"',
+            '"findings"',
+            "batch_plan.json",
+            "cost_report.json",
+            "每个 worker 最多处理 4 个 packet",
+            "25,000 原译字符",
+            "100,000 packet 字节",
+            "新批次必须新建 worker",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, self.skill)
+
     def test_common_marks_proper_names_optional(self):
         self.assertIn("`proper_names` 是可选模块", self.common)
 
@@ -247,10 +265,8 @@ class DocumentedContractTests(unittest.TestCase):
 
     def test_sdlxliff_report_and_export_columns_are_documented(self):
         expected_report = (
-            "来源文件、TU ID、SDL Segment ID、原文、原译、建议译文、"
-            "处理方式、LQE Segment ID、LQE 错误序号、LQE AI 复核状态、"
-            "LQE AI 编辑状态、LQE 检查来源、错误详情、Protected、"
-            "Protection Evidence、LQE_Iter"
+            "Segment ID、原文、原译、AI/建议译文、建议状态、错误类别、"
+            "严重度、问题说明、审校结论、审校终稿或备注"
         )
         expected_export = "来源文件、TU ID、SDL Segment ID、原文、译文"
         for path in USER_DOCUMENTS:
@@ -262,7 +278,7 @@ class DocumentedContractTests(unittest.TestCase):
     def test_skill_publishes_rich_diff_scope(self):
         for phrase in (
             "原译中删除或替换的内容显示为红色删除线",
-            "建议译文中新增或替换的内容显示为红色字体",
+            "AI/建议译文中新增或替换的内容显示为红色字体",
             "corrected 文件不添加差异样式",
             "openpyxl>=3.1",
             'openpyxl>=3.1" regex',

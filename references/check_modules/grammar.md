@@ -1,6 +1,6 @@
 # 语法与拼写检查模块
 
-公共协议见 `common.md`。本模块只处理 Grammar、Spelling、Punctuation。必须覆盖全部分配 id；无问题时写空 `"issues"`。每条问题使用 `"needs_confirmation"` 和 `"edit"`，不得输出 corrected。
+公共协议见 `common.md`。本模块只处理 Grammar、Spelling、Punctuation。必须审阅 packet 的全部 `reviewed_ids`；紧凑草稿只在 `findings` 中写有问题的 id。每条问题使用 `"needs_confirmation"` 和 `"edit"`，不得输出 corrected。
 
 ## 检查内容
 

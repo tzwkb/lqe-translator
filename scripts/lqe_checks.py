@@ -230,8 +230,11 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
     terms = _load_terms(state)
     term_map: dict[str, list[dict]] = {}
     for src, senses in _group_terms(terms).items():
-        valid = [{**s, "_target_lower": s["target"].strip().lower()}
-                 for s in senses if s.get("target")]
+        valid = [
+            {**s, "_target_lower": s["target"].strip().lower()}
+            for s in senses
+            if s.get("target")
+        ]
         if valid and len(src) >= (2 if _RE_CJK.search(src) else 3):
             term_map[src] = valid
 
@@ -366,16 +369,25 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
                 senses = term_map[term_src]
                 # 复合术语优先：更长词条命中且其任一候选译法已在译文中 → 跳过被包含的子词条
                 covered = any(other != term_src and term_src in other
-                              and any(s["_target_lower"] in tgt_lower for s in term_map[other])
+                              and any(s["_target_lower"] in tgt_lower
+                                      for s in term_map[other])
                               for other in hit_srcs)
                 if covered:
                     continue
-                matched = next((s for s in senses if s["_target_lower"] in tgt_lower), None)
+                matched = next(
+                    (s for s in senses if s["_target_lower"] in tgt_lower),
+                    None,
+                )
                 if matched is None:
                     cands = " or ".join(_fmt_sense(s) for s in senses)
                     note = " [PROTECTED]" if all(s.get("protected") for s in senses) else ""
-                    errs.append({"category": "Terminology", "severity": "Major",
-                                 "comment": f"'{term_src}' → expected {cands}{note}"})
+                    errs.append({
+                        "category": "Terminology",
+                        "severity": "Major",
+                        "comment": f"'{term_src}' → expected {cands}{note}",
+                        "term_source": term_src,
+                        "expected_targets": [s["target"] for s in senses],
+                    })
                 else:
                     errs.append({"category": "Other", "severity": "Neutral",
                                  "comment": f"TERM REVIEW: source term '{term_src}' matched; "

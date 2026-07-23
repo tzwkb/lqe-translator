@@ -27,6 +27,7 @@ import openpyxl
 import regex
 from openpyxl.styles import PatternFill, Font, Alignment
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.datavalidation import DataValidation
 
 from lqe_engine import (
     read_json, RE_CJK as _RE_CJK, _source_lang, _target_lang, _load_lang, _LANG_DIR, _SKILL_ROOT,
@@ -64,7 +65,11 @@ from lqe_paths import (
     validate_artifact_paths,
     write_json_atomic,
 )
-from lqe_terms import canonicalize_terms, load_canonical_terminology
+from lqe_terms import (
+    canonicalize_terms,
+    load_canonical_terminology,
+    terminology_issue_fields,
+)
 from lqe_scoring import (
     resolve_scoring_policy,
     score_errors,
@@ -81,6 +86,7 @@ from lqe_result_contract import (
     result_contract_path,
     validate_result_contract,
 )
+from lqe_suggestions import ARTIFACT_NAME, load_reference_suggestions
 
 
 def _validate_scope_or_exit(
@@ -2064,7 +2070,9 @@ def _build_xlsx(
     scoring_policy=None,
     scoring_computation=None,
     report_contract_results=None,
+    reference_suggestions=None,
 ):
+    reference_suggestions = reference_suggestions or {}
     if scoring_policy is not None:
         scorecard_profile_id = scoring_policy["scorecard_profile"]
         threshold = scoring_policy["threshold"]
@@ -2200,6 +2208,90 @@ def _build_xlsx(
         )
     )
 
+    current_entries = (
+        {e["id"]: e for e in history[-1].get("errors", [])}
+        if history
+        else {}
+    )
+
+    def _review_entry(seg):
+        current_entry = current_entries.get(seg["id"])
+        baseline = (
+            current_target(seg)
+            if current_target(seg) != seg.get("target", "")
+            else None
+        )
+        if current_entry is None:
+            return {"errors": [], "corrected": baseline}
+        return {
+            **current_entry,
+            "corrected": (
+                current_entry.get("corrected")
+                if current_entry.get("corrected") is not None
+                else baseline
+            ),
+        }
+
+    def _review_summary(errs, field):
+        values = []
+        for issue in errs:
+            value = _text(issue.get(field))
+            if value:
+                values.append(value)
+        return "\n".join(values)
+
+    def _problem_summary(errs):
+        comments = [_text(issue.get("comment")) for issue in errs]
+        comments = [comment for comment in comments if comment]
+        if len(comments) <= 1:
+            return comments[0] if comments else ""
+        return "\n".join(
+            f"{index}. {comment}"
+            for index, comment in enumerate(comments, start=1)
+        )
+
+    def _review_suggestion(seg, entry, errs, is_protected):
+        if is_protected:
+            return "", "已保护"
+        reference = reference_suggestions.get(seg["id"])
+        if reference is not None:
+            return reference, "建议待确认"
+        corrected = entry.get("corrected")
+        if corrected is not None:
+            unresolved = any(
+                issue.get("needs_confirmation") is True
+                or issue.get("edit") is None
+                for issue in errs
+            )
+            return (
+                corrected,
+                "部分修正，仍需确认" if unresolved else "可直接采用",
+            )
+        if errs:
+            return "", "未生成建议，需人工处理"
+        return "", ""
+
+    review_headers = [
+        "Segment ID",
+        "原文",
+        "原译",
+        "AI/建议译文",
+        "建议状态",
+        "错误类别",
+        "严重度",
+        "问题说明",
+        "审校结论",
+        "审校终稿或备注",
+    ]
+    review_widths = [10, 38, 38, 38, 20, 20, 10, 42, 14, 38]
+    status_fills = {
+        "可直接采用": _GREEN_LIGHT,
+        "建议待确认": PatternFill("solid", fgColor="FFF2CC"),
+        "部分修正，仍需确认": _ORANGE,
+        "未生成建议，需人工处理": PatternFill("solid", fgColor="F4CCCC"),
+        "已保护": PatternFill("solid", fgColor="D9D9D9"),
+    }
+
     wb  = openpyxl.Workbook()
     ws  = wb.active
     ws.title = "LQA Scorecard"
@@ -2212,36 +2304,296 @@ def _build_xlsx(
         "FAIL" if critical_gate_fail or score < threshold else "PASS"
     )
 
-    # ── 导读 sheet（插最前）：说明后两个 sheet 的用处 + 建议使用思路 ──
     intro = wb.create_sheet("说明·导读", 0)
-    _wrap = Alignment(wrap_text=True, vertical="top")
-    for r in [
-        ("LQE 质检报告 · 导读", "", "", ""),
-        ("", "", "", ""),
-        (f"本报告 3 个 sheet：本「说明·导读」+ 后两个正文。阈值 {threshold}；本次 {status}（{score:.2f} 分）。", "", "", ""),
+    intro_wrap = Alignment(wrap_text=True, vertical="top")
+    intro_rows = [
+        ("LQE 质检报告 · 新人导读", "", "", ""),
+        (
+            f"本次结果：{status} ｜ 得分：{score:.2f} ｜ "
+            f"合格线：{threshold}",
+            "",
+            "",
+            "",
+        ),
         ("Check scope", scope_summary, "", ""),
-        ("Sheet", "是什么", "给谁看", "怎么用"),
-        ("LQA Scorecard（第 2 个）", "计分卡：过/不过 + 分数 + 错误(类别×严重度)分布 + 罚分", "PM / 客户", f"先看这里拿整体判定：是否达标(阈值 {threshold})、差在哪类"),
-        ("LQE Results（第 3 个）", "错误明细：同段连续、每个错误一行，并标注 AI 复核与编辑状态", "审校 / 译员", "按 LQE Segment ID 查看同段错误，并核对 AI 复核与编辑状态"),
         ("", "", "", ""),
-        ("建议使用思路：", "", "", ""),
-        ("1. PM 先看「LQA Scorecard」拿整体判定（分数 / 状态 / 错误分布）。", "", "", ""),
-        ("2. 审校/译员到「LQE Results」，同一 LQE Segment ID 的多个错误会连续列出，每个错误一行。", "", "", ""),
-        ("3. 「AI 模块记录」是本地内容绑定证据，不是外部身份签名；「已生成并验证建议」不表示已写回 state。", "", "", ""),
-        ("4. 「建议译文」留空时保留原译；「处理方式」说明是否仅提醒或需要人工确认。", "", "", ""),
-        ("5. 修正若要落地，按项目流程（如改在线 memoQ）。", "", "", ""),
-        ("6. 已保护内容不修改；需要人工确认的问题由审校人员判断。", "", "", ""),
+        ("三步读报告", "", "", ""),
+        ("顺序", "位置", "看什么", "要做什么"),
+        (
+            "1",
+            "说明·导读",
+            "报告结构、列含义、状态和审校规则",
+            "第一次使用时先读一遍；之后可直接进入正文",
+        ),
+        (
+            "2",
+            "LQA Scorecard",
+            "PASS/FAIL、分数、错误分布和逐错误明细",
+            "先判断整体风险，再按严重度处理下方问题",
+        ),
+        (
+            "3",
+            "LQE Results",
+            "一段一行的汇总审校区；同段多个问题集中显示",
+            "填写审校结论，并在需要时写入终稿或备注",
+        ),
+        ("", "", "", ""),
+        ("LQA Scorecard 怎么读", "", "", ""),
+        ("项目", "含义", "怎么看", "注意"),
+        (
+            "Status",
+            "本次质检的最终判定",
+            "PASS 表示达到合格线；FAIL 表示未达到或触发关键错误门槛",
+            "先看判定，再看分数和错误分布",
+        ),
+        (
+            "Final score",
+            "按当前计分规则计算的最终分数",
+            "与 Threshold 比较",
+            "分数不代替逐条审校",
+        ),
+        (
+            "Threshold",
+            "项目合格线",
+            "Final score 低于该值通常为 FAIL",
+            "Critical 门槛可能直接导致 FAIL",
+        ),
+        (
+            "Error summary",
+            "按错误类别和严重度汇总数量与罚分",
+            "优先处理 Critical、Major，再处理 Minor",
+            "Raw penalty 为原始罚分；Weighted penalty 为加权罚分",
+        ),
+        (
+            "总数 / 重复数",
+            "例如 8 / 3 表示共 8 个，其中 3 个按重复错误计",
+            "用于理解同类问题是否反复出现",
+            "重复数已包含在总数内",
+        ),
+        ("", "", "", ""),
+        ("审校区 10 列说明", "", "", ""),
+        ("列", "含义", "审校动作", "补充"),
+        (
+            "Segment ID",
+            "文本段的唯一编号",
+            "用编号筛选、搜索和沟通问题",
+            "Scorecard 中同段多错误可能出现多行",
+        ),
+        (
+            "原文",
+            "待翻译的源语言文本",
+            "核对语义、语境、角色和功能",
+            "不要只比较字面词义",
+        ),
+        (
+            "原译",
+            "本次送检的原始译文",
+            "确认问题是否真实存在",
+            "红色删除线表示建议删除或替换的内容",
+        ),
+        (
+            "AI/建议译文",
+            "可供审校参考的完整建议译文；可能为空",
+            "结合原文、问题说明和项目规则判断是否采用",
+            "红色字体表示新增或替换内容；不等于已确认终稿",
+        ),
+        (
+            "建议状态",
+            "建议译文的可用程度和确认要求",
+            "按下方状态说明决定人工介入程度",
+            "它不是错误严重度",
+        ),
+        (
+            "错误类别",
+            "问题所属的 LQE 类别",
+            "判断问题性质并检查是否还有同类问题",
+            "Scorecard 以“父类别 · 子类别”合并显示",
+        ),
+        (
+            "严重度",
+            "问题对理解、功能、合规或体验的影响等级",
+            "按 Critical → Major → Minor → Neutral 排优先级",
+            "它不是 AI 建议置信度",
+        ),
+        (
+            "问题说明",
+            "为什么判为问题，以及具体问题位置",
+            "据此复核；不同意时在备注中写明理由",
+            "同段多问题在 Results 中按编号汇总",
+        ),
+        (
+            "审校结论",
+            "审校人员对建议的最终处理选择",
+            "从下拉框选择：接受、修改后接受、拒绝、待确认",
+            "建议不要留空后直接交付",
+        ),
+        (
+            "审校终稿或备注",
+            "最终采用的译文，或拒绝/待确认的说明",
+            "修改后接受时填写完整终稿；拒绝或待确认时写明原因",
+            "保持占位符、标签和换行结构正确",
+        ),
+        ("", "", "", ""),
+        ("建议状态说明", "", "", ""),
+        ("状态", "表示什么", "审校动作", "是否可直接交付"),
+        (
+            "可直接采用",
+            "建议完整，当前没有待确认项",
+            "快速核对上下文、术语和格式",
+            "仍需审校人员最终确认",
+        ),
+        (
+            "建议待确认",
+            "提供了参考译文，但属于宽松生成或存在判断空间",
+            "逐句核对后决定接受、修改或拒绝",
+            "否",
+        ),
+        (
+            "部分修正，仍需确认",
+            "已修正可确定部分，但仍有未解决内容",
+            "补全剩余修改，并填写完整终稿",
+            "否",
+        ),
+        (
+            "未生成建议，需人工处理",
+            "已确认有问题，但没有可靠完整建议",
+            "人工改译并填写终稿",
+            "否",
+        ),
+        (
+            "已保护",
+            "该段受锁定、TM 或其他保护规则约束",
+            "不要修改；如认为保护规则有误，单独反馈",
+            "按原文档规则处理",
+        ),
+        ("", "", "", ""),
+        ("审校结论说明", "", "", ""),
+        ("结论", "何时选择", "需要填写什么", "结果"),
+        (
+            "接受",
+            "建议译文无需修改即可采用",
+            "通常无需补写终稿；必要时可备注",
+            "采用建议译文",
+        ),
+        (
+            "修改后接受",
+            "建议方向正确，但需要人工调整",
+            "在“审校终稿或备注”填写完整终稿",
+            "采用人工终稿",
+        ),
+        (
+            "拒绝",
+            "建议不成立、不合适或原译无需修改",
+            "写明理由；如仍需修改，可同时填写替代终稿",
+            "不采用当前建议",
+        ),
+        (
+            "待确认",
+            "缺少上下文、规则或客户决定，暂时无法定稿",
+            "写明待确认点和所需信息",
+            "暂不交付",
+        ),
+        ("", "", "", ""),
+        ("阅读与交付提示", "", "", ""),
+        (
+            "差异标记",
+            "原译中的红色删除线表示删除/替换；建议译文中的红色字体表示新增/替换",
+            "差异只帮助定位修改，不代表建议一定正确",
+            "",
+        ),
+        (
+            "隐藏数据",
+            "LQE Results 隐藏无问题段、同段额外审计行和技术列",
+            "需要追溯时可取消隐藏；Scorecard 本身不隐藏行列",
+            "",
+        ),
+        (
+            "建议为空",
+            "不代表没有问题，而是没有可靠的完整建议",
+            "根据问题说明人工改译，并填写终稿",
+            "",
+        ),
+        (
+            "交付前",
+            "检查所有非保护问题是否已有审校结论",
+            "重点复核占位符、标签、数字、术语和换行",
+            "",
+        ),
+    ]
+    for row in intro_rows:
+        intro.append(row)
+        for cell in intro[intro.max_row]:
+            cell.alignment = intro_wrap
+
+    intro.merge_cells("A1:D1")
+    intro.merge_cells("A2:D2")
+    intro.merge_cells("B3:D3")
+    section_rows = [5, 11, 19, 32, 40, 47]
+    header_rows = [6, 12, 20, 33, 41]
+    for row in section_rows:
+        intro.merge_cells(start_row=row, start_column=1, end_row=row, end_column=4)
+        for cell in intro[row]:
+            cell.fill = _DARK_BLUE
+            cell.font = _WHITE_FONT
+        intro.cell(row, 1).font = Font(color="FFFFFF", bold=True, size=11)
+        intro.row_dimensions[row].height = 24
+    for row in header_rows:
+        for cell in intro[row]:
+            cell.fill = _LIGHT_BLUE
+            cell.font = _BOLD
+            cell.alignment = _CENTER
+        intro.row_dimensions[row].height = 24
+
+    intro["A1"].fill = _DARK_BLUE
+    intro["A1"].font = Font(bold=True, size=16, color="FFFFFF")
+    intro["A1"].alignment = _CENTER
+    intro.row_dimensions[1].height = 32
+    intro["A2"].fill = _RED if status == "FAIL" else _GREEN
+    intro["A2"].font = Font(bold=True, color="FFFFFF")
+    intro["A2"].alignment = _CENTER
+    intro.row_dimensions[2].height = 24
+    intro["A3"].fill = _LIGHT_BLUE
+    intro["A3"].font = _BOLD
+    intro["B3"].fill = _LIGHT_BLUE
+    intro.row_dimensions[3].height = 30
+
+    for row in range(1, intro.max_row + 1):
+        if row in section_rows or row in header_rows or row in (1, 2, 3):
+            continue
+        values = [intro.cell(row, column).value for column in range(1, 5)]
+        if not any(value not in (None, "") for value in values):
+            intro.row_dimensions[row].height = 8
+            continue
+        try:
+            height, font_size = _fit_wrapped_row(
+                [
+                    (value, width)
+                    for value, width in zip(values, [18, 48, 36, 42])
+                ],
+                minimum=24,
+                context=f"说明·导读 row {row}",
+            )
+        except ValueError:
+            height, font_size = 60, 9
+        intro.row_dimensions[row].height = min(height, 72)
+        _set_row_font_size(intro, row, 4, font_size)
+
+    for row, fill in [
+        (34, _GREEN_LIGHT),
+        (35, PatternFill("solid", fgColor="FFF2CC")),
+        (36, _ORANGE),
+        (37, PatternFill("solid", fgColor="F4CCCC")),
+        (38, PatternFill("solid", fgColor="D9D9D9")),
     ]:
-        intro.append(r)
-        for c in intro[intro.max_row]:
-            c.alignment = _wrap
-    intro["A1"].font = Font(bold=True, size=13, color="073763")
-    intro["A4"].font = _BOLD
-    for c in intro[5]:                       # 表头行
-        c.fill = _DARK_BLUE; c.font = _WHITE_FONT
-    intro["A9"].font = Font(bold=True)
-    for col, w in zip("ABCD", [22, 50, 12, 46]):
-        intro.column_dimensions[col].width = w
+        intro.cell(row, 1).fill = fill
+        intro.cell(row, 1).font = _BOLD
+
+    for column, width in zip("ABCD", [18, 48, 36, 42]):
+        intro.column_dimensions[column].width = width
+    intro.freeze_panes = "A6"
+    intro.sheet_view.showGridLines = False
+    intro.sheet_view.selection[0].activeCell = "A1"
+    intro.sheet_view.selection[0].sqref = "A1"
     wb.active = intro
 
     def _db_row(row, height=14.25):
@@ -2278,6 +2630,12 @@ def _build_xlsx(
         c = ws.cell(row=ri, column=6)
         _set_excel_text(c, v2)
         c.fill = _DARK_BLUE; c.font = Font(color="FFFFFF")
+    for column, value in ((9, "Check scope"), (10, scope_summary)):
+        c = ws.cell(row=4, column=column)
+        _set_excel_text(c, value)
+        c.fill = _DARK_BLUE
+        c.font = _WHITE_FONT
+        c.alignment = _LEFT_TOP
 
     ws.row_dimensions[8].height = 6
 
@@ -2338,38 +2696,42 @@ def _build_xlsx(
     cur_row += 1
 
     _db_row(cur_row)
-    ws.merge_cells(f"A{cur_row}:L{cur_row}")
+    ws.merge_cells(f"A{cur_row}:J{cur_row}")
     c = ws.cell(row=cur_row, column=1, value="Error summary")
     c.alignment = _LEFT_MID
     cur_row += 1
 
-    ws.row_dimensions[cur_row].height = 15.0
-    ws.merge_cells(f"A{cur_row}:A{cur_row+1}")
-    ws.merge_cells(f"B{cur_row}:B{cur_row+1}")
-    ws.merge_cells(f"C{cur_row}:J{cur_row}")
-    ws.merge_cells(f"K{cur_row}:L{cur_row}")
-    for col, val in [(1,"Error category"),(2,"Weight"),(3,"Error severity"),(11,"Penalty points")]:
+    summary_headers = [
+        "Error category",
+        "Weight",
+        "Neutral\n(total / repeated)",
+        "Minor\n(total / repeated)",
+        "Major\n(total / repeated)",
+        "Critical\n(total / repeated)",
+        "Raw penalty",
+        "Weighted penalty",
+    ]
+    ws.row_dimensions[cur_row].height = 30
+    for col, val in enumerate(summary_headers, start=1):
         c = ws.cell(row=cur_row, column=col, value=val)
-        _s(c, font=_BOLD, align=_CENTER)
+        _s(c, fill=_LIGHT_BLUE, font=_BOLD, align=_CENTER)
     cur_row += 1
 
-    ws.row_dimensions[cur_row].height = 14.25
-    for col, val in enumerate(
-        ["Neutral","Neutral – repeated","Minor","Minor – repeated",
-         "Major","Major – repeated","Critical","Critical – repeated","Raw","Weighted"], start=3):
-        c = ws.cell(row=cur_row, column=col, value=val)
-        _s(c, fill=_LIGHT_BLUE, align=_CENTER)
-    cur_row += 1
+    def _severity_pair(counts, repeated, severity):
+        return f"{counts.get(severity, 0)} / {repeated.get(severity, 0)}"
 
     ws.row_dimensions[cur_row].height = 14.25
-    for col, val in [
-        (1,"TOTAL"),(2,None),
-        (3,total_counts.get("Neutral",0)),(4,total_rep.get("Neutral",0)),
-        (5,total_counts.get("Minor",0)),  (6,total_rep.get("Minor",0)),
-        (7,total_counts.get("Major",0)),  (8,total_rep.get("Major",0)),
-        (9,total_counts.get("Critical",0)),(10,total_rep.get("Critical",0)),
-        (11,total_raw),(12,round(total_weighted,2)),
-    ]:
+    total_summary = [
+        "TOTAL",
+        None,
+        _severity_pair(total_counts, total_rep, "Neutral"),
+        _severity_pair(total_counts, total_rep, "Minor"),
+        _severity_pair(total_counts, total_rep, "Major"),
+        _severity_pair(total_counts, total_rep, "Critical"),
+        total_raw,
+        round(total_weighted, 2),
+    ]
+    for col, val in enumerate(total_summary, start=1):
         c = ws.cell(row=cur_row, column=col, value=val)
         _s(c, fill=_ORANGE, align=_CENTER)
     cur_row += 1
@@ -2378,16 +2740,19 @@ def _build_xlsx(
         counts = cat_counts[cat]
         r = raw_points(counts, scorecard_profile, severity_points)
         w = weighted_points(cat, counts, scorecard_profile, severity_points)
-        ws.row_dimensions[cur_row].height = 14.25
+        ws.row_dimensions[cur_row].height = 30 if len(cat) > 12 else 20
         rep = rep_counts[cat]
-        for col, val in [
-            (1,cat),(2,scorecard_category_weight(cat, scorecard_profile)),
-            (3,counts.get("Neutral",0)),(4,rep.get("Neutral",0)),
-            (5,counts.get("Minor",0)),  (6,rep.get("Minor",0)),
-            (7,counts.get("Major",0)),  (8,rep.get("Major",0)),
-            (9,counts.get("Critical",0)),(10,rep.get("Critical",0)),
-            (11,r),(12,round(w,2)),
-        ]:
+        category_summary = [
+            cat,
+            scorecard_category_weight(cat, scorecard_profile),
+            _severity_pair(counts, rep, "Neutral"),
+            _severity_pair(counts, rep, "Minor"),
+            _severity_pair(counts, rep, "Major"),
+            _severity_pair(counts, rep, "Critical"),
+            r,
+            round(w, 2),
+        ]
+        for col, val in enumerate(category_summary, start=1):
             c = ws.cell(row=cur_row, column=col, value=val)
             _s(c, align=_CENTER)
         cur_row += 1
@@ -2395,213 +2760,205 @@ def _build_xlsx(
     ws.row_dimensions[cur_row].height = 6
     cur_row += 1
 
-    is_sdlxliff_report = state.get("input_format") == "sdlxliff"
-    filename_width = (
-        45
-        if is_sdlxliff_report
-        else 70
-        if "来源相对路径" in (state.get("headers") or [])
-        else 22
-    )
-    scorecard_widths = [
-        filename_width, 8, 80, 80, 80,
-        14, 22, 10, 10, 45, 12, 18, 18, 25, 12, 45,
-    ]
+    scorecard_widths = [18, *review_widths[1:]]
     for column, width in enumerate(scorecard_widths, start=1):
         ws.column_dimensions[get_column_letter(column)].width = width
 
+    scorecard_detail_header = cur_row
     ws.row_dimensions[cur_row].height = 14.25
-    for col, hdr in enumerate(
-        ["File name","Segment #","Source text","原译",
-         "建议译文","Error category","Error sub-category",
-         "Error severity","Iteration","Reviewer's comment","处理方式",
-         "AI 复核状态","AI 编辑状态","检查来源",
-         "Protected","Protection Evidence"], start=1):
+    for col, hdr in enumerate(review_headers, start=1):
         c = ws.cell(row=cur_row, column=col, value=hdr)
         _s(c, fill=_DARK_BLUE, font=_WHITE_FONT, align=_CENTER)
     cur_row += 1
 
+    scorecard_reviewer_rows = []
     for dr in detail_rows:
-        row_fill = _GREEN_LIGHT if dr["fixed"] else None
+        seg = seg_map[dr["seg_id"]]
+        is_protected = dr["seg_id"] in all_protected_ids
+        entry = _review_entry(seg)
+        errs = [] if is_protected else entry.get("errors", [])
+        suggestion, suggestion_status = _review_suggestion(
+            seg,
+            entry,
+            errs,
+            is_protected,
+        )
         rich_pair = (
-            build_rich_diff(dr["original"], dr["corrected"])
-            if isinstance(dr["corrected"], str)
+            build_rich_diff(dr["original"], suggestion)
+            if suggestion
             else None
         )
+        category = " · ".join(
+            value
+            for value in (dr["parent"], dr["category"])
+            if value
+        )
         detail_values = [
-            dr["filename"], dr["seg_id"], dr["source"], dr["original"],
-            dr["corrected"], dr["parent"], dr["category"], dr["severity"],
-            dr["iteration"], dr["comment"], dr["processing"],
-            dr["review_status"], dr["edit_status"], dr["check_source"],
-            "Yes" if dr["seg_id"] in all_protected_ids else "No",
-            _protection_evidence(seg_map[dr["seg_id"]], all_protected_ids),
+            dr["seg_id"],
+            dr["source"],
+            rich_pair[0] if rich_pair else dr["original"],
+            rich_pair[1] if rich_pair else suggestion,
+            suggestion_status,
+            category,
+            dr["severity"],
+            dr["comment"],
+            "",
+            "",
         ]
-        if rich_pair:
-            detail_values[3], detail_values[4] = rich_pair
         for col, val in enumerate(detail_values, start=1):
             c = ws.cell(row=cur_row, column=col)
             _set_excel_text(c, val)
             _s(
                 c,
-                fill=row_fill,
                 align=(
                     _CENTER
-                    if col in (2, 8, 9, 11, 12, 13, 15)
+                    if col in (1, 5, 7, 9)
                     else _LEFT_TOP
                 ),
             )
-        row_height, row_font_size, row_span = _fit_or_span_wrapped_row(
-            [
-                (
-                    value,
-                    ws.column_dimensions[get_column_letter(column)].width,
-                )
-                for column, value in enumerate(detail_values, start=1)
-            ],
-            context=f"LQA Scorecard row {cur_row}",
-        )
-        for physical_row in range(cur_row, cur_row + row_span):
-            ws.row_dimensions[physical_row].height = row_height
+        if suggestion_status:
+            ws.cell(row=cur_row, column=5).fill = status_fills[
+                suggestion_status
+            ]
+        try:
+            row_height, row_font_size = _fit_wrapped_row(
+                [
+                    (value, scorecard_widths[index])
+                    for index, value in enumerate(detail_values)
+                ],
+                minimum=30,
+                context=f"LQA Scorecard row {cur_row}",
+            )
+        except ValueError:
+            row_height, row_font_size = 120, 9
+        ws.row_dimensions[cur_row].height = min(row_height, 120)
         _set_row_font_size(ws, cur_row, len(detail_values), row_font_size)
-        if row_span > 1:
-            for column in range(1, len(detail_values) + 1):
-                ws.merge_cells(
-                    start_row=cur_row,
-                    start_column=column,
-                    end_row=cur_row + row_span - 1,
-                    end_column=column,
-                )
-        cur_row += row_span
+        scorecard_reviewer_rows.append(cur_row)
+        cur_row += 1
+
+    scorecard_validation = DataValidation(
+        type="list",
+        formula1='"接受,修改后接受,拒绝,待确认"',
+        allow_blank=True,
+    )
+    ws.add_data_validation(scorecard_validation)
+    if scorecard_reviewer_rows:
+        scorecard_validation.add(
+            f"I{min(scorecard_reviewer_rows)}:"
+            f"I{max(scorecard_reviewer_rows)}"
+        )
+        ws.auto_filter.ref = (
+            f"A{scorecard_detail_header}:J{max(scorecard_reviewer_rows)}"
+        )
 
     ws2 = wb.create_sheet("LQE Results")
+    ws2.freeze_panes = "A2"
+    ws2.sheet_view.showGridLines = False
 
     def _fmt_errors(errs):
         return "\n".join(issue_detail(error) for error in errs)
 
     _WRAP_TOP = Alignment(wrap_text=True, vertical="top")
-
-    current_entries = {e["id"]: e for e in history[-1].get("errors", [])} if history else {}
     report_headers, report_rows = _report_source_table(state)
-    target_col = state.get("target_col")
-    if target_col is None:
-        target_col = "译文" if "译文" in report_headers else 1
-    try:
-        target_index = int(target_col)
-    except (ValueError, TypeError):
-        target_index = report_headers.index(target_col) if target_col in report_headers else 1
-    if 0 <= target_index < len(report_headers):
-        report_headers[target_index] = "原译"
 
-    used_headers = {str(header) for header in report_headers}
+    visible_headers = review_headers
+    used_headers = set(visible_headers)
+    reserved_technical_headers = {
+        "处理方式",
+        *AUDIT_HEADER_BASES.values(),
+        "术语原文（结构化）",
+        "术语库译文（结构化）",
+        "错误详情",
+        "Protected",
+        "Protection Evidence",
+        "LQE_Iter",
+    }
 
-    def _audit_header(base: str) -> str:
+    def _source_header(base: str) -> str:
         candidate = base
         suffix = 2
-        while candidate in used_headers:
-            candidate = f"{base}（审计 {suffix}）"
+        if candidate in used_headers or candidate in reserved_technical_headers:
+            candidate = f"{base}（原始数据）"
+        while candidate in used_headers or candidate in reserved_technical_headers:
+            candidate = f"{base}（原始数据 {suffix}）"
             suffix += 1
         used_headers.add(candidate)
         return candidate
 
-    segment_audit_header = _audit_header(AUDIT_HEADER_BASES["segment_id"])
-    issue_number_header = _audit_header(AUDIT_HEADER_BASES["issue_number"])
-    review_status_header = _audit_header(AUDIT_HEADER_BASES["review_status"])
-    edit_status_header = _audit_header(AUDIT_HEADER_BASES["edit_status"])
-    check_source_header = _audit_header(AUDIT_HEADER_BASES["check_source"])
+    technical_source_headers = [
+        _source_header(str(header))
+        for header in report_headers
+    ]
+    processing_header = "处理方式"
+    segment_audit_header = AUDIT_HEADER_BASES["segment_id"]
+    issue_number_header = AUDIT_HEADER_BASES["issue_number"]
+    review_status_header = AUDIT_HEADER_BASES["review_status"]
+    edit_status_header = AUDIT_HEADER_BASES["edit_status"]
+    check_source_header = AUDIT_HEADER_BASES["check_source"]
 
-    ws2_headers = report_headers + [
-        "建议译文",
-        "处理方式",
+    technical_headers = technical_source_headers + [
+        processing_header,
         segment_audit_header,
         issue_number_header,
         review_status_header,
         edit_status_header,
         check_source_header,
+        "术语原文（结构化）",
+        "术语库译文（结构化）",
         "错误详情",
         "Protected",
         "Protection Evidence",
         "LQE_Iter",
     ]
-    results_widths = []
-    source_header = state.get("source_col")
-    for header in ws2_headers:
-        if header in {"原文", "原译", "建议译文", source_header}:
-            width = 80
-        elif header == "错误详情":
-            width = 80
-        elif header == "Protection Evidence":
-            width = 45
-        elif is_sdlxliff_report and header == "来源文件":
-            width = 35
-        elif is_sdlxliff_report and header == "TU ID":
-            width = 38
-        elif is_sdlxliff_report and header == "SDL Segment ID":
-            width = 14
-        elif header == "处理方式":
-            width = 18
-        elif header == segment_audit_header:
-            width = 12
-        elif header == issue_number_header:
-            width = 10
-        elif header in {review_status_header, edit_status_header}:
-            width = 18
-        elif header == check_source_header:
-            width = 24
-        elif header == "LQE_Iter":
-            width = 10
-        elif header == "Protected":
-            width = 12
-        else:
-            width = 20
-        results_widths.append(width)
-    for column, width in enumerate(results_widths, start=1):
+    ws2_headers = visible_headers + technical_headers
+    visible_widths = review_widths
+    for column, width in enumerate(visible_widths, start=1):
         ws2.column_dimensions[get_column_letter(column)].width = width
+    technical_start = len(visible_headers) + 1
+    for column in range(technical_start, len(ws2_headers) + 1):
+        dimension = ws2.column_dimensions[get_column_letter(column)]
+        dimension.width = 16
+        dimension.hidden = True
 
-    for ci, h in enumerate(ws2_headers, start=1):
-        c = ws2.cell(row=1, column=ci)
-        _set_excel_text(c, h)
-        _s(c, fill=_DARK_BLUE, font=_WHITE_FONT, align=_CENTER)
-    ws2.row_dimensions[1].height = 15.0
+    for ci, header in enumerate(ws2_headers, start=1):
+        cell = ws2.cell(row=1, column=ci)
+        _set_excel_text(cell, header)
+        _s(cell, fill=_DARK_BLUE, font=_WHITE_FONT, align=_CENTER)
+    ws2.row_dimensions[1].height = 24
+    ws2.auto_filter.ref = f"A1:J1"
 
     ri = 2
+    reviewer_rows = []
     for segment_index, seg in enumerate(segments):
         raw_row = report_rows[segment_index]
         is_protected = seg["id"] in all_protected_ids
-        current_entry = current_entries.get(seg["id"])
-        baseline = (
-            current_target(seg)
-            if current_target(seg) != seg.get("target", "")
-            else None
-        )
-        if current_entry is None:
-            entry = {"errors": [], "corrected": baseline}
-        else:
-            entry = {
-                **current_entry,
-                "corrected": (
-                    current_entry.get("corrected")
-                    if current_entry.get("corrected") is not None
-                    else baseline
-                ),
-            }
+        entry = _review_entry(seg)
         errs = [] if is_protected else entry.get("errors", [])
-        has_error = bool(errs)
-        segment_processing = _issue_processing_label(
-            None,
+        suggestion, suggestion_status = _review_suggestion(
+            seg,
             entry,
-            protected=is_protected,
-        )
-        corrected = entry.get("corrected")
-        suggestion = (
-            "" if segment_processing == "已保护，不修改" else (corrected or "")
+            errs,
+            is_protected,
         )
         rich_pair = (
-            build_rich_diff(seg["target"], suggestion)
-            if corrected is not None and segment_processing != "已保护，不修改"
+            build_rich_diff(seg.get("target", ""), suggestion)
+            if suggestion
             else None
         )
-        suggestion_column = len(report_headers) + 1
-        row_fill = _ORANGE if has_error else _GREEN_LIGHT if (is_protected or suggestion) else None
+        visible_data = [
+            seg["id"],
+            seg.get("source", ""),
+            rich_pair[0] if rich_pair else seg.get("target", ""),
+            rich_pair[1] if rich_pair else suggestion,
+            suggestion_status,
+            _review_summary(errs, "category"),
+            _review_summary(errs, "severity"),
+            _problem_summary(errs),
+            "",
+            "",
+        ]
+        first_row = ri
+        reviewer_rows.append(first_row)
         row_issues = errs or [None]
         for issue_index, issue in enumerate(row_issues, start=1):
             review_status, edit_status, check_source = _issue_review_columns(
@@ -2613,51 +2970,89 @@ def _build_xlsx(
                 entry,
                 protected=is_protected,
             )
-            row_data = list(raw_row) + [
-                suggestion,
-                processing,
-                seg["id"],
-                issue_index if issue is not None else "",
-                review_status,
-                edit_status,
-                check_source,
-                _fmt_errors([issue]) if issue is not None else "",
-                "Yes" if is_protected else "No",
-                _protection_evidence(seg, all_protected_ids),
-                seg.get("iter", 0),
-            ]
-            if rich_pair and 0 <= target_index < len(report_headers):
-                row_data[target_index] = rich_pair[0]
-            if rich_pair:
-                row_data[suggestion_column - 1] = rich_pair[1]
-            for ci, val in enumerate(row_data, start=1):
-                c = ws2.cell(row=ri, column=ci)
-                _set_excel_text(c, val)
-                c.alignment = _WRAP_TOP
-                if row_fill:
-                    c.fill = row_fill
-            row_height, row_font_size, row_span = _fit_or_span_wrapped_row(
-                [
+            term_fields = terminology_issue_fields(issue)
+            technical_data = (
+                list(raw_row)
+                + [
+                    processing,
+                    seg["id"],
+                    issue_index if issue is not None else "",
+                    review_status,
+                    edit_status,
+                    check_source,
+                    term_fields["term_source"] if term_fields else "",
                     (
-                        value,
-                        ws2.column_dimensions[get_column_letter(column)].width,
-                    )
-                    for column, value in enumerate(row_data, start=1)
-                ],
-                context=f"LQE Results row {ri}",
+                        "\n".join(term_fields["expected_targets"])
+                        if term_fields
+                        else ""
+                    ),
+                    _fmt_errors([issue]) if issue is not None else "",
+                    "Yes" if is_protected else "No",
+                    _protection_evidence(seg, all_protected_ids),
+                    seg.get("iter", 0),
+                ]
             )
-            for physical_row in range(ri, ri + row_span):
-                ws2.row_dimensions[physical_row].height = row_height
-            _set_row_font_size(ws2, ri, len(row_data), row_font_size)
-            if row_span > 1:
-                for column in range(1, len(row_data) + 1):
-                    ws2.merge_cells(
-                        start_row=ri,
-                        start_column=column,
-                        end_row=ri + row_span - 1,
-                        end_column=column,
+            row_data = (
+                visible_data if issue_index == 1 else [""] * len(visible_headers)
+            ) + technical_data
+            for ci, value in enumerate(row_data, start=1):
+                cell = ws2.cell(row=ri, column=ci)
+                _set_excel_text(cell, value)
+                cell.alignment = _WRAP_TOP
+                if ci <= len(visible_headers) and suggestion_status:
+                    cell.fill = status_fills[suggestion_status]
+            if issue_index == 1:
+                try:
+                    row_height, row_font_size = _fit_wrapped_row(
+                        [
+                            (value, visible_widths[index])
+                            for index, value in enumerate(visible_data)
+                        ],
+                        minimum=30,
+                        context=f"LQE Results row {ri}",
                     )
+                except ValueError:
+                    row_height, row_font_size = 120, 9
+                row_height = min(row_height, 120)
+                row_span = 1
+                ws2.row_dimensions[ri].height = row_height
+                _set_row_font_size(
+                    ws2,
+                    ri,
+                    len(ws2_headers),
+                    row_font_size,
+                )
+                if not (errs or is_protected or suggestion):
+                    ws2.row_dimensions[ri].hidden = True
+                    ws2.row_dimensions[ri].outlineLevel = 1
+            else:
+                row_span = 1
+                ws2.row_dimensions[ri].hidden = True
+                ws2.row_dimensions[ri].outlineLevel = 1
             ri += row_span
+
+    decision_validation = DataValidation(
+        type="list",
+        formula1='"接受,修改后接受,拒绝,待确认"',
+        allow_blank=True,
+    )
+    decision_validation.error = "请选择下拉列表中的审校结论。"
+    decision_validation.errorTitle = "无效审校结论"
+    decision_validation.prompt = "请选择接受、修改后接受、拒绝或待确认。"
+    decision_validation.promptTitle = "审校结论"
+    ws2.add_data_validation(decision_validation)
+    if reviewer_rows:
+        decision_validation.add(
+            f"I{min(reviewer_rows)}:I{max(reviewer_rows)}"
+        )
+        ws2.auto_filter.ref = f"A1:J{max(reviewer_rows)}"
+
+    ws.sheet_view.tabSelected = False
+    ws2.sheet_view.tabSelected = False
+    ws2.sheet_view.selection[0].activeCell = "A1"
+    ws2.sheet_view.selection[0].sqref = "A1"
+    intro.sheet_view.tabSelected = True
+    wb.active = intro
 
     if report_contract_results is not None:
         attach_report_contract(wb, state, report_contract_results)
@@ -2720,6 +3115,19 @@ def _cmd_write_locked(
     final_errors_data = computation["annotated_errors"]
     score_result = computation["output"]
     score = score_result["score"]
+    suggestion_path = state_path.parent / ARTIFACT_NAME
+    original_suggestion_data = (
+        read_json(suggestion_path) if suggestion_path.is_file() else None
+    )
+    try:
+        reference_suggestions = load_reference_suggestions(
+            state_path.parent,
+            segments,
+            manifest,
+            final_errors_data,
+        )
+    except (CheckFormatError, OSError, ValueError) as exc:
+        raise SystemExit(f"[write] {exc}") from exc
     supplied_score = float(args.score)
     if not math.isclose(supplied_score, score, abs_tol=0.005):
         print(
@@ -2763,6 +3171,11 @@ def _cmd_write_locked(
             {
                 "state": state_path,
                 "errors": errors_path,
+                **(
+                    {"reference suggestions": suggestion_path}
+                    if suggestion_path.is_file()
+                    else {}
+                ),
                 **state_reference_paths(state),
             },
             context="write",
@@ -2789,6 +3202,7 @@ def _cmd_write_locked(
                 scoring_policy=scoring_policy,
                 scoring_computation=computation,
                 report_contract_results=final_errors_data,
+                reference_suggestions=reference_suggestions,
             )
         except ValueError as exc:
             raise SystemExit(f"[write] {exc}") from exc
@@ -2798,6 +3212,12 @@ def _cmd_write_locked(
             original_errors_data,
             label="errors input",
         )
+        if original_suggestion_data is not None:
+            _assert_json_unchanged(
+                suggestion_path,
+                original_suggestion_data,
+                label="reference suggestions input",
+            )
         _publish_write_transaction(
             state_path,
             state,

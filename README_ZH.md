@@ -8,7 +8,7 @@
 
 用于游戏本地化 LQE：先做机器预检，再由专项检查模块报告问题和安全的局部修改，最后由 Python 校验、评分并生成 Excel 交付文件。
 
-> 项目经理可直接阅读独立版 [PM 操作手册](PM_GUIDE.html)；开发记录保留在 `docs/`。
+> PM 操作手册不随运行时 Skill 分发，统一维护在 Langlobal 开发文档目录。
 
 ## 核心约束
 
@@ -27,18 +27,22 @@ lqe-translator/
 ├── scripts/
 │   ├── lqe_io.py           # 读取、预检、保护、报告和导出
 │   ├── lqe_chunk.py        # 分块、校验、合并和归属处理
+│   ├── lqe_review.py       # 生成低成本检查包并发布紧凑草稿
+│   ├── lqe_suggestions.py  # 发布仅供报告使用的整句参考译文
 │   ├── lqe_corrections.py  # 校验局部修改并生成完整文本
 │   ├── lqe_calc.py         # LQE 评分
 │   └── finalize_job.sh     # 从校验到导出的一键收尾
-├── references/check_modules/
-│   ├── common.md
-│   ├── terminology.md
-│   ├── precheck_review.md
-│   ├── accuracy.md
-│   ├── grammar.md
-│   ├── naturalness.md
-│   ├── proper_names.md
-│   └── term_audit.md
+├── references/
+│   ├── suggestions.md
+│   └── check_modules/
+│       ├── common.md
+│       ├── terminology.md
+│       ├── precheck_review.md
+│       ├── accuracy.md
+│       ├── grammar.md
+│       ├── naturalness.md
+│       ├── proper_names.md
+│       └── term_audit.md
 ├── target_languages/<code>/
 │   ├── attributes.json
 │   └── eval_notes.md
@@ -57,6 +61,8 @@ lqe-translator/
     ├── errors_precheck.json
     ├── errors.json
     ├── chunks/
+    ├── review_packets/
+    ├── reference_suggestions.json
     ├── <任务名>_lqe.xlsx
     └── <任务名>_corrected.<csv|tsv|xlsx>
 ```
@@ -212,9 +218,14 @@ python3 "$SCRIPTS/lqe_chunk.py" split \
   --errors "$JOB/errors_precheck.json" \
   --outdir "$JOB/chunks" \
   --size 100
+
+python3 "$SCRIPTS/lqe_review.py" prepare --job "$JOB"
+python3 "$SCRIPTS/lqe_review.py" auto-publish --job "$JOB"
 ```
 
 标准模式下，`split` 通过 state 读取术语；`--terms <file>` 只是可选覆盖，无术语模式会拒绝该参数。分块输入带指纹；state、当前译文、scope、预检、术语或分块参数变化时，旧 chunks 会归档，旧模块输出不可复用。每个 `chunk_NN.json` 按 `state.check_scope` 生成：
+
+`prepare` 生成与当前 chunk 绑定的模块专用 `review_packets`、`batch_plan.json` 和 `cost_report.json`。非术语模块不再重复读取术语与预检字段；受保护段和 `precheck_review` 的不适用段由脚本补空。`auto-publish` 只发布完全不需要 AI 的 packet。
 
 ```text
 # 标准模式
@@ -230,38 +241,46 @@ chunk_NN.grammar.json
 chunk_NN.naturalness.json
 ```
 
-每个模块读取 `references/check_modules/common.md`、自己的说明和任务上下文，并覆盖全部分配 id；没有问题的段也要输出空 `issues`。
+按 `batch_plan.json` 为每个模块分配有界 worker：每批最多 4 个 packet，同时不超过 25,000 原译字符或 100,000 packet 字节；单个超限 packet 独占一个 worker。每个新批次重新读取模块说明和项目上下文。
 
-模型把 JSON 数组写入草稿文件，再用 `lqe_chunk.py publish-module` 和所读 chunk 顶层的 `split_fingerprint`、`payload_digest` 发布。发布器在 generation 锁内校验覆盖和类别归属并生成正式绑定 envelope；当前任务会拒绝正式路径中的裸数组和旧指纹。
+模型写紧凑草稿：`reviewed_ids` 完整复制 packet，`findings` 只保留有问题的 id。用 `lqe_review.py publish --job "$JOB" --chunk <NN> --module <module> --input <草稿.json>` 发布。publisher 会补齐正式全 ID 数组，并按原合同校验类别、预检引用和 generation 指纹。
 
 `precheck_review` 只确认或删除 Markup、Length、Locale convention、Company style、Inconsistency、Other 类别的非术语预检，不得创建 Terminology、`TERM REVIEW:` 或 `confirmed_term` 证据。
 
-模型唯一输出协议：
+紧凑草稿协议：
 
 ```json
-[
-  {
-    "id": 0,
-    "issues": [
-      {
-        "category": "Grammar",
-        "severity": "Minor",
-        "comment": "The verb form does not agree with the subject.",
-        "needs_confirmation": false,
-        "edit": {
-          "from": "are",
-          "to": "is",
-          "start": 4,
-          "end": 7,
-          "evidence": null
+{
+  "schema": "lqe.compact-module-draft",
+  "version": 1,
+  "module": "grammar",
+  "chunk_id": 0,
+  "packet_digest": "<packet.packet_digest>",
+  "reviewed_ids": [0, 1, 2],
+  "findings": [
+    {
+      "id": 1,
+      "issues": [
+        {
+          "category": "Grammar",
+          "severity": "Minor",
+          "comment": "The verb form does not agree with the subject.",
+          "needs_confirmation": false,
+          "edit": {
+            "from": "are",
+            "to": "is",
+            "evidence": null
+          }
         }
-      }
-    ]
-  }
-]
+      ]
+    }
+  ]
+}
 ```
 
 新译名、术语表缺词、多个合理方案或整句重写，使用 `needs_confirmation: true` 和 `edit: null`。术语或专名修改还必须有唯一的 `confirmed: true` 候选和 `confirmed_term` 证据。
+
+机器预检生成的 Terminology issue 会附带只读的 `term_source` 和 `expected_targets`；模型无需输出或改写，publisher 会按 `precheck_ref` 保留。
 
 ### 5. 校验、合并和评分
 
@@ -311,13 +330,17 @@ python3 "$SCRIPTS/lqe_io.py" export \
 - XLSX 输入输出 `<任务名>_corrected.xlsx`，保持工作簿、工作表、空行、列顺序和格式。
 - SDLXLIFF 输出新建固定 5 列的 `<任务名>_corrected.xlsx`。
 
-LQE 报告使用富文本显示修改差异：原译中删除或替换的内容显示为红色删除线，建议译文中新增或替换的内容显示为红色字体。`LQE Results` 每个错误一行，同一 `LQE Segment ID` 的错误连续排列，无错误段保留一行；审计列区分直接 AI 复核、重复段复用、机器预检保留和旧流程未知。“已生成并验证建议”表示修改已纳入建议译文，不表示已写回 state；“AI 模块记录”是本地内容绑定证据，不是外部身份签名。Scorecard 历史明细同步保留 provenance。corrected 文件不添加差异样式。
+报告保留 `说明·导读`、`LQA Scorecard` 和 `LQE Results` 三张可见工作表；`_LQE_CONTRACT` 保持 veryHidden。导读固定排在第一张并作为默认打开页，面向新人解释阅读流程、Scorecard、10 个审校列、建议状态、审校结论和交付检查。Scorecard 完整显示判定、分数、精简类别汇总和逐错误审校行，不隐藏行列。
 
-用户可见报告使用“建议修改、需要人工确认、保持原译、已保护”。`corrected` 仅用于内部数据和标准输出文件名。
+Scorecard 的逐错误区域和 `LQE Results` 共用 10 列：Segment ID、原文、原译、AI/建议译文、建议状态、错误类别、严重度、问题说明、审校结论、审校终稿或备注。Scorecard 合并父类别和子类别，并移除文件名、迭代、处理方式和 AI provenance 等技术列；这些审计字段保留在 Results 隐藏区。Results 可见区一段一行；多错误在首行汇总，额外逐错误审计行与无问题段隐藏。建议状态固定为“可直接采用”“建议待确认”“部分修正，仍需确认”“未生成建议，需人工处理”“已保护”。
+
+术语不一致明细必须读取 issue 的 `term_source` 和 `expected_targets`，或读取 Results 隐藏区的“术语原文（结构化）”“术语库译文（结构化）”。不得从 `comment` / “问题说明”用引号正则反解析；所有格撇号和术语内标点属于字段内容。旧产物使用 `lqe_terms.terminology_issue_fields()` 兼容读取。
+
+报告使用富文本显示修改差异：原译中删除或替换的内容显示为红色删除线，AI/建议译文中新增或替换的内容显示为红色字体。安全局部 edit 可进入 corrected 流程；独立 `reference_suggestions.json` 中的整句建议只供审校，并固定标为“建议待确认”。corrected 文件不添加差异样式。
 
 经验证的内部结果中，`corrected: ""` 是合法的整段删除；只有 `corrected: null` 表示没有建议修改。write、apply、export 和聚合都必须保留这一区别。
 
-SDLXLIFF 的 `LQE Results` 固定为 16 列：来源文件、TU ID、SDL Segment ID、原文、原译、建议译文、处理方式、LQE Segment ID、LQE 错误序号、LQE AI 复核状态、LQE AI 编辑状态、LQE 检查来源、错误详情、Protected、Protection Evidence、LQE_Iter；表格与 SDLXLIFF 报告都把 `LQE_Iter` 固定在最后一列。`source_manifest.json` 保存输入 SHA-256、声明语言、扩展 namespace、规则命中、排除和 locked/TM 证据；`tm_candidates.json` 把严格候选与保护决定分开。新建的 corrected Excel 固定为 5 列：来源文件、TU ID、SDL Segment ID、原文、译文。
+表格与 SDLXLIFF 报告使用相同的 10 列审校视图。来源文件、TU ID、SDL Segment ID、处理方式、逐错误 provenance、保护证据和 `LQE_Iter` 保留在隐藏审计区，`LQE_Iter` 固定为最后一列。`source_manifest.json` 保存输入 SHA-256、声明语言、扩展 namespace、规则命中、排除和 locked/TM 证据；`tm_candidates.json` 把严格候选与保护决定分开。新建的 corrected Excel 固定为 5 列：来源文件、TU ID、SDL Segment ID、原文、译文。
 
 第一版不回写 SDLXLIFF XML；`export` 只生成 `<任务名>_corrected.xlsx`，所有原始 XML 保持不变。
 

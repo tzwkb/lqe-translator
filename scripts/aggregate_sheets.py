@@ -372,30 +372,37 @@ def _append_child_results(
                 _copy_report_cell(source_cell, target_cell)
 
         headers = [cell.value for cell in target_sheet[1]]
-        if "原译" not in headers or "建议译文" not in headers:
-            return
-        original_column = headers.index("原译") + 1
-        suggested_column = headers.index("建议译文") + 1
-        for row_number in range(2, target_sheet.max_row + 1):
-            original_cell = target_sheet.cell(row_number, original_column)
-            suggested_cell = target_sheet.cell(row_number, suggested_column)
-            original_text = _report_text(original_cell.value)
-            suggested_text = _report_text(suggested_cell.value)
-            if (
-                original_cell.data_type != "f"
-                and suggested_cell.data_type != "f"
-                and isinstance(original_text, str)
-                and isinstance(suggested_text, str)
-                and suggested_text
-                and original_text != suggested_text
-            ):
-                original_cell.value, suggested_cell.value = build_rich_diff(
-                    original_text,
-                    suggested_text,
-                )
-                for cell in (original_cell, suggested_cell):
-                    if isinstance(cell.value, str) and cell.value.startswith("="):
-                        cell.data_type = "s"
+        suggested_header = next(
+            (
+                candidate
+                for candidate in ("AI/建议译文", "建议译文")
+                if candidate in headers
+            ),
+            None,
+        )
+        if "原译" in headers and suggested_header is not None:
+            original_column = headers.index("原译") + 1
+            suggested_column = headers.index(suggested_header) + 1
+            for row_number in range(2, target_sheet.max_row + 1):
+                original_cell = target_sheet.cell(row_number, original_column)
+                suggested_cell = target_sheet.cell(row_number, suggested_column)
+                original_text = _report_text(original_cell.value)
+                suggested_text = _report_text(suggested_cell.value)
+                if (
+                    original_cell.data_type != "f"
+                    and suggested_cell.data_type != "f"
+                    and isinstance(original_text, str)
+                    and isinstance(suggested_text, str)
+                    and suggested_text
+                    and original_text != suggested_text
+                ):
+                    original_cell.value, suggested_cell.value = build_rich_diff(
+                        original_text,
+                        suggested_text,
+                    )
+                    for cell in (original_cell, suggested_cell):
+                        if isinstance(cell.value, str) and cell.value.startswith("="):
+                            cell.data_type = "s"
         for merged_range in source_sheet.merged_cells.ranges:
             target_sheet.merge_cells(str(merged_range))
 

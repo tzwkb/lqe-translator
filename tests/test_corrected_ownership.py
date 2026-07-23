@@ -1802,7 +1802,7 @@ class CorrectedOwnershipOutputTests(unittest.TestCase):
         try:
             headers = [cell.value for cell in workbook["LQE Results"][1]]
             self.assertIn("原译", headers)
-            self.assertIn("建议译文", headers)
+            self.assertIn("AI/建议译文", headers)
             self.assertIn("处理方式", headers)
             processing_col = headers.index("处理方式") + 1
             labels = [
@@ -1933,30 +1933,31 @@ class CorrectedOwnershipOutputTests(unittest.TestCase):
                 ],
             )
             self.assertEqual(
-                [row["建议译文"] for row in rows[:2]],
-                ["Target 0 fixed", "Target 0 fixed"],
+                [row["AI/建议译文"] for row in rows[:2]],
+                ["Target 0 fixed", None],
             )
+            self.assertTrue(sheet.row_dimensions[3].hidden)
             scorecard = workbook["LQA Scorecard"]
             header_row = next(
                 row
                 for row in range(1, scorecard.max_row + 1)
-                if scorecard.cell(row, 1).value == "File name"
+                if scorecard.cell(row, 1).value == "Segment ID"
             )
             score_headers = [cell.value for cell in scorecard[header_row]]
-            review_column = score_headers.index("AI 复核状态") + 1
-            edit_column = score_headers.index("AI 编辑状态") + 1
-            source_column = score_headers.index("检查来源") + 1
             self.assertEqual(
                 [
-                    scorecard.cell(header_row + 1, review_column).value,
-                    scorecard.cell(header_row + 1, edit_column).value,
-                    scorecard.cell(header_row + 1, source_column).value,
+                    "Segment ID",
+                    "原文",
+                    "原译",
+                    "AI/建议译文",
+                    "建议状态",
+                    "错误类别",
+                    "严重度",
+                    "问题说明",
+                    "审校结论",
+                    "审校终稿或备注",
                 ],
-                [
-                    "已复核（AI 模块记录）",
-                    "已生成并验证建议（AI 模块记录）",
-                    "AI 模块：grammar",
-                ],
+                score_headers,
             )
         finally:
             workbook.close()
@@ -2008,10 +2009,12 @@ class CorrectedOwnershipOutputTests(unittest.TestCase):
             headers = [cell.value for cell in sheet[1]]
             self.assertEqual(len(headers), len(set(headers)))
             self.assertEqual(headers[-1], "LQE_Iter")
-            generated_segment = "LQE Segment ID（审计 2）"
-            generated_review = "LQE AI 复核状态（审计 2）"
+            generated_segment = "LQE Segment ID"
+            generated_review = "LQE AI 复核状态"
             self.assertIn(generated_segment, headers)
             self.assertIn(generated_review, headers)
+            self.assertIn("LQE Segment ID（原始数据）", headers)
+            self.assertIn("LQE AI 复核状态（原始数据）", headers)
             self.assertEqual(
                 sheet.cell(2, headers.index(generated_segment) + 1).value,
                 0,
@@ -2031,21 +2034,12 @@ class CorrectedOwnershipOutputTests(unittest.TestCase):
             header_row = next(
                 row
                 for row in range(1, scorecard.max_row + 1)
-                if scorecard.cell(row, 1).value == "File name"
+                if scorecard.cell(row, 1).value == "Segment ID"
             )
             headers = [cell.value for cell in scorecard[header_row]]
-            review_column = headers.index("AI 复核状态") + 1
+            comment_column = headers.index("问题说明") + 1
             detail_row = header_row + 1
-            review_merge = next(
-                cell_range
-                for cell_range in scorecard.merged_cells.ranges
-                if cell_range.min_row == detail_row
-                and cell_range.max_row > detail_row
-                and cell_range.min_col == review_column
-                and cell_range.max_col == review_column
-            )
-            scorecard.unmerge_cells(str(review_merge))
-            scorecard.cell(detail_row + 1, review_column).value = "伪造：已复核"
+            scorecard.cell(detail_row, comment_column).value = "伪造：已复核"
             with self.assertRaisesRegex(
                 ValueError,
                 "visible_scorecard_digest",
@@ -2083,16 +2077,13 @@ class CorrectedOwnershipOutputTests(unittest.TestCase):
 
         workbook = openpyxl.load_workbook(output)
         try:
-            scorecard = workbook["LQA Scorecard"]
-            header_row = next(
-                row
-                for row in range(1, scorecard.max_row + 1)
-                if scorecard.cell(row=row, column=1).value == "File name"
-            )
+            results = workbook["LQE Results"]
+            headers = [cell.value for cell in results[1]]
+            source_path_column = headers.index("来源相对路径") + 1
             self.assertEqual(
                 [
-                    scorecard.cell(row=row, column=1).value
-                    for row in range(header_row + 1, header_row + 3)
+                    results.cell(row=row, column=source_path_column).value
+                    for row in range(2, 4)
                 ],
                 ["day1/first.xlsx.sdlxliff", "day2/second.xlsx.sdlxliff"],
             )
@@ -2127,9 +2118,15 @@ class CorrectedOwnershipOutputTests(unittest.TestCase):
 
         workbook = openpyxl.load_workbook(output)
         try:
-            self.assertGreaterEqual(
-                workbook["LQA Scorecard"].column_dimensions["A"].width,
-                70,
+            scorecard = workbook["LQA Scorecard"]
+            self.assertEqual(scorecard.max_column, 10)
+            self.assertTrue(
+                all(
+                    not scorecard.column_dimensions[
+                        openpyxl.utils.get_column_letter(column)
+                    ].hidden
+                    for column in range(1, 11)
+                )
             )
         finally:
             workbook.close()
@@ -2172,13 +2169,12 @@ class CorrectedOwnershipOutputTests(unittest.TestCase):
             header_row = next(
                 row
                 for row in range(1, scorecard.max_row + 1)
-                if scorecard.cell(row=row, column=1).value == "File name"
+                if scorecard.cell(row=row, column=1).value == "Segment ID"
             )
             detail = scorecard[header_row + 1]
             self.assertEqual(
-                [detail[index].value for index in (0, 2, 3, 4, 9)],
+                [detail[index].value for index in (1, 2, 3, 7)],
                 [
-                    "=FILE()",
                     "=SOURCE()",
                     "=TARGET()",
                     "=CORRECTED()",
@@ -2186,17 +2182,29 @@ class CorrectedOwnershipOutputTests(unittest.TestCase):
                 ],
             )
             self.assertEqual(
-                [detail[index].data_type for index in (0, 2, 3, 4, 9)],
-                ["s"] * 5,
+                [detail[index].data_type for index in (1, 2, 3, 7)],
+                ["s"] * 4,
             )
             result_row = workbook["LQE Results"][2]
             self.assertEqual(
                 [result_row[index].value for index in (0, 1, 2, 3)],
-                ["=FILE()", "=SOURCE()", "=TARGET()", "=CORRECTED()"],
+                [0, "=SOURCE()", "=TARGET()", "=CORRECTED()"],
             )
             self.assertEqual(
                 [result_row[index].data_type for index in (0, 1, 2, 3)],
-                ["s"] * 4,
+                ["n", "s", "s", "s"],
+            )
+            result_headers = [
+                cell.value for cell in workbook["LQE Results"][1]
+            ]
+            file_column = result_headers.index("来源相对路径") + 1
+            self.assertEqual(
+                workbook["LQE Results"].cell(2, file_column).value,
+                "=FILE()",
+            )
+            self.assertEqual(
+                workbook["LQE Results"].cell(2, file_column).data_type,
+                "s",
             )
         finally:
             workbook.close()
@@ -2206,9 +2214,9 @@ class CorrectedOwnershipOutputTests(unittest.TestCase):
             header_row = next(
                 row
                 for row in range(1, scorecard.max_row + 1)
-                if scorecard.cell(row=row, column=1).value == "File name"
+                if scorecard.cell(row=row, column=1).value == "Segment ID"
             )
-            self.assertEqual(scorecard.cell(header_row + 1, 3).value, "=SOURCE()")
+            self.assertEqual(scorecard.cell(header_row + 1, 3).value, "=TARGET()")
             self.assertEqual(
                 workbook["LQE Results"].cell(row=2, column=4).value,
                 "=CORRECTED()",

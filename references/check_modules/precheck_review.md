@@ -4,7 +4,7 @@
 
 ## 输出要求
 
-- 输出必须覆盖 chunk 的全部 id；没有问题的 id 也写 `{"id": 0, "issues": []}`。
+- 必须审阅 packet 的全部 `reviewed_ids`；没有问题的 id 不写入紧凑草稿的 `findings`，publisher 会补空。
 - 允许类别只有 `Markup`、`Length`、`Locale convention`、`Company style`、`Inconsistency`、`Other`。
 - 确认真实问题时保留并清楚说明；确认是误报时，从该 id 的 `issues` 中删除。
 - 每条保留的问题必须原样复制 chunk 中对应问题的 `precheck_ref`；不得伪造、复用或把一个引用用于另一个问题。
@@ -17,4 +17,4 @@
 [{"id": 0, "issues": [{"precheck_ref": "precheck:0:0123456789abcdef", "category": "Markup", "severity": "Major", "comment": "The target drops one inline tag.", "needs_confirmation": true, "edit": null}]}]
 ```
 
-只写 common.md 所述的合法 JSON 数组草稿，不加说明文字或 Markdown 围栏；正式 `chunk_NN.precheck_review.json` 必须经 `publish-module` 发布。
+只写 `common.md` 所述的合法紧凑草稿，不加说明文字或 Markdown 围栏；正式 `chunk_NN.precheck_review.json` 必须经 `lqe_review.py publish` 发布。

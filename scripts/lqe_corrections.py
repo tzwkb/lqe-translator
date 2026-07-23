@@ -16,6 +16,8 @@ _ISSUE_FIELDS = (
     "category",
     "severity",
     "comment",
+    "term_source",
+    "expected_targets",
     "protected",
     "repeated",
 )
@@ -127,6 +129,27 @@ def _canonical_issue(
     for field in ("protected", "repeated"):
         if field in value and type(value[field]) is not bool:
             raise CheckFormatError(f"{label}: {field} must be boolean")
+    has_term_source = "term_source" in value
+    has_expected_targets = "expected_targets" in value
+    if has_term_source != has_expected_targets:
+        raise CheckFormatError(
+            f"{label}: term_source and expected_targets must be provided together"
+        )
+    if has_term_source:
+        term_source = value["term_source"]
+        expected_targets = value["expected_targets"]
+        if not isinstance(term_source, str) or not term_source:
+            raise CheckFormatError(f"{label}: term_source must be a non-empty string")
+        if (
+            not isinstance(expected_targets, list)
+            or not expected_targets
+            or not all(
+                isinstance(target, str) and target for target in expected_targets
+            )
+        ):
+            raise CheckFormatError(
+                f"{label}: expected_targets must be an array of non-empty strings"
+            )
 
     if "edit" in value:
         edit = value["edit"]
@@ -381,6 +404,46 @@ def _damages_protected_text(segment: dict, original: str, resolved: dict) -> boo
     return _protection_signature(candidate, segment.get("protected_texts")) != (
         _protection_signature(original, segment.get("protected_texts"))
     )
+
+
+def validate_reference_target(
+    segment: dict,
+    target: object,
+    *,
+    label: str = "reference target",
+) -> str:
+    """Validate a report-only full-translation suggestion.
+
+    Reference targets are intentionally less restrictive than automatic edits:
+    they may rewrite the whole translation, but they may not target protected
+    segments or alter placeholders, tags, line breaks, or protected text.
+    """
+    if not isinstance(segment, dict) or type(segment.get("id")) is not int:
+        raise CheckFormatError(f"{label}: segment id must be an integer")
+    if segment.get("protected") is True:
+        raise CheckFormatError(
+            f"{label}: segment {segment['id']} is protected"
+        )
+    original = current_target(segment)
+    if not isinstance(original, str):
+        raise CheckFormatError(
+            f"{label}: segment {segment['id']} target must be a string"
+        )
+    if not isinstance(target, str) or not target.strip():
+        raise CheckFormatError(
+            f"{label}: segment {segment['id']} suggestion must be a non-empty string"
+        )
+    if target == original:
+        raise CheckFormatError(
+            f"{label}: segment {segment['id']} suggestion does not change the target"
+        )
+    if _protection_signature(target, segment.get("protected_texts")) != (
+        _protection_signature(original, segment.get("protected_texts"))
+    ):
+        raise CheckFormatError(
+            f"{label}: segment {segment['id']} suggestion changes protected content"
+        )
+    return target
 
 
 def build_segment_result(
