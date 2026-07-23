@@ -349,7 +349,14 @@ score = max((1 - ΣL / fixed_wordcount) × 100, 0)
 
 ## Multi-sheet workbooks
 
-Create one child job per sheet, then aggregate after every sheet has passed the required checks:
+The default delivery is separate: create one child job and one standard
+`<child>_lqe.xlsx` report per selected sheet, then stop after the child
+deliverables are complete. Do not create a parent aggregate report or copy
+multiple child Results/Scorecards into one workbook unless the user explicitly
+asks for a combined report, cross-sheet summary, or restored source-workbook
+delivery.
+
+Only for an explicit aggregation request, run:
 
 ```bash
 python3 "$SCRIPTS/aggregate_sheets.py" \
@@ -357,7 +364,7 @@ python3 "$SCRIPTS/aggregate_sheets.py" \
   --sheets <sheet-a>,<sheet-b>
 ```
 
-The parent job preserves worksheet order, blank rows, formulas, styles, and merged cells while replacing only validated/current targets. Aggregation revalidates every child against its current state, `errors.contract.json`, and verified chunk generation, including chunk terminology context. Each hidden `_LQE_CONTRACT` binds state/errors, visible `LQE Results`, and its per-issue provenance layout; the aggregate copies both child Results and Scorecard history. Before publication, aggregation reacquires every child lease in stable order. Missing, corrupt, stale, or unbound results/reports, stale chunk evidence, or source drift fail without replacing existing parent outputs. Child policies are inherited; incompatible non-threshold policies fail closed. An explicit `--threshold` overrides only the threshold, and any child FAIL makes the aggregate FAIL.
+For explicit aggregation, the parent job preserves worksheet order, blank rows, formulas, styles, and merged cells while replacing only validated/current targets. Aggregation revalidates every child against its current state, `errors.contract.json`, and verified chunk generation, including chunk terminology context. Each hidden `_LQE_CONTRACT` binds state/errors, visible `LQE Results`, and its per-issue provenance layout; the aggregate copies both child Results and Scorecard history. Before publication, aggregation reacquires every child lease in stable order. Missing, corrupt, stale, or unbound results/reports, stale chunk evidence, or source drift fail without replacing existing parent outputs. Child policies are inherited; incompatible non-threshold policies fail closed. An explicit `--threshold` overrides only the threshold, and any child FAIL makes the aggregate FAIL.
 
 This aggregation command is for tabular workbooks only; an SDLXLIFF directory is one multi-file job, not a multi-sheet workbook.
 

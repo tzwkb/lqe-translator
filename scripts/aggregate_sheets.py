@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""多工作表任务汇总：把已完成的各子任务合成跨工作表交付物。
+"""显式可选的多工作表汇总工具。
+
+默认 LQE 工作流保留每个子任务各自的报告，不调用本脚本。只有用户明确要求
+合并报告、跨工作表汇总或恢复原工作簿结构时，才把已完成的子任务合成父级交付物。
 
 产出（父 job 目录）：
   <label>_corrected.xlsx  保留原始 workbook 的 sheet/公式/样式/合并单元格，
@@ -738,7 +741,11 @@ def _aggregate(a) -> None:
 
 
 def main():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description=(
+            "显式合并已完成的多工作表子任务；默认 LQE 流程保留各子任务独立报告"
+        )
+    )
     parser.add_argument(
         "--job",
         required=True,

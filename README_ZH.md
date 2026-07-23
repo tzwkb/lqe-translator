@@ -356,7 +356,12 @@ score = max((1 - ΣL / 固定词数) × 100, 0)
 
 ## 多工作表
 
-每个工作表单独建立子任务，全部检查完成后再聚合：
+默认分开交付：每个工作表单独建立子任务，并分别保留各自标准的
+`<子任务名>_lqe.xlsx` 报告和 corrected 文件。用户没有明确要求“合并报告”、
+“跨工作表汇总”或“恢复原工作簿结构”时，到子任务交付为止，不生成父级聚合报告，
+也不把多个子任务的 Results/Scorecard 复制进同一个工作簿。
+
+只有用户明确要求聚合时才运行：
 
 ```bash
 python3 "$SCRIPTS/aggregate_sheets.py" \
@@ -364,7 +369,7 @@ python3 "$SCRIPTS/aggregate_sheets.py" \
   --sheets <工作表一>,<工作表二>
 ```
 
-父任务保留工作表顺序、空行、公式、样式和合并单元格，只替换已校验/当前译文。聚合会按每个子任务的当前 state、`errors.contract.json` 和已验证 chunk generation 重新校验结果，并复用 chunk 术语上下文；隐藏 `_LQE_CONTRACT` 同时绑定 state/errors、可见 `LQE Results` 及逐错误 provenance 行结构，汇总报告复制各子任务 Results 与 Scorecard 历史。发布前会按稳定顺序重新取得全部子任务 lease。结果/报告缺失、损坏、过期或未绑定、chunk 证据过期、输入漂移都会失败且不替换原有父级产物。子任务默认继承各自 policy；除阈值外策略不一致时失败。显式 `--threshold` 只覆盖阈值；任一子任务 FAIL 则汇总 FAIL。
+显式聚合时，父任务保留工作表顺序、空行、公式、样式和合并单元格，只替换已校验/当前译文。聚合会按每个子任务的当前 state、`errors.contract.json` 和已验证 chunk generation 重新校验结果，并复用 chunk 术语上下文；隐藏 `_LQE_CONTRACT` 同时绑定 state/errors、可见 `LQE Results` 及逐错误 provenance 行结构，汇总报告复制各子任务 Results 与 Scorecard 历史。发布前会按稳定顺序重新取得全部子任务 lease。结果/报告缺失、损坏、过期或未绑定、chunk 证据过期、输入漂移都会失败且不替换原有父级产物。子任务默认继承各自 policy；除阈值外策略不一致时失败。显式 `--threshold` 只覆盖阈值；任一子任务 FAIL 则汇总 FAIL。
 
 该聚合命令只用于表格工作簿；SDLXLIFF 目录属于一个多文件任务，不是多工作表任务。
 
