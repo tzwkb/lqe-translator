@@ -1,39 +1,5 @@
 [
  {
-  "source": "翼龙",
-  "senses": [
-   {
-    "target": "เทอริล",
-    "category": "Creature Individual",
-    "confirmed": false,
-    "protected": false
-   },
-   {
-    "target": "เทโรซอร์",
-    "category": "Creature Species",
-    "confirmed": true,
-    "protected": false
-   }
-  ]
- },
- {
-  "source": "伊兰",
-  "senses": [
-   {
-    "target": "เทมพี",
-    "category": "Creature Individual",
-    "confirmed": false,
-    "protected": false
-   },
-   {
-    "target": "อีลาน",
-    "category": "Creature Individual",
-    "confirmed": true,
-    "protected": false
-   }
-  ]
- },
- {
   "source": "伊贝儿",
   "senses": [
    {
@@ -44,40 +10,6 @@
    },
    {
     "target": "อีเบย์",
-    "category": "Creature Individual",
-    "confirmed": true,
-    "protected": false
-   }
-  ]
- },
- {
-  "source": "书卷守护",
-  "senses": [
-   {
-    "target": "สโครลลาร์ด",
-    "category": "Creature Species",
-    "confirmed": false,
-    "protected": false
-   },
-   {
-    "target": "ผู้พิทักษ์คัมภีร์",
-    "category": "Creature Individual",
-    "confirmed": false,
-    "protected": false
-   }
-  ]
- },
- {
-  "source": "咔咔羽毛",
-  "senses": [
-   {
-    "target": "คากู",
-    "category": "Creature Species",
-    "confirmed": false,
-    "protected": false
-   },
-   {
-    "target": "ขนนกกาก้า",
     "category": "Creature Individual",
     "confirmed": true,
     "protected": false
@@ -139,9 +71,9 @@
   "source": "帕帕斯卡",
   "senses": [
    {
-    "target": "พาพาสโก",
+    "target": "เวิร์สกา พาพาสโก",
     "category": "Creature Species",
-    "confirmed": false,
+    "confirmed": true,
     "protected": false
    },
    {
@@ -165,23 +97,6 @@
     "target": "ก๊าบก๊าบ",
     "category": "Creature Individual",
     "confirmed": true,
-    "protected": false
-   }
-  ]
- },
- {
-  "source": "格斗小六",
-  "senses": [
-   {
-    "target": "เฮกซิวาร์",
-    "category": "Creature Species",
-    "confirmed": false,
-    "protected": false
-   },
-   {
-    "target": "เจ้าหกนักสู้",
-    "category": "Creature Individual",
-    "confirmed": false,
     "protected": false
    }
   ]
