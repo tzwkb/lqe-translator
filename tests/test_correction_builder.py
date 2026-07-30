@@ -8,13 +8,14 @@ from scripts.lqe_corrections import (
     normalize_check_entries,
     verify_results,
 )
+from scripts.lqe_checks import _check_issues
 from scripts.lqe_engine import term_senses
 
 
 def issue(edit=None, **overrides):
     value = {
         "category": "Grammar",
-        "severity": "Minor",
+        "severity": "Major",
         "comment": "fix",
         "needs_confirmation": False,
     }
@@ -66,6 +67,81 @@ def machine_provenance(*, ai_edited=False):
 
 
 class CorrectionBuilderTests(unittest.TestCase):
+    def test_minor_issue_disables_local_edit_and_corrected_text(self):
+        segment = {"id": 1, "target": "Fix the eror"}
+        accepted = issue(
+            severity="Minor",
+            comment="Spelling error",
+            needs_confirmation=True,
+        )
+        result = build_segment_result(segment, [accepted])
+        self.assertIsNone(result["corrected"])
+        self.assertTrue(result["errors"][0]["needs_confirmation"])
+        self.assertIsNone(result["errors"][0]["edit"])
+
+        for invalid in (
+            issue(
+                severity="Minor",
+                comment="Spelling error",
+                needs_confirmation=False,
+            ),
+            issue(
+                edit("eror", "error"),
+                severity="Minor",
+                comment="Spelling error",
+                needs_confirmation=True,
+            ),
+        ):
+            with self.subTest(invalid=invalid):
+                with self.assertRaisesRegex(CheckFormatError, "Minor issue"):
+                    build_segment_result(segment, [invalid])
+
+    def test_comment_length_is_not_a_publisher_limit(self):
+        for comment in ("Short.", "This explanation exceeds thirty characters."):
+            with self.subTest(comment=comment):
+                normalized = normalize_check_entries(
+                    [
+                        {
+                            "id": 1,
+                            "issues": [
+                                issue(
+                                    severity="Minor",
+                                    comment=comment,
+                                    needs_confirmation=True,
+                                )
+                            ],
+                        }
+                    ],
+                    label="draft",
+                )
+                self.assertEqual(
+                    normalized[0]["issues"][0]["comment"],
+                    comment,
+                )
+
+    def test_machine_precheck_drops_minor_edits(self):
+        local_edit = edit("eror", "error")
+        minor, major = _check_issues(
+            [
+                {
+                    "category": "Spelling",
+                    "severity": "Minor",
+                    "comment": "Spelling error",
+                    "edit": local_edit,
+                },
+                {
+                    "category": "Mistranslation",
+                    "severity": "Major",
+                    "comment": "Wrong meaning",
+                    "edit": local_edit,
+                },
+            ]
+        )
+        self.assertTrue(minor["needs_confirmation"])
+        self.assertIsNone(minor["edit"])
+        self.assertFalse(major["needs_confirmation"])
+        self.assertEqual(major["edit"], local_edit)
+
     def test_term_senses_defaults_flags_and_preserves_multisense_values(self):
         self.assertEqual(
             term_senses(
@@ -140,7 +216,7 @@ class CorrectionBuilderTests(unittest.TestCase):
         issues = [
             {
                 "category": "Punctuation",
-                "severity": "Minor",
+                "severity": "Major",
                 "comment": "引号格式",
                 "needs_confirmation": False,
                 "edit": {
@@ -227,7 +303,7 @@ class CorrectionBuilderTests(unittest.TestCase):
                 "issues": [
                     {
                         "category": "Grammar",
-                        "severity": "Minor",
+                        "severity": "Major",
                         "comment": "fix",
                         "repeated": True,
                         "needs_confirmation": False,
@@ -251,7 +327,7 @@ class CorrectionBuilderTests(unittest.TestCase):
                     "issues": [
                         {
                             "category": "Grammar",
-                            "severity": "Minor",
+                            "severity": "Major",
                             "comment": "fix",
                             "repeated": True,
                             "needs_confirmation": False,

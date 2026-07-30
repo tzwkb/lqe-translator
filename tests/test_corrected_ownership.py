@@ -48,7 +48,7 @@ def read_json(path):
 
 def check_issue(
     category="Grammar",
-    severity="Minor",
+    severity="Major",
     comment="check",
     *,
     needs_confirmation=False,
@@ -301,7 +301,7 @@ class CorrectedOwnershipChunkTests(unittest.TestCase):
         self.assertIn("terminology cannot own category 'Mistranslation'", result.stderr)
         self.assertFalse((self.chunks / "chunk_00.out.json").exists())
 
-    def test_precheck_emits_issues_and_a_local_deterministic_edit(self):
+    def test_precheck_reports_minor_without_a_local_edit(self):
         state_path = self.job / "state.json"
         output_path = self.job / "errors_precheck.json"
         write_json(
@@ -320,19 +320,10 @@ class CorrectedOwnershipChunkTests(unittest.TestCase):
         em_dash = next(
             issue for issue in result[0]["issues"] if "Em dash" in issue["comment"]
         )
-        self.assertFalse(em_dash["needs_confirmation"])
-        self.assertEqual(
-            em_dash["edit"],
-            {
-                "from": "—",
-                "to": " - ",
-                "start": 1,
-                "end": 2,
-                "evidence": None,
-            },
-        )
+        self.assertTrue(em_dash["needs_confirmation"])
+        self.assertIsNone(em_dash["edit"])
 
-    def test_em_dash_edit_absorbs_adjacent_spaces(self):
+    def test_em_dash_variants_do_not_generate_minor_corrected_text(self):
         variants = ("A—B", "A — B", "A— B", "A —B")
         for target in variants:
             with self.subTest(target=target):
@@ -362,7 +353,13 @@ class CorrectedOwnershipChunkTests(unittest.TestCase):
                     issues,
                 )
 
-                self.assertEqual(result["corrected"], "A - B")
+                self.assertIsNone(result["corrected"])
+                self.assertTrue(
+                    all(issue["needs_confirmation"] for issue in result["errors"])
+                )
+                self.assertTrue(
+                    all(issue["edit"] is None for issue in result["errors"])
+                )
 
     def test_precheck_issue_schema_is_complete_for_all_output_modes(self):
         cases = (
@@ -1925,10 +1922,10 @@ class CorrectedOwnershipOutputTests(unittest.TestCase):
             self.assertEqual(
                 [row["错误详情"] for row in rows],
                 [
-                    "[Grammar · Minor] AI edited this issue.",
-                    "[Grammar · Minor] AI reviewed without editing.",
-                    "[Grammar · Minor] Machine precheck only.",
-                    "[Grammar · Minor] Legacy issue without provenance.",
+                    "[Grammar · Major] AI edited this issue.",
+                    "[Grammar · Major] AI reviewed without editing.",
+                    "[Grammar · Major] Machine precheck only.",
+                    "[Grammar · Major] Legacy issue without provenance.",
                     None,
                 ],
             )
@@ -2465,7 +2462,7 @@ class CorrectedOwnershipRegressionTests(unittest.TestCase):
                 "errors": [
                     {
                         "category": "Punctuation",
-                        "severity": "Minor",
+                        "severity": "Major",
                         "comment": "punctuation",
                     }
                 ],
@@ -2482,13 +2479,13 @@ class CorrectedOwnershipRegressionTests(unittest.TestCase):
                     "evidence": None,
                 }
         expected = {
-            "score": 91.5,
+            "score": 87.5,
             "status": "FAIL",
             "errors": 2,
             "wordcount": 100,
             "critical": 0,
             "repeated": 0,
-            "npt": 85.0,
+            "npt": 125.0,
             "critical_gate": False,
         }
 

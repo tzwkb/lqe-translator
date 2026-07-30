@@ -31,7 +31,7 @@ def changed_blocks(value):
 def issue(*, protected=False, needs_confirmation=False):
     value = {
         "category": "Grammar",
-        "severity": "Minor",
+        "severity": "Major",
         "comment": "Replace the outdated word.",
         "needs_confirmation": needs_confirmation,
         "edit": None,
@@ -657,7 +657,7 @@ class RichDiffReportTests(unittest.TestCase):
             )
             self.assertEqual(
                 results.cell(audit_rows[-1], detail_column).value,
-                "[Grammar · Minor] Issue 30",
+            "[Grammar · Major] Issue 30",
             )
             self.assertTrue(
                 all(
@@ -1154,7 +1154,7 @@ class RichDiffAggregateTests(unittest.TestCase):
                     "id": 0,
                     "errors": [{
                         "category": "Grammar",
-                        "severity": "Minor",
+                        "severity": "Major",
                         "comment": "Replace the outdated word.",
                         "needs_confirmation": False,
                         "edit": {
@@ -1171,7 +1171,7 @@ class RichDiffAggregateTests(unittest.TestCase):
                     "id": 1,
                     "errors": [{
                         "category": "Grammar",
-                        "severity": "Minor",
+                        "severity": "Major",
                         "comment": "Keep formula-like text literal.",
                         "needs_confirmation": False,
                         "edit": {
@@ -1188,7 +1188,7 @@ class RichDiffAggregateTests(unittest.TestCase):
                     "id": 2,
                     "errors": [{
                         "category": "Grammar",
-                        "severity": "Minor",
+                        "severity": "Major",
                         "comment": "Protected segments must not be changed.",
                         "needs_confirmation": False,
                         "edit": {
@@ -1205,7 +1205,7 @@ class RichDiffAggregateTests(unittest.TestCase):
                     "id": 3,
                     "errors": [{
                         "category": "Grammar",
-                        "severity": "Minor",
+                        "severity": "Major",
                         "comment": "Issue-level protection must win.",
                         "needs_confirmation": False,
                         "protected": True,

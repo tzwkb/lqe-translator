@@ -31,14 +31,8 @@
           "category": "Grammar",
           "severity": "Minor",
           "comment": "The verb form does not agree with the subject.",
-          "needs_confirmation": false,
-          "edit": {
-            "from": "are",
-            "to": "is",
-            "start": 4,
-            "end": 7,
-            "evidence": null
-          }
+          "needs_confirmation": true,
+          "edit": null
         }
       ]
     }
@@ -54,10 +48,11 @@
 
 模型草稿不得输出 `review_provenance`。正式合并会根据当前绑定模块、`precheck_ref`、实际审阅段和脚本验证结果生成该字段；草稿自报的 AI 状态不会成为报告证据。
 
-- `comment` 用英文简短说明，可引用少量原文或译文。
+- `comment` 用英文简短说明，可引用少量原文或译文。以 20–30 个字符为软目标；完整、清楚优先，不得机械补字或截断。
 - `severity` 只能是 `Neutral`、`Minor`、`Major`、`Critical`。
 - `edit` 只表示一个可安全应用的局部替换，必须带 `from`、`to`、`evidence`；同一子串出现多次时再带 `start`、`end`。
-- 普通语法、标点、拼写或局部用词问题，如果改法唯一且不会碰变量、标签、换行或受保护文本，写 `needs_confirmation: false` 和具体 `edit`。
+- Minor 只报告问题：必须写非空 `comment`、`needs_confirmation: true` 和 `edit: null`，即使改法唯一也不输出局部修改。
+- 非 Minor 问题如果改法唯一且不会碰变量、标签、换行或受保护文本，可写 `needs_confirmation: false` 和具体 `edit`。
 - 新译名、术语表错误、术语表缺词、多个合理译法或任何无法安全局部修改的问题，写 `needs_confirmation: true` 和 `edit: null`。
 - 专名或术语改动只有在 `term_hits` 中存在唯一且 `confirmed: true` 的匹配时才可直接修改；`evidence` 写 `{"type":"confirmed_term","source":"...","target":"..."}`。
 - 受保护段写空 `issues`，不建议修改。
@@ -81,6 +76,28 @@ packet 超过 30 段时，每完成最多 20 个 id 就原子更新一次紧凑�
 | `proper_names` | 专名音译相关的 Mistranslation、Culture specific reference | 术语表自检中的 name 段 |
 
 当前模式下的所有必需模块正式产物都要覆盖全部 id。紧凑 publisher 负责补齐，合并、去重、类别归属检查和最终译文生成仍由原合同完成。
+
+## 文本分类
+
+文本分类只使用上游数据：优先读取非空 `content_type`，否则读取 `text_type_context`。两者都为空或分类无法识别时，所有模块按“标准”检查。不得根据文本内容、文件名、工作表名或目录名自行分类。
+
+强度含义：
+
+- 重点：主动检查本模块负责的全部类别，包括语境相关但有实质影响的问题。
+- 标准：只报告明确且能说明的问题，不做偏好型润色。
+- 保底：不主动寻找 Minor 润色，只报告影响功能、理解或达到 Major/Critical 的明显问题。
+
+| 上游文本类型 | `terminology` | `accuracy` | `grammar` | `naturalness` |
+|---|---|---|---|---|
+| UI/界面文本 | 重点 | 重点 | 重点 | 保底 |
+| 技能/道具描述 | 重点 | 重点 | 标准 | 标准 |
+| 主线剧情对话 | 重点 | 重点 | 重点 | 重点 |
+| 支线/NPC对话 | 标准 | 重点 | 重点 | 重点 |
+| 系统提示/教程 | 重点 | 重点 | 重点 | 标准 |
+| 世界观/背景文本 | 重点 | 重点 | 重点 | 重点 |
+| 战斗/操作提示 | 重点 | 重点 | 标准 | 标准 |
+
+分类只调整检查重点，不改变模块类别所有权、严重度定义、机器预检、术语模式或保护规则。任何分类下都不得漏报明显的 Critical/Major。无术语模式不得因分类重新启用 `terminology`；`precheck_review` 仍只复核 packet 中已有的非术语预检。
 
 ## 发布模块结果
 

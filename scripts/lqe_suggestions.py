@@ -15,6 +15,7 @@ from lqe_corrections import (
 )
 from lqe_engine import (
     VALID_CATEGORIES,
+    VALID_SEVERITIES,
     current_target,
     read_json,
     requires_bound_artifacts,
@@ -25,13 +26,14 @@ from lqe_split_contract import canonical_digest
 
 
 PACKET_SCHEMA = "lqe.reference-suggestion-packet"
-PACKET_VERSION = 1
+PACKET_VERSION = 2
 DRAFT_SCHEMA = "lqe.reference-suggestion-draft"
-DRAFT_VERSION = 1
+DRAFT_VERSION = 2
 ARTIFACT_SCHEMA = "lqe.reference-suggestions"
-ARTIFACT_VERSION = 1
+ARTIFACT_VERSION = 2
 PACKET_NAME = "reference_suggestions.packet.json"
 ARTIFACT_NAME = "reference_suggestions.json"
+DEFAULT_SUGGESTION_SEVERITIES = ("Critical", "Major")
 
 
 def _with_digest(payload: dict, field: str) -> dict:
@@ -66,13 +68,19 @@ def _issue_projection(issue: dict) -> dict:
 
 def _normalize_selection(selection: object | None) -> dict:
     if selection is None:
-        return {"categories": [], "only_missing": False}
+        return {
+            "categories": [],
+            "severities": list(DEFAULT_SUGGESTION_SEVERITIES),
+            "only_missing": False,
+        }
     if not isinstance(selection, dict) or set(selection) != {
         "categories",
+        "severities",
         "only_missing",
     }:
         raise ValueError("reference suggestion selection is invalid")
     categories = selection["categories"]
+    severities = selection["severities"]
     only_missing = selection["only_missing"]
     if (
         not isinstance(categories, list)
@@ -88,10 +96,34 @@ def _normalize_selection(selection: object | None) -> dict:
         raise ValueError(
             f"reference suggestion categories are unknown: {unknown}"
         )
+    if (
+        not isinstance(severities, list)
+        or not severities
+        or any(
+            not isinstance(severity, str) or not severity.strip()
+            for severity in severities
+        )
+        or len(severities) != len(set(severities))
+    ):
+        raise ValueError("reference suggestion severities are invalid")
+    unknown = sorted(set(severities) - VALID_SEVERITIES)
+    if unknown:
+        raise ValueError(
+            f"reference suggestion severities are unknown: {unknown}"
+        )
+    unsupported = sorted(
+        set(severities) - set(DEFAULT_SUGGESTION_SEVERITIES)
+    )
+    if unsupported:
+        raise ValueError(
+            "reference suggestions only support Major/Critical candidates: "
+            f"{unsupported}"
+        )
     if type(only_missing) is not bool:
         raise ValueError("reference suggestion only_missing must be boolean")
     return {
         "categories": sorted(categories),
+        "severities": sorted(severities),
         "only_missing": only_missing,
     }
 
@@ -105,6 +137,7 @@ def build_suggestion_packet(
 ) -> dict:
     selection = _normalize_selection(selection)
     selected_categories = set(selection["categories"])
+    selected_severities = set(selection["severities"])
     by_id = {entry["id"]: entry for entry in results}
     projected = []
     for segment in segments:
@@ -114,17 +147,25 @@ def build_suggestion_packet(
             continue
         if selection["only_missing"] and entry.get("corrected") is not None:
             continue
-        if selected_categories and not any(
-            issue.get("category") in selected_categories
+        eligible_errors = [
+            issue
             for issue in errors
-        ):
+            if issue.get("severity") in selected_severities
+            and (
+                not selected_categories
+                or issue.get("category") in selected_categories
+            )
+        ]
+        if not eligible_errors:
             continue
         item = {
             "id": segment["id"],
             "source": segment.get("source", ""),
             "target": current_target(segment),
             "validated_target": entry.get("corrected"),
-            "errors": [_issue_projection(issue) for issue in errors],
+            "errors": [
+                _issue_projection(issue) for issue in eligible_errors
+            ],
         }
         for field in (
             "content_type",
@@ -154,6 +195,7 @@ def build_suggestion_packet(
         "instructions": {
             "purpose": "report_only_reference_translation",
             "sparse_suggestions_allowed": True,
+            "agent_decides_reliability": True,
             "preserve": [
                 "variables",
                 "tags",
@@ -294,6 +336,14 @@ def load_reference_suggestions(
     artifact = read_json(artifact_path)
     if not isinstance(artifact, dict):
         raise ValueError("reference suggestion artifact must be an object")
+    if (
+        artifact.get("schema") != ARTIFACT_SCHEMA
+        or artifact.get("version") != ARTIFACT_VERSION
+    ):
+        raise ValueError(
+            "reference suggestion artifact schema/version is invalid; "
+            "rerun prepare and publish"
+        )
     selection = _normalize_selection(artifact.get("selection"))
     packet = build_suggestion_packet(
         segments,
@@ -320,12 +370,18 @@ def cmd_prepare(args) -> None:
         for category in (args.categories or "").split(",")
         if category.strip()
     ]
+    severities = [
+        severity.strip()
+        for severity in args.severities.split(",")
+        if severity.strip()
+    ]
     packet = build_suggestion_packet(
         segments,
         manifest,
         results,
         selection={
             "categories": categories,
+            "severities": severities,
             "only_missing": args.only_missing,
         },
     )
@@ -461,6 +517,14 @@ def build_parser() -> argparse.ArgumentParser:
             command.add_argument(
                 "--categories",
                 help="Comma-separated issue categories to include.",
+            )
+            command.add_argument(
+                "--severities",
+                default=",".join(DEFAULT_SUGGESTION_SEVERITIES),
+                help=(
+                    "Comma-separated candidate severities; only "
+                    "Major and Critical are supported."
+                ),
             )
             command.add_argument(
                 "--only-missing",

@@ -51,6 +51,7 @@ class CompactReviewPacketTests(unittest.TestCase):
                     "id": 0,
                     "source": "修复错误",
                     "target": "Fix the eror",
+                    "content_type": "UI/界面文本",
                     "context_note": "Button tooltip",
                     "protected_texts": ["{name}"],
                 },
@@ -65,6 +66,7 @@ class CompactReviewPacketTests(unittest.TestCase):
                     "id": 2,
                     "source": "保留标签",
                     "target": "Keep tag",
+                    "text_type_context": "战斗/操作提示",
                 },
             ],
         }
@@ -146,6 +148,7 @@ class CompactReviewPacketTests(unittest.TestCase):
                 "id",
                 "source",
                 "target",
+                "content_type",
                 "context_note",
                 "kind",
                 "protected_texts",
@@ -154,6 +157,10 @@ class CompactReviewPacketTests(unittest.TestCase):
         self.assertNotIn("precheck", accuracy["segments"][0])
         self.assertNotIn("term_hits", accuracy["segments"][0])
         self.assertNotIn("source_ref", accuracy["segments"][0])
+        self.assertEqual(
+            accuracy["segments"][1]["text_type_context"],
+            "战斗/操作提示",
+        )
 
         report = json.loads(
             (
@@ -240,7 +247,7 @@ class CompactReviewPacketTests(unittest.TestCase):
                         "issues": [
                             {
                                 "category": "Spelling",
-                                "severity": "Minor",
+                                "severity": "Major",
                                 "comment": "The word is misspelled.",
                                 "needs_confirmation": False,
                                 "edit": {
@@ -284,6 +291,60 @@ class CompactReviewPacketTests(unittest.TestCase):
                 / "chunks"
                 / "chunk_00.grammar.receipt.json"
             ).is_file()
+        )
+
+    def test_publish_rejects_minor_edit(self):
+        prepared = self.prepare()
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        packet = self.packet("grammar")
+        draft = self.job / "grammar.minor-edit.json"
+        write_json(
+            draft,
+            {
+                "schema": "lqe.compact-module-draft",
+                "version": 1,
+                "module": "grammar",
+                "chunk_id": 0,
+                "packet_digest": packet["packet_digest"],
+                "reviewed_ids": packet["reviewed_ids"],
+                "findings": [
+                    {
+                        "id": 0,
+                        "issues": [
+                            {
+                                "category": "Spelling",
+                                "severity": "Minor",
+                                "comment": "The word is misspelled.",
+                                "needs_confirmation": False,
+                                "edit": {
+                                    "from": "eror",
+                                    "to": "error",
+                                    "evidence": None,
+                                },
+                            }
+                        ],
+                    }
+                ],
+            },
+        )
+
+        published = self.run_script(
+            REVIEW_SCRIPT,
+            "publish",
+            "--job",
+            self.job,
+            "--chunk",
+            0,
+            "--module",
+            "grammar",
+            "--input",
+            draft,
+        )
+
+        self.assertNotEqual(published.returncode, 0)
+        self.assertIn("Minor issue", published.stderr)
+        self.assertFalse(
+            (self.job / "chunks" / "chunk_00.grammar.json").exists()
         )
 
     def test_publish_rejects_incomplete_review_proof(self):

@@ -265,14 +265,8 @@ references/suggestions.md
         "category": "Grammar",
         "severity": "Minor",
         "comment": "The verb form does not agree with the subject.",
-        "needs_confirmation": false,
-        "edit": {
-          "from": "are",
-          "to": "is",
-          "start": 4,
-          "end": 7,
-          "evidence": null
-        }
+        "needs_confirmation": true,
+        "edit": null
       }
     ]
   }
@@ -282,8 +276,9 @@ references/suggestions.md
 固定接口为 `{id, issues:[{category,severity,comment,needs_confirmation,edit}]}`（模型输出）。机器预检生成的 Terminology issue 另带只读的 `term_source` 和 `expected_targets`；模型无需输出或改写，publisher 会按 `precheck_ref` 保留。默认模型草稿使用第 7 节的紧凑包装，只列确有问题的接口项；publisher 补齐无问题 id。检查模块不得输出 corrected；`lqe_corrections.py` 验证局部修改后生成该内部字段。
 
 - 所有必需模块的正式产物覆盖全部 id；无问题项由 publisher 写成 `issues: []`。
-- `comment` 统一用英文。
-- 安全、唯一、局部的改法写 `needs_confirmation: false` 和 `edit`。
+- `comment` 统一用英文，以 20–30 个字符为软目标；完整、清楚优先，不机械补字或截断。
+- Minor 只报告问题：必须写非空 `comment`、`needs_confirmation: true` 和 `edit: null`，即使改法唯一也不输出局部修改。
+- 非 Minor 问题中，安全、唯一、局部的改法可写 `needs_confirmation: false` 和 `edit`。
 - 新译名、术语表错误或缺词、多个合理方案、整句重写写 `needs_confirmation: true` 和 `edit: null`。
 - 术语或专名修改必须引用唯一的 `confirmed: true` 候选，证据格式为 `{"type":"confirmed_term","source":"...","target":"..."}`。
 - 变量、标签、换行、受保护文本和受保护段不得被修改。
@@ -298,6 +293,22 @@ references/suggestions.md
 | `grammar` | Grammar、Spelling、Punctuation |
 | `naturalness` | Audience appropriateness、Culture specific reference、Unidiomatic |
 | `proper_names` | 术语表自检中的专名音译 |
+
+文本分类只使用上游提供的列或规则结果。表格输入已识别 `content_type`、`text_type`、`文本类型`、`文本类别`；检查时优先使用非空 `content_type`，否则使用 `text_type_context`。两者都为空或分类未知时按标准强度处理，不得根据文本、文件名、工作表名或目录名自行分类。
+
+分类只调整检查重点，不改变模块分工、严重度定义、机器预检、术语模式和保护规则：
+
+| 上游文本类型 | `terminology` | `accuracy` | `grammar` | `naturalness` |
+|---|---|---|---|---|
+| UI/界面文本 | 重点 | 重点 | 重点 | 保底 |
+| 技能/道具描述 | 重点 | 重点 | 标准 | 标准 |
+| 主线剧情对话 | 重点 | 重点 | 重点 | 重点 |
+| 支线/NPC对话 | 标准 | 重点 | 重点 | 重点 |
+| 系统提示/教程 | 重点 | 重点 | 重点 | 标准 |
+| 世界观/背景文本 | 重点 | 重点 | 重点 | 重点 |
+| 战斗/操作提示 | 重点 | 重点 | 标准 | 标准 |
+
+“重点”表示主动检查本模块全部类别；“标准”表示只报明确问题，不做偏好型润色；“保底”表示不主动寻找 Minor 润色，但仍报告影响功能、理解或达到 Major/Critical 的明显问题。无术语模式不得因分类重新启用 `terminology`。
 
 ## 7. 分块流程
 
@@ -354,12 +365,8 @@ chunk_NN.naturalness.json
           "category": "Spelling",
           "severity": "Minor",
           "comment": "The word is misspelled.",
-          "needs_confirmation": false,
-          "edit": {
-            "from": "eror",
-            "to": "error",
-            "evidence": null
-          }
+          "needs_confirmation": true,
+          "edit": null
         }
       ]
     }
@@ -398,13 +405,14 @@ python "$SCRIPTS/lqe_chunk.py" merge \
 
 ```bash
 python "$SCRIPTS/lqe_suggestions.py" prepare --job "$JOB" \
-  [--categories "Company style,Unidiomatic"] [--only-missing]
+  [--categories "Company style,Unidiomatic"] \
+  [--severities "Major,Critical"] [--only-missing]
 # suggestion worker 按 references/suggestions.md 生成紧凑草稿
 python "$SCRIPTS/lqe_suggestions.py" publish \
   --job "$JOB" --input <参考建议草稿.json>
 ```
 
-参考建议允许整句改写。`--categories` 可建立类别限定的有界审阅包，`--only-missing` 只纳入尚无安全局部建议的段；草稿可只提交有可靠方案的 id。publisher 仍强制保留变量、标签、换行和 `protected_texts`，并拒绝受保护段。正式产物 `reference_suggestions.json` 只供报告展示，不写入 `corrected`，不进入 apply、export 或 corrected 文件。未提交建议的有问题段在报告中标为“未生成建议，需人工处理”。
+参考建议允许整句改写。默认候选严重度为 Major/Critical，`--categories` 可进一步限定类别，`--only-missing` 只纳入尚无安全局部建议的段。严重度只决定候选范围；是否能可靠给出建议仍由 Agent 判断，草稿可只提交有可靠方案的 id。Minor 不进入建议 packet，也不生成局部 edit、corrected 或自动迭代修改。publisher 仍强制保留变量、标签、换行和 `protected_texts`，并拒绝受保护段。建议 worker 优先使用 `content_type`，否则使用 `text_type_context` 调整技术文本的简洁性、对话的角色声音及世界观文本的风格，不自行分类。正式产物 `reference_suggestions.json` 只供报告展示，不写入 `corrected`，不进入 apply、export 或 corrected 文件。未提交建议的有问题段在报告中标为“未生成建议，需人工处理”。
 
 一键收尾：
 

@@ -127,6 +127,9 @@ class DocumentedContractTests(unittest.TestCase):
         cls.common = (ROOT / "references/check_modules/common.md").read_text(
             encoding="utf-8"
         )
+        cls.suggestions = (ROOT / "references/suggestions.md").read_text(
+            encoding="utf-8"
+        )
 
     def test_skill_states_top_level_check_contract(self):
         self.assertIn(
@@ -180,6 +183,46 @@ class DocumentedContractTests(unittest.TestCase):
             self.common,
         )
         self.assertIn("当前模式和必需模块以 `state.check_scope` 为准", self.common)
+
+    def test_minor_and_comment_cost_contract_is_documented(self):
+        for content in (self.skill, self.common):
+            with self.subTest(document=content[:30]):
+                self.assertIn("20–30", content)
+                self.assertIn("软目标", content)
+                self.assertIn("Minor 只报告问题", content)
+                self.assertIn("`needs_confirmation: true`", content)
+                self.assertIn("`edit: null`", content)
+
+    def test_text_classification_uses_upstream_fields_and_lqe_modules(self):
+        for phrase in (
+            "`content_type`",
+            "`text_type_context`",
+            "不得根据文本",
+            "UI/界面文本",
+            "技能/道具描述",
+            "主线剧情对话",
+            "支线/NPC对话",
+            "系统提示/教程",
+            "世界观/背景文本",
+            "战斗/操作提示",
+            "`terminology`",
+            "`accuracy`",
+            "`grammar`",
+            "`naturalness`",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, self.common)
+
+    def test_reference_suggestions_keep_agent_reliability_judgment(self):
+        for phrase in (
+            '"version": 2',
+            '"severities": ["Critical", "Major"]',
+            "严重度只决定候选范围",
+            "Agent 判断为可靠",
+            "优先读取非空 `content_type`",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, self.suggestions)
 
     def test_user_documents_publish_complete_scope_contract(self):
         for path in USER_DOCUMENTS:

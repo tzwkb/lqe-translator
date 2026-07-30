@@ -158,6 +158,15 @@ def _canonical_issue(
         edit = copy.deepcopy(edit) if edit is not None else None
     else:
         edit = None
+    if value["severity"] == "Minor":
+        if needs_confirmation is not True:
+            raise CheckFormatError(
+                f"{label}: Minor issue must set needs_confirmation to true"
+            )
+        if edit is not None:
+            raise CheckFormatError(
+                f"{label}: Minor issue must set edit to null"
+            )
 
     result = {
         key: copy.deepcopy(value[key]) for key in _ISSUE_FIELDS if key in value

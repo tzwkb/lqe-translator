@@ -524,7 +524,7 @@ class ErrorLevelProtectionRegressionTests(unittest.TestCase):
         write_json(
             self.errors_path,
             self.errors(
-                issue(severity="Minor", protected=True, with_edit=True),
+                issue(severity="Major", protected=True, with_edit=True),
                 corrected="Beta",
             ),
         )

@@ -258,12 +258,8 @@ The compact draft contract is:
           "category": "Grammar",
           "severity": "Minor",
           "comment": "The verb form does not agree with the subject.",
-          "needs_confirmation": false,
-          "edit": {
-            "from": "are",
-            "to": "is",
-            "evidence": null
-          }
+          "needs_confirmation": true,
+          "edit": null
         }
       ]
     }
@@ -271,9 +267,13 @@ The compact draft contract is:
 }
 ```
 
+Every `comment` must be non-empty English, with 20–30 characters as a soft target; completeness and clarity take priority. Minor issues must use `needs_confirmation: true` and `edit: null`, and never produce corrected text or automatic iteration changes. For non-Minor issues, the agent still decides whether a safe, unique local edit exists.
+
 Use `needs_confirmation: true` and `edit: null` for a new name, missing terminology, multiple reasonable options, or a rewrite. A terminology or proper-name edit also requires one unique `confirmed: true` candidate and `confirmed_term` evidence.
 
 Machine-generated Terminology issues also carry read-only `term_source` and `expected_targets`; models do not need to emit or rewrite them, and the publisher preserves them through `precheck_ref`.
+
+The tabular columns `content_type`, `text_type`, `文本类型`, and `文本类别` are passed into review packets as upstream text classifications. Agents use row-level `content_type` first and then `text_type_context`; missing or unknown values fall back to standard review intensity and must not be inferred. The module-intensity matrix for UI, skill/item, main dialogue, side/NPC dialogue, system/tutorial, lore, and combat/operation text is defined in `references/check_modules/common.md`. Classification changes review emphasis only; it does not disable deterministic checks or required modules.
 
 ### 5. Validate, merge, score, and export
 
@@ -293,6 +293,17 @@ python3 "$SCRIPTS/lqe_calc.py" \
 ```
 
 `merge` re-derives the merged issues and provenance from the current bound module outputs, verifies both the content digest and an independent local publication receipt for formal module entries, rejects a forged intermediate merged file, and atomically publishes `errors.json` with `errors.contract.json`. Model drafts cannot self-declare AI review/edit status. Calc, write, apply, export, and aggregation hold a generation lease and reject missing provenance or a missing, tampered, or stale contract. Jobs created by the current reader also reject state-only verification when `chunks/` is missing.
+
+When full-sentence reference suggestions are needed, run after merge and calc:
+
+```bash
+python3 "$SCRIPTS/lqe_suggestions.py" prepare \
+  --job "$JOB" --severities "Major,Critical" --only-missing
+python3 "$SCRIPTS/lqe_suggestions.py" publish \
+  --job "$JOB" --input <reference-suggestion-draft.json>
+```
+
+Minor issues never enter the suggestion packet. Major/Critical defines the candidate set only; the agent still decides whether a reliable full suggestion can be submitted, and an omitted suggestion never removes the issue explanation. Suggestion artifacts are version 2; older artifacts must be prepared and published again.
 
 For a first-round review, explicitly use `single`:
 

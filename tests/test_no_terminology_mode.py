@@ -302,7 +302,7 @@ class NoTerminologyScopeTests(unittest.TestCase):
             (
                 {
                     "category": "Other",
-                    "severity": "Minor",
+                    "severity": "Major",
                     "comment": "  TERM REVIEW: verify",
                 },
                 "TERM REVIEW evidence is disabled",
@@ -310,7 +310,7 @@ class NoTerminologyScopeTests(unittest.TestCase):
             (
                 {
                     "category": "Other",
-                    "severity": "Minor",
+                    "severity": "Major",
                     "comment": "  term review: verify",
                 },
                 "TERM REVIEW evidence is disabled",
@@ -318,7 +318,7 @@ class NoTerminologyScopeTests(unittest.TestCase):
             (
                 {
                     "category": "Other",
-                    "severity": "Minor",
+                    "severity": "Major",
                     "comment": "term evidence",
                     "edit": {"evidence": {"type": "confirmed_term"}},
                 },
@@ -327,7 +327,7 @@ class NoTerminologyScopeTests(unittest.TestCase):
             (
                 {
                     "category": "Other",
-                    "severity": "Minor",
+                    "severity": "Major",
                     "comment": "term evidence",
                     "edit": {"evidence": {"type": "Confirmed_Term"}},
                 },
@@ -511,9 +511,7 @@ class NoTerminologyPrecheckTests(unittest.TestCase):
         rows = [{"id": segment["id"], "issues": []} for segment in segments]
         issue = {
             "category": category,
-            "severity": severity or (
-                "Major" if category == "Terminology" else "Minor"
-            ),
+            "severity": severity or "Major",
             "comment": comment,
             "needs_confirmation": edit is None,
             "edit": edit,
@@ -827,7 +825,7 @@ class NoTerminologyPrecheckTests(unittest.TestCase):
                     "issues": [
                         {
                             "category": "Markup",
-                            "severity": "Minor",
+                            "severity": "Major",
                             "comment": "machine finding",
                             "needs_confirmation": True,
                             "edit": None,
@@ -937,7 +935,7 @@ class NoTerminologyModuleTests(unittest.TestCase):
                     "errors": [
                         {
                             "category": category,
-                            "severity": "Minor",
+                            "severity": "Major",
                             "comment": comment,
                             "needs_confirmation": False,
                             "edit": edit,
@@ -1123,7 +1121,7 @@ class NoTerminologyModuleTests(unittest.TestCase):
             precheck_issues=[
             {
                 "category": "Locale convention",
-                "severity": "Minor",
+                "severity": "Major",
                 "comment": "machine finding",
                 "needs_confirmation": False,
                 "edit": {"from": "A", "to": "B", "evidence": None},
@@ -1141,7 +1139,7 @@ class NoTerminologyModuleTests(unittest.TestCase):
                 {
                     "precheck_ref": precheck_ref,
                     "category": "Locale convention",
-                    "severity": "Minor",
+                    "severity": "Major",
                     "comment": "changed correction",
                     "needs_confirmation": False,
                     "edit": {"from": "A", "to": "C", "evidence": None},
@@ -1341,7 +1339,7 @@ class NoTerminologyModuleTests(unittest.TestCase):
                     "issues": [
                         {
                             "category": "Other",
-                            "severity": "Minor",
+                            "severity": "Major",
                             "comment": "forbidden",
                             "needs_confirmation": False,
                             "edit": {

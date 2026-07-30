@@ -265,12 +265,8 @@ chunk_NN.naturalness.json
           "category": "Grammar",
           "severity": "Minor",
           "comment": "The verb form does not agree with the subject.",
-          "needs_confirmation": false,
-          "edit": {
-            "from": "are",
-            "to": "is",
-            "evidence": null
-          }
+          "needs_confirmation": true,
+          "edit": null
         }
       ]
     }
@@ -278,9 +274,13 @@ chunk_NN.naturalness.json
 }
 ```
 
+所有 `comment` 必须为非空英文，以 20–30 个字符为软目标，完整和清楚优先。Minor 固定使用 `needs_confirmation: true`、`edit: null`，不生成 corrected 或自动迭代修改；非 Minor 问题仍由 Agent 判断是否存在安全、唯一的局部 edit。
+
 新译名、术语表缺词、多个合理方案或整句重写，使用 `needs_confirmation: true` 和 `edit: null`。术语或专名修改还必须有唯一的 `confirmed: true` 候选和 `confirmed_term` 证据。
 
 机器预检生成的 Terminology issue 会附带只读的 `term_source` 和 `expected_targets`；模型无需输出或改写，publisher 会按 `precheck_ref` 保留。
+
+表格中的 `content_type`、`text_type`、`文本类型`、`文本类别` 会作为上游文本分类传入 review packet。Agent 优先使用行级 `content_type`，否则使用 `text_type_context`；缺失或未知时按标准强度检查，不自行分类。UI、技能/道具、主线对话、支线/NPC 对话、系统/教程、世界观和战斗/操作提示的模块强度矩阵见 `references/check_modules/common.md`。分类只调整检查重点，不关闭机器预检或必需模块。
 
 ### 5. 校验、合并和评分
 
@@ -300,6 +300,17 @@ python3 "$SCRIPTS/lqe_calc.py" \
 ```
 
 `merge` 会从当前绑定模块重新推导 merged 问题与 provenance，拒绝伪造的中间 merged 文件，再原子发布 `errors.json` 与 `errors.contract.json`。正式 module entries 的内容摘要与独立本地发布收据都会被校验；模型草稿不能自报 AI 复核/编辑状态。calc、write、apply、export 和聚合持有 generation lease，并拒绝 provenance 缺失以及契约缺失、篡改或过期。当前 reader 创建的任务在 `chunks/` 缺失时也不会退回 state-only 校验。
+
+需要整句参考建议时，在 merge 和 calc 后运行：
+
+```bash
+python3 "$SCRIPTS/lqe_suggestions.py" prepare \
+  --job "$JOB" --severities "Major,Critical" --only-missing
+python3 "$SCRIPTS/lqe_suggestions.py" publish \
+  --job "$JOB" --input <参考建议草稿.json>
+```
+
+Minor 不进入建议 packet。Major/Critical 只作为候选范围，是否提交完整建议译文仍由 Agent 根据可靠性判断；未提交建议不影响问题说明。建议 artifact 版本为 2，旧版本需重新 prepare 和 publish。
 
 首轮检查应明确使用 `single`：
 

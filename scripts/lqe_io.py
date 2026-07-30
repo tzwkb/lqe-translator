@@ -2253,6 +2253,11 @@ def _build_xlsx(
     def _review_suggestion(seg, entry, errs, is_protected):
         if is_protected:
             return "", "已保护"
+        if errs and not any(
+            issue.get("severity") in {"Major", "Critical"}
+            for issue in errs
+        ):
+            return "", "未生成建议，需人工处理"
         reference = reference_suggestions.get(seg["id"])
         if reference is not None:
             return reference, "建议待确认"

@@ -9,10 +9,11 @@
 ```json
 {
   "schema": "lqe.reference-suggestion-draft",
-  "version": 1,
+  "version": 2,
   "packet_digest": "<packet.packet_digest>",
   "selection": {
     "categories": ["Audience appropriateness", "Company style", "Unidiomatic"],
+    "severities": ["Critical", "Major"],
     "only_missing": true
   },
   "reviewed_ids": [0, 1, 2],
@@ -28,8 +29,9 @@
 规则：
 
 - `reviewed_ids` 必须逐项复制 packet 的同名数组，顺序不变。
-- `selection` 必须逐项复制 packet 的同名对象；可用 `prepare --categories <逗号分隔类别> --only-missing` 建立有界审阅包。
-- `suggestions` 可以稀疏，但 id 不得重复或越界。
+- `selection` 必须逐项复制 packet 的同名对象；可用 `prepare --categories <逗号分隔类别> --severities Major,Critical --only-missing` 建立有界审阅包。
+- suggestion packet 只把 Major/Critical 作为候选；严重度只决定候选范围，不要求 Agent 为每个候选都生成建议。
+- `suggestions` 只提交 Agent 判断为可靠的建议，id 不得重复或越界。
 - `reference_target` 必须是完整译文，不是说明、选项列表或局部片段。
 - 可进行风格、自然度、文化适配和整句重写；以 packet 中 `errors` 和上下文为依据。
 - 如果 packet 有 `validated_target`，以它作为已验证局部修正基础，避免恢复已修正问题。
@@ -37,6 +39,13 @@
 - 不得为受保护段生成建议。
 - 存在多个合理方案、上下文不足或无法可靠改写时，省略该 id。
 - 不得添加 `status`、`comment`、`corrected` 或其他字段。
+
+文本分类只使用 packet 中的上游字段：优先读取非空 `content_type`，否则读取 `text_type_context`；缺失或未知时按普通文本处理，不自行分类。
+
+- UI/界面文本、系统提示/教程、战斗/操作提示：优先保证简洁、清楚、可执行，并准确保留操作、条件和结果。
+- 技能/道具描述：准确保留机制、数值关系和术语，再处理表达自然度。
+- 主线剧情对话、支线/NPC 对话：结合上下文保持角色声音、语域和口语自然度。
+- 世界观/背景文本：同时保持术语、叙事风格和文化表达。
 
 发布命令：
 

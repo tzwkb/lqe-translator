@@ -237,6 +237,11 @@ def issue_contract_problem(issue: dict) -> str | None:
         return "comment must be a string"
     if not comment.strip():
         return "comment must be non-empty"
+    if severity == "Minor":
+        if issue.get("needs_confirmation") is not True:
+            return "Minor issue must set needs_confirmation to true"
+        if issue.get("edit") is not None:
+            return "Minor issue must set edit to null"
     for field in ("needs_confirmation", "protected", "repeated"):
         if field in issue and type(issue[field]) is not bool:
             return f"{field} must be boolean"

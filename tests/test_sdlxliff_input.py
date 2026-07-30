@@ -2300,7 +2300,7 @@ class SDLXLIFFOutputTests(unittest.TestCase):
     def issue(*, edit=None):
         return {
             "category": "Grammar",
-            "severity": "Minor",
+            "severity": "Major",
             "comment": "Output fixture issue",
             "needs_confirmation": False,
             "edit": edit,

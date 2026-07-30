@@ -502,7 +502,7 @@ class AggregateScoringPolicyTests(unittest.TestCase):
                     "errors": [
                         {
                             "category": "Grammar",
-                            "severity": "Minor",
+                            "severity": "Major",
                             "comment": "Use the revised target.",
                             "needs_confirmation": False,
                             "edit": {
@@ -621,7 +621,7 @@ class AggregateScoringPolicyTests(unittest.TestCase):
                     "errors": [
                         {
                             "category": "Grammar",
-                            "severity": "Minor",
+                            "severity": "Major",
                             "comment": "Use the revised target.",
                             "needs_confirmation": False,
                             "edit": {
@@ -682,7 +682,7 @@ class AggregateScoringPolicyTests(unittest.TestCase):
                     "errors": [
                         {
                             "category": "Grammar",
-                            "severity": "Minor",
+                            "severity": "Major",
                             "comment": "Use the revised target.",
                             "needs_confirmation": False,
                             "edit": {

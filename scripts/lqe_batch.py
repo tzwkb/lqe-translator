@@ -128,9 +128,12 @@ def cmd_plan(args):
     _SCHEMA_HEADER = "\n".join(scope_lines) + "\n" + (
         "# 输出格式（强制）：JSON 数组，每项为 {id, issues:[...]}。"
         "每个 issue 必须含 category / severity / comment / needs_confirmation / edit；"
-        "comment 不得为空。"
-        "批量同类问题也要逐条填写。需要人工确认时 edit 必须为 null；"
-        "安全局部修改写入 edit。检查任务不得输出 corrected。\n"
+        "comment 不得为空，以 20–30 个字符为软目标，完整清楚优先。"
+        "Minor 固定为 needs_confirmation=true、edit=null；"
+        "非 Minor 的安全局部修改才可写入 edit。"
+        "批量同类问题也要逐条填写。检查任务不得输出 corrected。"
+        "若输入带 CONTENT_TYPE 或文本类型 CONTEXT，只按上游分类调整检查重点，"
+        "不得自行分类。\n"
         "# ────────────────────────────────────────\n"
     )
     manifest = []

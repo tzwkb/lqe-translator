@@ -210,8 +210,12 @@ def _check_issues(errors: list[dict]) -> list[dict]:
     for error in errors:
         issue = dict(error)
         edit = issue.get("edit")
-        issue["needs_confirmation"] = edit is None
-        issue["edit"] = edit
+        if issue.get("severity") == "Minor":
+            issue["needs_confirmation"] = True
+            issue["edit"] = None
+        else:
+            issue["needs_confirmation"] = edit is None
+            issue["edit"] = edit
         issues.append(issue)
     return issues
 

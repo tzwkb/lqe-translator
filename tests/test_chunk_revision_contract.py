@@ -596,7 +596,7 @@ class SplitContractCommandTests(unittest.TestCase):
         )
         grammar_issue = {
             "category": "Grammar",
-            "severity": "Minor",
+            "severity": "Major",
             "comment": "Use the corrected form.",
             "needs_confirmation": False,
             "edit": {

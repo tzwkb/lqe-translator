@@ -30,7 +30,7 @@ def write_json(path: Path, value: object) -> None:
 def local_issue(frm: str, to: str) -> dict:
     return {
         "category": "Grammar",
-        "severity": "Minor",
+        "severity": "Major",
         "comment": "Apply the verified local edit.",
         "needs_confirmation": False,
         "edit": {"from": frm, "to": to, "evidence": None},

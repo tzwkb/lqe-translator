@@ -313,7 +313,7 @@ def t7():
     modules = state["check_scope"]["enabled_modules"]
     issue = {
         "category": "Spelling",
-        "severity": "Minor",
+        "severity": "Major",
         "comment": "Correct the misspelling.",
         "needs_confirmation": False,
         "edit": {
@@ -577,7 +577,7 @@ def t13():
     ]}
     errors = [
         {"id": 0, "errors": [{"category": "Mistranslation", "severity": "Major", "comment": "wrong"}], "corrected": None},
-        {"id": 1, "errors": [{"category": "Punctuation", "severity": "Minor", "comment": "punct"}], "corrected": None},
+        {"id": 1, "errors": [{"category": "Punctuation", "severity": "Minor", "comment": "punct", "needs_confirmation": True, "edit": None}], "corrected": None},
     ]
     (TMP / "scorecard_state.json").write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
     (TMP / "scorecard_errors_default.json").write_text(json.dumps(errors, ensure_ascii=False), encoding="utf-8")
@@ -618,9 +618,9 @@ def t14():
         {"id": 2, "source": "丙。", "target": "C.", "corrected": None},
     ]}
     errors = [
-        {"id": 0, "errors": [{"category": "Punctuation", "severity": "Minor", "comment": "punct"}], "corrected": None},
+        {"id": 0, "errors": [{"category": "Punctuation", "severity": "Minor", "comment": "punct", "needs_confirmation": True, "edit": None}], "corrected": None},
         {"id": 1, "errors": [{"category": "Unidiomatic", "severity": "Major", "comment": "awkward"}], "corrected": None},
-        {"id": 2, "errors": [{"category": "Audience appropriateness", "severity": "Minor", "comment": "tone"}], "corrected": None},
+        {"id": 2, "errors": [{"category": "Audience appropriateness", "severity": "Minor", "comment": "tone", "needs_confirmation": True, "edit": None}], "corrected": None},
     ]
     (TMP / "lqe2026_state.json").write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
     (TMP / "lqe2026_errors.json").write_text(json.dumps(errors, ensure_ascii=False), encoding="utf-8")

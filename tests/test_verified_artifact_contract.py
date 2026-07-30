@@ -28,7 +28,7 @@ def write_json(path: Path, value: object) -> None:
 def grammar_issue(*, replacement: str | None = None) -> dict:
     return {
         "category": "Grammar",
-        "severity": "Minor",
+        "severity": "Major",
         "comment": "Verified artifact regression.",
         "needs_confirmation": replacement is None,
         "edit": (

@@ -16,6 +16,7 @@ from lqe_split_contract import canonical_digest
 from lqe_suggestions import (
     ARTIFACT_SCHEMA,
     ARTIFACT_VERSION,
+    _normalize_selection,
     _with_digest,
     build_suggestion_packet,
     validate_suggestion_artifact,
@@ -27,8 +28,8 @@ def issue(
     *,
     needs_confirmation=False,
     edit=None,
-    category="Style",
-    severity="Minor",
+    category="Unidiomatic",
+    severity="Major",
 ):
     return {
         "category": category,
@@ -40,6 +41,101 @@ def issue(
 
 
 class ReferenceSuggestionContractTests(unittest.TestCase):
+    def test_packet_uses_major_critical_candidates_and_agent_judgment(self):
+        segments = [
+            {
+                "id": 0,
+                "source": "Source 0",
+                "target": "Target 0",
+                "content_type": "UI/界面文本",
+            },
+            {"id": 1, "source": "Source 1", "target": "Target 1"},
+            {
+                "id": 2,
+                "source": "Source 2",
+                "target": "Target 2",
+                "text_type_context": "主线剧情对话",
+            },
+            {
+                "id": 3,
+                "source": "Source 3",
+                "target": "Target 3",
+                "protected": True,
+            },
+        ]
+        results = [
+            {
+                "id": 0,
+                "errors": [
+                    issue("Major problem."),
+                    issue(
+                        "Minor problem.",
+                        severity="Minor",
+                        needs_confirmation=True,
+                    ),
+                ],
+                "corrected": None,
+            },
+            {
+                "id": 1,
+                "errors": [
+                    issue(
+                        "Minor only.",
+                        severity="Minor",
+                        needs_confirmation=True,
+                    )
+                ],
+                "corrected": None,
+            },
+            {
+                "id": 2,
+                "errors": [issue("Critical problem.", severity="Critical")],
+                "corrected": None,
+            },
+            {
+                "id": 3,
+                "errors": [issue("Protected problem.")],
+                "corrected": None,
+            },
+        ]
+
+        packet = build_suggestion_packet(segments, None, results)
+
+        self.assertEqual(
+            packet["selection"],
+            {
+                "categories": [],
+                "severities": ["Critical", "Major"],
+                "only_missing": False,
+            },
+        )
+        self.assertEqual(packet["reviewed_ids"], [0, 2])
+        self.assertEqual(
+            [error["severity"] for error in packet["segments"][0]["errors"]],
+            ["Major"],
+        )
+        self.assertEqual(
+            packet["segments"][0]["content_type"],
+            "UI/界面文本",
+        )
+        self.assertEqual(
+            packet["segments"][1]["text_type_context"],
+            "主线剧情对话",
+        )
+        self.assertTrue(
+            packet["instructions"]["sparse_suggestions_allowed"]
+        )
+        self.assertTrue(packet["instructions"]["agent_decides_reliability"])
+
+        with self.assertRaisesRegex(ValueError, "only support Major/Critical"):
+            _normalize_selection(
+                {
+                    "categories": [],
+                    "severities": ["Minor"],
+                    "only_missing": False,
+                }
+            )
+
     def test_full_reference_target_preserves_protected_signature(self):
         segment = {
             "id": 7,
@@ -117,6 +213,9 @@ class ReferenceSuggestionContractTests(unittest.TestCase):
             validate_suggestion_artifact(valid, packet, segments),
             {0: "Better target {0}"},
         )
+        legacy = {**valid, "version": 1}
+        with self.assertRaisesRegex(ValueError, "version"):
+            validate_suggestion_artifact(legacy, packet, segments)
         duplicate = artifact([
             {"id": 0, "reference_target": "Better target {0}"},
             {"id": 0, "reference_target": "Another target {0}"},
@@ -131,6 +230,52 @@ class ReferenceSuggestionContractTests(unittest.TestCase):
 
 
 class ReviewerWorkbookTests(unittest.TestCase):
+    def test_minor_only_segment_never_displays_suggested_translation(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            output = Path(tempdir) / "minor-review.xlsx"
+            state = {
+                "input_path": str(Path(tempdir) / "source.xlsx"),
+                "headers": ["原文", "译文"],
+                "rows_raw": [["Source", "Target"]],
+                "target_col": 1,
+                "segments": [
+                    {"id": 0, "source": "Source", "target": "Target"}
+                ],
+                "wordcount": 1,
+            }
+            results = [
+                {
+                    "id": 0,
+                    "errors": [
+                        issue(
+                            "Minor problem.",
+                            severity="Minor",
+                            needs_confirmation=True,
+                        )
+                    ],
+                    "corrected": None,
+                }
+            ]
+            lqe_io._build_xlsx(
+                state,
+                [{"iteration": 0, "errors": results}],
+                99,
+                98,
+                output,
+                reference_suggestions={0: "Must not be shown"},
+            )
+
+            workbook = openpyxl.load_workbook(output, data_only=True)
+            try:
+                sheet = workbook["LQE Results"]
+                self.assertIsNone(sheet.cell(2, 4).value)
+                self.assertEqual(
+                    sheet.cell(2, 5).value,
+                    "未生成建议，需人工处理",
+                )
+            finally:
+                workbook.close()
+
     def test_reviewer_view_has_two_visible_sheets_and_exact_statuses(self):
         with tempfile.TemporaryDirectory() as tempdir:
             output = Path(tempdir) / "review.xlsx"

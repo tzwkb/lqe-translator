@@ -13,8 +13,8 @@
 
 ## 修改规则
 
-单个拼写、标点、词形或可唯一定位的小范围语法问题可给 `"needs_confirmation": false` 和局部 `"edit"`。需要重排或整句改写时写 `"needs_confirmation": true`、`"edit": null`。
+Minor 只报告问题，固定给 `"needs_confirmation": true` 和 `"edit": null`。非 Minor 问题中，单个拼写、标点、词形或可唯一定位的小范围语法问题可给 `"needs_confirmation": false` 和局部 `"edit"`。需要重排或整句改写时写 `"needs_confirmation": true`、`"edit": null`。
 
 ```json
-[{"id": 5, "issues": [{"category": "Spelling", "severity": "Minor", "comment": "The word contains a duplicated letter.", "needs_confirmation": false, "edit": {"from": "lettter", "to": "letter", "evidence": null}}]}]
+[{"id": 5, "issues": [{"category": "Spelling", "severity": "Minor", "comment": "The word is misspelled.", "needs_confirmation": true, "edit": null}]}]
 ```
