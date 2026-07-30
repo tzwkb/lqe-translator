@@ -6,10 +6,12 @@
 
 ## 术语状态语义（terms_th.json 的 status）
 - **New**（主库 TH 列）：待审核——偏离时记录 Terminology，但需结合语境
-- **合规审核通过**：仅表示主表合规审核状态；保留为当前主库候选，但不据此自动设为 `confirmed` 或 `protected`
-- **Denied**：保留拒绝/误导名记录供语境判断，不得作为安全自动替换的确认术语证据
+- **NeedReview**：待复核——保留为未确认候选，偏离时结合语境判断
+- **空状态**：按未确认候选处理
+- **合规审核通过**：当前项目导入口径为 `confirmed: true`、`protected: false`
+- **Denied**：客户拒绝项，导入时直接排除，不进入术语检查
 - **WorkingTB**（译员工作 TB）：项目流通译法——偏离时记录 Terminology Major
-- **Approved**：PM/客户定稿——严格执行
+- **Approved**：PM/客户定稿，导入口径为 `confirmed: true`、`protected: false`，严格执行
 - 精灵名一律 ≤12 字符（仅精灵名段；无 key 列时凭 TB 命中判断）
 
 ## TH SG 关键硬规则（评估时执行）
@@ -40,5 +42,13 @@
 - 43 行 TH 为空且无可回填旧译，未写入术语库；状态分布：合规审核通过 4,301、New 1,239、Denied 4、Approved 4
 - 多义来源共 9 个：伊贝儿、翠顶夫人、里奥、黄蜂后、帕帕斯卡、呱呱、古路尼、裘卡、克制；以 `terms_th.multisense.json` 为准
 - 所有 `confirmed` / `protected` 均按技能合同保持显式 `false`；不根据 status 自动推断
+
+## TB 更新 2026-07-28（Master TB 0728 TH 导入）
+- 源文件 `../common/ROCO_MasterTB_0728_TH.xlsx`；旧库快照 `terms_th_pre0728.bak.json`，旧多义清单快照 `terms_th_pre0728.multisense.bak.json`
+- 导入 5,695 个来源、5,709 个义项；新增 167 个来源，移除 7 个来源，87 个共有来源的泰语译法发生变化
+- 44 行 TH 为空：1 个待填充缺口沿用旧库译法，2 个来源另有已填充行，41 个来源未写入术语库；Denied 6 行已排除
+- 导入后状态分布：合规审核通过 4,229、New 1,412、NeedReview 64、Approved 4
+- 多义来源共 14 个：翼龙、伊兰、伊贝儿、书卷守护、咔咔羽毛、翠顶夫人、里奥、黄蜂后、帕帕斯卡、呱呱、格斗小六、古路尼、裘卡、克制；以 `terms_th.multisense.json` 为准
+- 状态映射沿用当前项目口径：Approved、合规审核通过为 `confirmed: true`；New、NeedReview、空状态为 `confirmed: false`；全部为 `protected: false`
 
 （范围口径「都列出」、severity 口径见 SKILL.md 标准流程，全语言通用，不在此重复）

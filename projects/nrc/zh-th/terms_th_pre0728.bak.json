@@ -1569,10 +1569,10 @@
  },
  {
   "source": "魔药学学姐",
-  "target": "รุ่นพี่วิชาเล่นแร่แปรธาตุ",
-  "confirmed": false,
+  "target": "รุ่นพี่วิชาปรุงยาเวท",
+  "confirmed": true,
   "protected": false,
-  "status": "New"
+  "status": "合规审核通过"
  },
  {
   "source": "高年级学长",
@@ -2262,10 +2262,10 @@
  },
  {
   "source": "魔药学老师",
-  "target": "อาจารย์สอนเล่นแร่แปรธาตุ",
-  "confirmed": false,
+  "target": "อาจารย์วิชาปรุงยาเวท",
+  "confirmed": true,
   "protected": false,
-  "status": "New"
+  "status": "合规审核通过"
  },
  {
   "source": "新来的学生",
@@ -2639,27 +2639,6 @@
   "status": "合规审核通过"
  },
  {
-  "source": "翼龙",
-  "senses": [
-   {
-    "target": "เทอริล",
-    "confirmed": false,
-    "protected": false,
-    "status": "New",
-    "category": "Creature Individual",
-    "definition": "风翼之龙的昵称"
-   },
-   {
-    "target": "เทโรซอร์",
-    "confirmed": true,
-    "protected": false,
-    "status": "合规审核通过",
-    "category": "Creature Species",
-    "definition": "J0724 2/2"
-   }
-  ]
- },
- {
   "source": "爆裂之龙",
   "target": "มังกรกัมปนาท",
   "confirmed": true,
@@ -2667,39 +2646,11 @@
   "status": "合规审核通过"
  },
  {
-  "source": "喷喷",
-  "target": "ไพรอย",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
   "source": "风暴之龙",
   "target": "มังกรพายุ",
   "confirmed": true,
   "protected": false,
   "status": "合规审核通过"
- },
- {
-  "source": "伊兰",
-  "senses": [
-   {
-    "target": "เทมพี",
-    "confirmed": false,
-    "protected": false,
-    "status": "New",
-    "category": "Creature Individual",
-    "definition": "风暴之龙的昵称"
-   },
-   {
-    "target": "อีลาน",
-    "confirmed": true,
-    "protected": false,
-    "status": "合规审核通过",
-    "category": "Creature Individual",
-    "definition": "三龙传说中的风暴之龙"
-   }
-  ]
  },
  {
   "source": "机械精灵",
@@ -3011,31 +2962,31 @@
  },
  {
   "source": "蹦蹦种子",
-  "target": "บอปปี้",
-  "confirmed": false,
+  "target": "เมล็ดดึ๋งดึ๋ง",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "蹦蹦草",
-  "target": "บอปโปโร",
-  "confirmed": false,
+  "target": "หญ้าดึ๋งดึ๋ง",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "蹦蹦花",
-  "target": "โบโวรา",
-  "confirmed": false,
+  "target": "ดอกดึ๋งดึ๋ง",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "蹦蹦果",
-  "target": "บูเบอริ",
-  "confirmed": false,
+  "target": "ผลดึ๋งดึ๋ง",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "丢丢",
@@ -3171,11 +3122,11 @@
   "status": "合规审核通过"
  },
  {
-  "source": "涟漪白发路路",
-  "target": "รูลิโด",
-  "confirmed": false,
+  "source": "白发路路·夏日",
+  "target": "ซัมเมอร์รูลัน",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "紫蔓宝宝",
@@ -3487,10 +3438,10 @@
  },
  {
   "source": "超级鳄椰",
-  "target": "ปาล์มเกเตอร์",
-  "confirmed": false,
+  "target": "ปาล์มมิเกเตอร์",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "面剂子",
@@ -3522,17 +3473,17 @@
  },
  {
   "source": "鸭吉吉",
-  "target": "ดั๊กกิจิ",
-  "confirmed": false,
+  "target": "เป็ดจีจี้",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "鸭吉吉国王",
-  "target": "คิงดั๊กกิจิ",
-  "confirmed": false,
+  "target": "ราชาเป็ดจีจี้",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "阿布",
@@ -3557,10 +3508,10 @@
  },
  {
   "source": "画间法师手",
-  "target": "เฟรมิสต์",
-  "confirmed": false,
+  "target": "มือจอมเวทแห่งภาพวาด",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "画间沉铁兽",
@@ -3578,24 +3529,10 @@
  },
  {
   "source": "书卷守护",
-  "senses": [
-   {
-    "target": "สโครลลาร์ด",
-    "confirmed": false,
-    "protected": false,
-    "status": "NeedReview",
-    "category": "Creature Species",
-    "definition": "J0119 2/3\n身上带着书本和油墨的味道，看起来小小的，其实比想象中重很多。常与同伴交换藏书，偶尔遇到疑惑的地方，会用书使劲砸自己的头，希望用这种办法让知识快点进入身体。"
-   },
-   {
-    "target": "ผู้พิทักษ์คัมภีร์",
-    "confirmed": false,
-    "protected": false,
-    "status": "New",
-    "category": "Creature Individual",
-    "definition": "书卷守护（个体）\n生态园水族馆打卡剧情中给主角出题的精灵"
-   }
-  ]
+  "target": "ผู้พิทักษ์คัมภีร์",
+  "confirmed": true,
+  "protected": false,
+  "status": "合规审核通过"
  },
  {
   "source": "古卷执政官",
@@ -3921,10 +3858,10 @@
  },
  {
   "source": "记忆石",
-  "target": "เร็มน์สโตน",
-  "confirmed": false,
+  "target": "ศิลาความทรงจำ",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "阿米亚特",
@@ -4166,10 +4103,10 @@
  },
  {
   "source": "夜回犀牛",
-  "target": "น็อคท็อกซ์",
-  "confirmed": false,
+  "target": "แรดน้อยราตรี",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "地银链",
@@ -4446,24 +4383,24 @@
  },
  {
   "source": "水滴蛇",
-  "target": "เซอร์พิกา",
-  "confirmed": false,
+  "target": "งูติ๋งติ๋ง",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "水蛇锁",
-  "target": "เซอร์เพียน",
-  "confirmed": false,
+  "target": "งูน้ำ",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "游蛇魔使",
-  "target": "เซอร์พีน็อกซ์",
-  "confirmed": false,
+  "target": "ทูตเวทปีศาจงู",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "板板壳",
@@ -4523,17 +4460,17 @@
  },
  {
   "source": "风铃鲨",
-  "target": "เบลล์ชาร์ก",
-  "confirmed": false,
+  "target": "ฉลามกรุ๊งกริ๊ง",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "蓝蝶鲨",
-  "target": "เฟย์ชาร์ก",
-  "confirmed": false,
+  "target": "ฉลามผีเสื้อฟ้า",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "彩蝶鲨",
@@ -4544,10 +4481,10 @@
  },
  {
   "source": "神谕鲨",
-  "target": "โอราชาร์ก",
-  "confirmed": false,
+  "target": "ฉลามเทพพยากรณ์",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "海盔虫",
@@ -4642,10 +4579,10 @@
  },
  {
   "source": "海枝枝",
-  "target": "คอรัลลิป",
-  "confirmed": false,
+  "target": "รีฟฟี่",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "十字蝌蚪",
@@ -4670,10 +4607,10 @@
  },
  {
   "source": "里拉鳐",
-  "target": "เรย์เร",
-  "confirmed": false,
+  "target": "ปลากระเบนลิรา",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "水星尾",
@@ -4698,10 +4635,10 @@
  },
  {
   "source": "果冻",
-  "target": "เกลลิดิน",
-  "confirmed": false,
+  "target": "เยลลี่",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "抹茶布丁",
@@ -4740,24 +4677,24 @@
  },
  {
   "source": "翡翠水母",
-  "target": "เวอร์เดลี",
-  "confirmed": false,
+  "target": "เจดเจลลี่",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "琉璃水母",
-  "target": "เวอร์ลิสส์",
-  "confirmed": false,
+  "target": "คริสตัลเจลลี่",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "琉璃君主",
-  "target": "เวอร์เลส์",
-  "confirmed": false,
+  "target": "คริสตัลลอร์ด",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "海豚",
@@ -4950,7 +4887,7 @@
  },
  {
   "source": "睡铃雪影娃娃",
-  "target": "เวเรีย",
+  "target": "สปริงฟรอสเทีย",
   "confirmed": false,
   "protected": false,
   "status": "New"
@@ -4978,10 +4915,10 @@
  },
  {
   "source": "冰钻布鲁斯",
-  "target": "คริสโตปี้",
-  "confirmed": false,
+  "target": "ไอซ์ไดมอนด์บรูซ",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "圣冠布鲁斯",
@@ -5090,10 +5027,10 @@
  },
  {
   "source": "冰晶古齿虎",
-  "target": "เซเบอร์ครี",
-  "confirmed": false,
+  "target": "เซเบอร์ฟรอกซ์",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "古齿帝牙",
@@ -5377,38 +5314,24 @@
  },
  {
   "source": "高脚鹬",
-  "target": "อาวิสทิลต์",
-  "confirmed": false,
+  "target": "นกเท้ายาว",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "高帽鹬者",
-  "target": "อาวิเครสต์",
+  "target": "แวดบริม",
   "confirmed": false,
   "protected": false,
   "status": "New"
  },
  {
   "source": "咔咔羽毛",
-  "senses": [
-   {
-    "target": "คากู",
-    "confirmed": false,
-    "protected": false,
-    "status": "NeedReview",
-    "category": "Creature Species",
-    "definition": "J0381 1/3\n跑得很快，手短且柔软，一般用尾巴来代替手的作用。尝试助跑之后短暂地浮空，但似乎一直没能学会飞翔。"
-   },
-   {
-    "target": "ขนนกกาก้า",
-    "confirmed": true,
-    "protected": false,
-    "status": "合规审核通过",
-    "category": "Creature Individual",
-    "definition": "咔咔羽毛（个体）\n在雪地玩着玩着就吃起雪来的咔咔羽毛"
-   }
-  ]
+  "target": "ขนนกกาก้า",
+  "confirmed": true,
+  "protected": false,
+  "status": "合规审核通过"
  },
  {
   "source": "咔咔雀",
@@ -5419,10 +5342,10 @@
  },
  {
   "source": "咔咔鸟",
-  "target": "คาเวลล์",
-  "confirmed": false,
+  "target": "กาก้าสแปร์โรว์",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "乖乖鹄",
@@ -5762,38 +5685,38 @@
  },
  {
   "source": "圆眼蜘蛛",
-  "target": "ออร์บิคัส",
-  "confirmed": false,
+  "target": "แมงมุมตากลม",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "尖角蜘蛛",
-  "target": "ออร์บริสเทิล",
-  "confirmed": false,
+  "target": "แมงมุมเขาแหลม",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "芋香巨角蛛",
-  "target": "ออร์บาลิสก์",
-  "confirmed": false,
+  "target": "แมงมุมเขายักษ์",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "小甲虫",
-  "target": "สคาราบัด",
-  "confirmed": false,
+  "target": "ด้วงน้อย",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "铠甲虫",
-  "target": "สคาราบาสต์",
-  "confirmed": false,
+  "target": "ด้วงเกราะแกร่ง",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "小螂",
@@ -5839,10 +5762,10 @@
  },
  {
   "source": "小草虫",
-  "target": "สปริกเกิล",
-  "confirmed": false,
+  "target": "หนอนหญ้าน้อย",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "草衣虫",
@@ -6049,7 +5972,7 @@
  },
  {
   "source": "暗影恶魔",
-  "target": "อิมเพอเรอร์",
+  "target": "อิมป์เพอเรอร์",
   "confirmed": false,
   "protected": false,
   "status": "New"
@@ -6294,7 +6217,7 @@
  },
  {
   "source": "炎魔地狱犬",
-  "target": "เฮลล์เบรอส",
+  "target": "อินเฟอร์เบรอส",
   "confirmed": false,
   "protected": false,
   "status": "New"
@@ -6364,7 +6287,7 @@
  },
  {
   "source": "魔盒猫",
-  "target": "เพอร์โดรา",
+  "target": "เพอร์ราด็อกซ์",
   "confirmed": false,
   "protected": false,
   "status": "New"
@@ -6546,24 +6469,24 @@
  },
  {
   "source": "灵狐",
-  "target": "เรย์นา",
-  "confirmed": false,
+  "target": "จิ้งจอกวิญญาณ",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "九尾狐",
-  "target": "เรย์นเนีย",
-  "confirmed": false,
+  "target": "จิ้งจอกเก้าหาง",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "尖嘴狐仙",
-  "target": "เรย์เซลิส",
-  "confirmed": false,
+  "target": "จิ้งจอกปากแหลม",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "烈钻鸟",
@@ -6609,10 +6532,10 @@
  },
  {
   "source": "火尾瓦特",
-  "target": "ซินดิต",
-  "confirmed": false,
+  "target": "วัตต์หางเพลิง",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "火尾战士",
@@ -6637,17 +6560,17 @@
  },
  {
   "source": "柴渣虫",
-  "target": "บาร์คินด์",
-  "confirmed": false,
+  "target": "แมลงฟืน",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "燃薪虫",
-  "target": "สปลินทอร์ช",
-  "confirmed": false,
+  "target": "แมลงเชื้อเพลิง",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "热团团",
@@ -6672,17 +6595,17 @@
  },
  {
   "source": "赤毛鸡仔",
-  "target": "พีพัฟ",
-  "confirmed": false,
+  "target": "เจี๊ยบเพลิงปุย",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "火云斗鸡",
-  "target": "เบลซรูสต์",
-  "confirmed": false,
+  "target": "ไก่ชนเมฆเพลิง",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "伊丽莎白",
@@ -6805,17 +6728,17 @@
  },
  {
   "source": "幽影树",
-  "target": "สตัมบรัล",
-  "confirmed": false,
+  "target": "ต้นไม้เงาหลอน",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "幻影荆棘",
-  "target": "ไบรอาธ",
-  "confirmed": false,
+  "target": "หนามเงามายา",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "蜜果骸",
@@ -7526,10 +7449,10 @@
  },
  {
   "source": "声波缇塔",
-  "target": "ไทโทน",
-  "confirmed": false,
+  "target": "ตีต้าคลื่นเสียง",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "超导缇塔",
@@ -7540,17 +7463,17 @@
  },
  {
   "source": "齿轮小子",
-  "target": "เมชิป",
-  "confirmed": false,
+  "target": "เจ้าหนูเกียร์",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "机甲小子",
-  "target": "เมชาด",
-  "confirmed": false,
+  "target": "เจ้าหนูจักรกล",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "权杖-Ⅱ",
@@ -7575,17 +7498,17 @@
  },
  {
   "source": "圣剑-X",
-  "target": "คาลิบ X",
-  "confirmed": false,
+  "target": "ดาบศักดิ์สิทธิ์ X",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "圣剑骑士",
-  "target": "คาลิเบิร์น",
-  "confirmed": false,
+  "target": "อัศวินดาบศักดิ์สิทธิ์",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "螺旋帕帕",
@@ -7598,10 +7521,10 @@
   "source": "帕帕斯卡",
   "senses": [
    {
-    "target": "พาพาสโก",
-    "confirmed": false,
+    "target": "เวิร์สกา พาพาสโก",
+    "confirmed": true,
     "protected": false,
-    "status": "NeedReview",
+    "status": "合规审核通过",
     "category": "Creature Species",
     "definition": "J0689 2/2\n在机械系精灵中非常有声望。曾经制造出帕帕斯卡的洛克许下一个愿望，希望能让机械系精灵有尊严地活着。于是帕帕斯卡整个种族一直在想办法让机械系精灵过上更体面更开心的生活。"
    },
@@ -7743,7 +7666,7 @@
  },
  {
   "source": "机幕方舟",
-  "target": "คาร์นิวาร์ก",
+  "target": "อาร์คาร์นิวัล",
   "confirmed": false,
   "protected": false,
   "status": "New"
@@ -7841,7 +7764,7 @@
  },
  {
   "source": "猪身炮火车",
-  "target": "บอร์มอร์",
+  "target": "สนอร์ทิลเลอรี",
   "confirmed": false,
   "protected": false,
   "status": "New"
@@ -7852,6 +7775,13 @@
   "confirmed": false,
   "protected": false,
   "status": "New"
+ },
+ {
+  "source": "翼龙",
+  "target": "เทโรซอร์",
+  "confirmed": true,
+  "protected": false,
+  "status": "合规审核通过"
  },
  {
   "source": "风行翼龙",
@@ -8044,31 +7974,17 @@
  },
  {
   "source": "格斗小六",
-  "senses": [
-   {
-    "target": "เฮกซิวาร์",
-    "confirmed": false,
-    "protected": false,
-    "status": "NeedReview",
-    "category": "Creature Species",
-    "definition": "J0750 1/1\n掌力十足，岩石上常常出现它们的掌印。研究员根据其攻击招式，改编了一套能够强身健体的健体操，在学院中曾挂起过一阵不小的习武之风。"
-   },
-   {
-    "target": "เจ้าหกนักสู้",
-    "confirmed": false,
-    "protected": false,
-    "status": "New",
-    "category": "Creature Individual",
-    "definition": "格斗小六（个体）\n奉希露德命令守在竞技场门口的精灵"
-   }
-  ]
+  "target": "เจ้าหกนักสู้",
+  "confirmed": true,
+  "protected": false,
+  "status": "合规审核通过"
  },
  {
   "source": "格斗小八",
-  "target": "อ็อกทิวาร์",
-  "confirmed": false,
+  "target": "เจ้าแปดนักสู้",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "格斗小七",
@@ -8289,17 +8205,17 @@
  },
  {
   "source": "古钟蛇",
-  "target": "เบลลิสก์",
-  "confirmed": false,
+  "target": "งูกระดิ่งโบราณ",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "寒音蛇",
-  "target": "ชิมนิกซ์",
-  "confirmed": false,
+  "target": "งูเสียงสะท้าน",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "逗逗",
@@ -8324,10 +8240,10 @@
  },
  {
   "source": "奇梦咪",
-  "target": "พัฟฟีค",
-  "confirmed": false,
+  "target": "เหมียวฝันเฟื่อง",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "菊花梨",
@@ -8338,7 +8254,7 @@
  },
  {
   "source": "蝴蝶陶陶",
-  "target": "มิสทริล",
+  "target": "ฟลัตเตอร์พอว์",
   "confirmed": false,
   "protected": false,
   "status": "New"
@@ -8387,10 +8303,10 @@
  },
  {
   "source": "乌角驮驮",
-  "target": "มูแรม",
-  "confirmed": false,
+  "target": "เขาดำตุ้ยนุ้ย",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "费曼",
@@ -8709,10 +8625,10 @@
  },
  {
   "source": "月亮砣",
-  "target": "โมลูน",
-  "confirmed": false,
+  "target": "ปลาตุ้มจันทร์เสี้ยว",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "满月砣",
@@ -9003,10 +8919,10 @@
  },
  {
   "source": "落陨星兔",
-  "target": "คอเมทาเร",
-  "confirmed": false,
+  "target": "แอสเทอร์ฟอลล์",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "星星眼",
@@ -9374,10 +9290,10 @@
  },
  {
   "source": "岚鸟山风",
-  "target": "วิหคสายหมอก",
-  "confirmed": false,
+  "target": "เทมเพสต์",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "流浪鼠包包",
@@ -11480,6 +11396,20 @@
   "status": "合规审核通过"
  },
  {
+  "source": "向阳花.等",
+  "target": "ดอกทานตะวัน",
+  "confirmed": true,
+  "protected": false,
+  "status": "合规审核通过"
+ },
+ {
+  "source": "黑晶琉璃.等",
+  "target": "ดาร์คคริสตัล",
+  "confirmed": true,
+  "protected": false,
+  "status": "合规审核通过"
+ },
+ {
   "source": "XX粉尘",
   "target": "ฝุ่นXX",
   "confirmed": true,
@@ -12187,6 +12117,13 @@
   "status": "合规审核通过"
  },
  {
+  "source": "治愈童话书团",
+  "target": "ชมรมนิทานฮาร์ทวูด",
+  "confirmed": true,
+  "protected": false,
+  "status": "合规审核通过"
+ },
+ {
   "source": "课题",
   "target": "หัวข้อศึกษา",
   "confirmed": true,
@@ -12608,10 +12545,10 @@
  },
  {
   "source": "魔药学",
-  "target": "วิชาเล่นแร่แปรธาตุ",
-  "confirmed": false,
+  "target": "วิชาปรุงยาเวท",
+  "confirmed": true,
   "protected": false,
-  "status": "New"
+  "status": "合规审核通过"
  },
  {
   "source": "基础医理",
@@ -13855,6 +13792,13 @@
  {
   "source": "闪宝",
   "target": "ชายนี่",
+  "confirmed": true,
+  "protected": false,
+  "status": "合规审核通过"
+ },
+ {
+  "source": "伊兰",
+  "target": "อีลาน",
   "confirmed": true,
   "protected": false,
   "status": "合规审核通过"
@@ -16262,10 +16206,10 @@
  },
  {
   "source": "黑晶琉璃",
-  "target": "แบล็กคริสตัล",
-  "confirmed": false,
+  "target": "ดาร์คคริสตัล",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "咸咸盐桔",
@@ -22247,7 +22191,7 @@
  },
  {
   "source": "包挂饰",
-  "target": "เครื่องประดับกระเป๋า",
+  "target": "จี้ห้อยกระเป๋า",
   "confirmed": true,
   "protected": false,
   "status": "合规审核通过"
@@ -22493,6 +22437,13 @@
  {
   "source": "暴击抵抗",
   "target": "ต้านทานคริติคอล",
+  "confirmed": true,
+  "protected": false,
+  "status": "合规审核通过"
+ },
+ {
+  "source": "宠物伤害类型",
+  "target": "ประเภทความเสียหายสัตว์เลี้ยง",
   "confirmed": true,
   "protected": false,
   "status": "合规审核通过"
@@ -22751,10 +22702,10 @@
  },
  {
   "source": "露天对决",
-  "target": "ศึกประลองกลางแจ้ง",
-  "confirmed": false,
+  "target": "ดวลกลางแจ้ง",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "星光",
@@ -24508,10 +24459,10 @@
  },
  {
   "source": "恢复能量",
-  "target": "พลังงานฟื้นฟู",
-  "confirmed": false,
+  "target": "ฟื้นฟูพลังงาน",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "地源力",
@@ -28659,10 +28610,10 @@
  },
  {
   "source": "炼金分院",
-  "target": "สำนักเล่นแร่ฯ",
-  "confirmed": false,
+  "target": "สำนักวิชาเล่นแร่แปรธาตุ",
+  "confirmed": true,
   "protected": false,
-  "status": "NeedReview"
+  "status": "合规审核通过"
  },
  {
   "source": "鸭王",
@@ -29883,6 +29834,13 @@
   "status": "合规审核通过"
  },
  {
+  "source": "礼拜堂",
+  "target": "โบสถ์",
+  "confirmed": true,
+  "protected": false,
+  "status": "合规审核通过"
+ },
+ {
   "source": "洛克银行",
   "target": "ธนาคารโรโค",
   "confirmed": true,
@@ -30549,10 +30507,10 @@
  },
  {
   "source": "伊丝",
-  "target": "เอลิส",
-  "confirmed": false,
+  "target": "อีส",
+  "confirmed": true,
   "protected": false,
-  "status": "New"
+  "status": "合规审核通过"
  },
  {
   "source": "鹿娜",
@@ -34132,13 +34090,6 @@
   "status": "New"
  },
  {
-  "source": "分院仪式",
-  "target": "ทดสอบสำนัก",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
   "source": "星空之地",
   "target": "ดินแดนแห่งหมู่ดาว",
   "confirmed": false,
@@ -35337,7 +35288,7 @@
  },
  {
   "source": "箱中实验室",
-  "target": "ห้องแล็บในกล่อง",
+  "target": "ห้องทดลองในกล่อง",
   "confirmed": false,
   "protected": false,
   "status": "New"
@@ -35414,7 +35365,7 @@
  },
  {
   "source": "吉洛斯",
-  "target": "กิลลอส",
+  "target": "คาร์ลอส",
   "confirmed": false,
   "protected": false,
   "status": "New"
@@ -35456,7 +35407,7 @@
  },
  {
   "source": "包挂",
-  "target": "พวงห้อยกระเป๋า",
+  "target": "จี้ห้อยกระเป๋า",
   "confirmed": false,
   "protected": false,
   "status": "New"
@@ -35869,7 +35820,7 @@
  },
  {
   "source": "小花",
-  "target": "ฟลาวเวอร์",
+  "target": "ฟลาววี่",
   "confirmed": false,
   "protected": false,
   "status": "New"
@@ -35995,7 +35946,7 @@
  },
  {
   "source": "弗库洛",
-  "target": "เฟลิกส์",
+  "target": "เฟลิกซ์",
   "confirmed": false,
   "protected": false,
   "status": "New"
@@ -36086,7 +36037,7 @@
  },
  {
   "source": "血量",
-  "target": "HP",
+  "target": "HP/พลังชีวิต",
   "confirmed": false,
   "protected": false,
   "status": "New"
@@ -36373,7 +36324,7 @@
  },
  {
   "source": "飞艇",
-  "target": "ยานบิน",
+  "target": "เรือเหาะ",
   "confirmed": false,
   "protected": false,
   "status": "New"
@@ -36402,6 +36353,13 @@
  {
   "source": "教导主任",
   "target": "หัวหน้าฝ่ายปกครอง",
+  "confirmed": false,
+  "protected": false,
+  "status": "New"
+ },
+ {
+  "source": "礼堂",
+  "target": "โถง",
   "confirmed": false,
   "protected": false,
   "status": "New"
@@ -37108,7 +37066,7 @@
  },
  {
   "source": "奈可",
-  "target": "นิก้า",
+  "target": "ไนค์",
   "confirmed": false,
   "protected": false,
   "status": "New"
@@ -37116,6 +37074,13 @@
  {
   "source": "奈文",
   "target": "เนเวน",
+  "confirmed": false,
+  "protected": false,
+  "status": "New"
+ },
+ {
+  "source": "奎因",
+  "target": "ควินน์",
   "confirmed": false,
   "protected": false,
   "status": "New"
@@ -38221,7 +38186,7 @@
  },
  {
   "source": "舞者伊丝",
-  "target": "นักเต้นเอลิส",
+  "target": "นักเต้นรำอีส",
   "confirmed": false,
   "protected": false,
   "status": "New"
@@ -38899,1163 +38864,8 @@
   "status": "New"
  },
  {
-  "source": "拾荒者酒馆",
-  "target": "โรงเตี๊ยมนักคุ้ย",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "拾荒者营地",
-  "target": "ค่ายนักคุ้ย",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "安保队长",
-  "target": "หัวหน้าหน่วยรักษาความปลอดภัย",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "机幕方舟马戏团/方舟马戏团",
-  "target": "คณะละครสัตว์อาร์คาร์นิวัล",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "双生蘑菇体感帽",
-  "target": "หมวกสัมผัสเห็ดคู่แฝด",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
   "source": "珍稀",
   "target": "ล้ำค่า",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "高贵咬咬",
-  "target": "ขบกัดสูงศักดิ์",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "珍稀精灵保护计划",
-  "target": "แผนคุ้มครองภูตหายาก",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "猫猫队",
-  "target": "หน่วยเหมียว",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "愿力联结",
-  "target": "สานพลังปรารถนา",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "彩虹七子",
-  "target": "เจ็ดเทพสีรุ้ง",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "茉莉安娜",
-  "target": "มาเรียน",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "安神曲",
-  "target": "เพลงประโลมจิตใจ",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "契约副券",
-  "target": "บัตรสัญญารอง",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "皮卡服装店",
-  "target": "ร้านเสื้อผ้าปิโก",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "放生",
-  "target": "ปล่อย",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "灵感",
-  "target": "แรงบันดาลใจ",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "魔法种子供能箱",
-  "target": "กล่องพลังเมล็ดเวท",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "晋升",
-  "target": "เลื่อนขั้น",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "萌洛洛",
-  "target": "โมโล",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "萌哟萌哟",
-  "target": "แก๊งน่ารักจุ๋มจิ๋ม",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "重生",
-  "target": "คืนชีพ",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "圣龙骑士",
-  "target": "อัศวินมังกร",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "幽影峡谷",
-  "target": "หุบเขาเงาทมิฬ",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "哈古利乌",
-  "target": "ฮากูเรียม",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "糖果迷城",
-  "target": "นครลูกกวาดพิศวง",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "守护",
-  "target": "ปกป้อง",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "更换",
-  "target": "เปลี่ยน",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "秒杀",
-  "target": "ปลิดชีพ",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "逃跑",
-  "target": "หนี",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "镜影",
-  "target": "เงากระจก",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "首领形态",
-  "target": "โหมดอัลฟ่า",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "黑魔法诅咒——减速",
-  "target": "คำสาปเวทมนตร์ดำ - ลดความเร็ว",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "黑魔法诅咒——减防",
-  "target": "คำสาปเวทมนตร์ดำ - ลดพลังป้องกัน",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "黑魔法诅咒——掉血",
-  "target": "คำสาปเวทมนตร์ดำ - ลดพลังชีวิต",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "学生洛卡",
-  "target": "นักเรียนโลแกน",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "平静学生莉亚",
-  "target": "ลีอา นักเรียนผู้สงบ",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "学弟欧兰",
-  "target": "รุ่นน้องโอแรน",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "学长艾迪",
-  "target": "รุ่นพี่เอ็ดดี้",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "憨憨学弟路理理",
-  "target": "รุ่นน้องขี้เล่นเลแลนด์",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "胖胖学弟阿乐",
-  "target": "รุ่นน้องตุ้ยนุ้ยอาเล่",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "乐观主义达尔",
-  "target": "ดาริล ผู้มองโลกในแง่ดี",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "元气魔法师沃丽",
-  "target": "ออลลี่ จอมเวทสดใส",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "学姐索利亚",
-  "target": "รุ่นพี่โซเลีย",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "学姐秋卡",
-  "target": "รุ่นพี่คีร่า",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "学姐绒绒",
-  "target": "รุ่นพี่โรน่า",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "魔法师但德",
-  "target": "จอมเวทเบดจ์",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "吟游旅行者",
-  "target": "นักดนตรีพเนจร",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "工作狂洛克",
-  "target": "โรโคบ้างาน",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "喵帕斯",
-  "target": "เหมียวพาส",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "安东尼达斯",
-  "target": "แอนโทนิดัส",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "海曼",
-  "target": "ไฮแมน",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "克里斯汀",
-  "target": "คริสติน่า",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "麦斯",
-  "target": "เมซ",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "克莱尔",
-  "target": "แคลร์",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "西里尔",
-  "target": "ไซริล",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "哈罗尔",
-  "target": "ฮาโรล",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "莫莲娜",
-  "target": "โมน่า",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "米德尔顿",
-  "target": "มิดเดิลตัน",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "本尼迪克特",
-  "target": "เบเนดิกต์",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "艾米萨莉",
-  "target": "อเมลินา",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "詹金",
-  "target": "เจนกิน",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "休",
-  "target": "ฮิว",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "阿黛尔",
-  "target": "อเดลล์",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "琼森",
-  "target": "เจนสัน",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "克里斯托弗",
-  "target": "คริสโตเฟอร์",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "艾格尼丝",
-  "target": "แอกกี้",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "奥拉尔",
-  "target": "โอรัล",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "马休",
-  "target": "มัตเทโอ",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "安斯提尔",
-  "target": "แอนเซล",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "梅根",
-  "target": "เมแกน",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "金",
-  "target": "คิมเบอร์รี",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "朱利尔斯",
-  "target": "จูเลียร์ส",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "泽维尔",
-  "target": "ซาเวียร์",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "米切尔",
-  "target": "มิตเชลล์",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "提姆",
-  "target": "ทิม",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "安德烈",
-  "target": "อังเดร",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "达伦",
-  "target": "ดาเรน",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "米拉奇",
-  "target": "ไมรัค",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "绘里",
-  "target": "เฮย์ลีย์",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "元气少女春",
-  "target": "ชารา สาวน้อยผู้ร่าเริง",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "自闭木木",
-  "target": "มูนนี่ขี้อาย",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "骑士伯恩",
-  "target": "อัศวินไบรน์",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "加西亚",
-  "target": "การ์เซีย",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "汤尼",
-  "target": "โทนี่",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "爱普莉",
-  "target": "เอพริล",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "艾希礼",
-  "target": "แอชลีย์",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "阿尔瓦",
-  "target": "อัลวา",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "米勒爷爷",
-  "target": "คุณปู่ไมลส์",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "威尔逊",
-  "target": "วิลสัน",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "阿尔杰",
-  "target": "อัลเจอร์",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "扎克利",
-  "target": "แซคเคอรี",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "纪伯伦",
-  "target": "กิลเบิร์ต",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "赛门",
-  "target": "ซีเมียน",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "卡莉",
-  "target": "คาร์ลี",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "艾凡",
-  "target": "เอวอน",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "托德",
-  "target": "ท็อดด์",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "哈瑞斯",
-  "target": "แฮร์ริส",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "尤金",
-  "target": "ยูจีน",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "布尔希",
-  "target": "เบอร์สชี",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "法拉",
-  "target": "ฟอลลอน",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "凯恩",
-  "target": "เคน",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "阿加莎",
-  "target": "อกาธา",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "亚伯",
-  "target": "เอเบอร์",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "艾玛",
-  "target": "เอ็มมา",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "秋山",
-  "target": "มอนตี้",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "维洛特",
-  "target": "วิโลต์",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "文斯",
-  "target": "วินซ์",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "肖恩",
-  "target": "ชอน",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "里基",
-  "target": "ริกกี้",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "雷诺",
-  "target": "เรย์โน",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "萨莉",
-  "target": "เซดี้",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "卡尔德隆",
-  "target": "คัลเดอร์",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "塔克",
-  "target": "ทัค",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "亨特",
-  "target": "ฮันเตอร์",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "马库斯",
-  "target": "มาร์คัส",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "贝丝",
-  "target": "เบธ",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "特纳",
-  "target": "เทอร์เนอร์",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "李老板",
-  "target": "คุณลีห์",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "阿比盖尔",
-  "target": "อบิเกล",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "贾斯伯",
-  "target": "แจสเปอร์",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "奥德丽",
-  "target": "ออเดรย์",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "诺拉",
-  "target": "นอรา",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "乔纳森",
-  "target": "โจนาธาน",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "梅森",
-  "target": "เมย์สัน",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "卡洛姆",
-  "target": "คาลอม",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "格蕾丝",
-  "target": "เกรซ",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "艾美利亚",
-  "target": "เอ็มเมลิน",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "奥多",
-  "target": "โอโด",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "裘德",
-  "target": "จูด",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "哈德利",
-  "target": "แฮดลีย์",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "佐伊",
-  "target": "โซอี้",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "南茜",
-  "target": "แนนซี่",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "莉可",
-  "target": "ริโก้",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "米莱",
-  "target": "ไมล์",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "梅莉",
-  "target": "เมลลี่",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "金百莉",
-  "target": "โกลดี้",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "维琪",
-  "target": "วิกกี้",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "小桃",
-  "target": "พีชชี่",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "小满",
-  "target": "เมเบิล",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "奥托",
-  "target": "โอโธ",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "巴尔德",
-  "target": "บัลดูร์",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "石嗑嗒",
-  "target": "โบลดี้",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "霍希",
-  "target": "ฮอเรซ",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "拉蓬泽尔",
-  "target": "ราพันเซล",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "瓦伦特",
-  "target": "วาเลนเต้",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "希尔达",
-  "target": "ฮิลดา",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "骑士团",
-  "target": "กองอัศวิน",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "拾遗",
-  "target": "เควสต์เสริม",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "可丽学堂",
-  "target": "สถาบันคลาริสซา",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "属性",
-  "target": "สเตตัส",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "副本",
-  "target": "ดันเจี้ยน",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "碎石",
-  "target": "เศษหิน",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "风洞石堆",
-  "target": "กองหินถ้ำลม",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "沙丘木窟",
-  "target": "ถ้ำไม้เนินทราย",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "矿窟的遗藏",
-  "target": "ขุมทรัพย์เหมืองแร่",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "瓮中捉巫",
-  "target": "แม่มดในกำมือ",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "隧洞的遗藏",
-  "target": "อุโมงค์ขุมทรัพย์",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "精灵王的馈赠",
-  "target": "ของขวัญราชันภูต",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "瀑下的遗藏",
-  "target": "ขุมทรัพย์ใต้น้ำตก",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "风灵水域",
-  "target": "น่านน้ำวิญญาณลม",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "刘易斯",
-  "target": "ลูอิส",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "白银骑士王",
-  "target": "ปรมาจารย์อัศวินเงิน",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "破碎岩石",
-  "target": "หินแตกร้าว",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "破碎黄金岩石",
-  "target": "หินทองคำแตกร้าว",
-  "confirmed": false,
-  "protected": false,
-  "status": "New"
- },
- {
-  "source": "奎因",
-  "target": "ควินน์",
   "confirmed": false,
   "protected": false,
   "status": "New"
