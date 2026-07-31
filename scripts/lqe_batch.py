@@ -20,6 +20,7 @@ from lqe_engine import (
     RE_CJK as _RE_CJK,
     current_target,
     get_check_scope,
+    get_review_policy,
     load_terms,
     requires_bound_artifacts,
     term_senses,
@@ -48,6 +49,7 @@ def cmd_plan(args):
     state = json.loads((job / "state.json").read_text(encoding="utf-8"))
     segs = state["segments"]
     scope = get_check_scope(state)
+    review_policy = get_review_policy(state)
     term_enabled = terminology_enabled(state)
     terms = load_terms(state)
     tlist = []
@@ -73,7 +75,9 @@ def cmd_plan(args):
     if pc.exists():
         try:
             pre_entries = normalize_check_entries(
-                json.loads(pc.read_text(encoding="utf-8")), label=str(pc)
+                json.loads(pc.read_text(encoding="utf-8")),
+                label=str(pc),
+                review_policy=review_policy,
             )
         except (json.JSONDecodeError, CheckFormatError) as exc:
             raise SystemExit(f"[plan] invalid pre-check results: {exc}") from exc
@@ -125,15 +129,27 @@ def cmd_plan(args):
             "# Issues in precheck-review categories must copy precheck_ref from the "
             "matching PRECHECK item; do not invent or reuse a reference."
         )
+    if review_policy["mode"] == "optimized":
+        review_lines = (
+            "comment 不得为空，以 20–30 个字符为软目标，完整清楚优先。"
+            "Minor 固定为 needs_confirmation=true、edit=null；"
+            "非 Minor 的安全局部修改才可写入 edit。"
+            "若输入带 CONTENT_TYPE 或文本类型 CONTEXT，只按上游分类调整检查重点，"
+            "不得自行分类。"
+        )
+    else:
+        review_lines = (
+            "comment 不得为空并应简明完整。"
+            "任意严重度中，安全、唯一的局部修改可写入 edit；"
+            "不能安全修改时写 needs_confirmation=true、edit=null。"
+            "CONTENT_TYPE 和文本类型 CONTEXT 仅作上下文，不改变检查强度或建议口径。"
+        )
     _SCHEMA_HEADER = "\n".join(scope_lines) + "\n" + (
         "# 输出格式（强制）：JSON 数组，每项为 {id, issues:[...]}。"
         "每个 issue 必须含 category / severity / comment / needs_confirmation / edit；"
-        "comment 不得为空，以 20–30 个字符为软目标，完整清楚优先。"
-        "Minor 固定为 needs_confirmation=true、edit=null；"
-        "非 Minor 的安全局部修改才可写入 edit。"
-        "批量同类问题也要逐条填写。检查任务不得输出 corrected。"
-        "若输入带 CONTENT_TYPE 或文本类型 CONTEXT，只按上游分类调整检查重点，"
-        "不得自行分类。\n"
+        + review_lines
+        + "批量同类问题也要逐条填写。检查任务不得输出 corrected。"
+        "\n"
         "# ────────────────────────────────────────\n"
     )
     manifest = []
@@ -186,6 +202,7 @@ def cmd_plan(args):
 
 
 def _cmd_merge_locked(args, job: Path, state: dict):
+    review_policy = get_review_policy(state)
     precheck_by_id = {}
     precheck_path = job / "errors_precheck.json"
     if precheck_path.exists():
@@ -193,6 +210,7 @@ def _cmd_merge_locked(args, job: Path, state: dict):
             precheck_entries = normalize_check_entries(
                 json.loads(precheck_path.read_text(encoding="utf-8")),
                 label=str(precheck_path),
+                review_policy=review_policy,
             )
         except (json.JSONDecodeError, CheckFormatError) as exc:
             raise SystemExit(f"[merge] invalid pre-check results: {exc}") from exc
@@ -205,7 +223,9 @@ def _cmd_merge_locked(args, job: Path, state: dict):
     for f in evals:
         try:
             entries = normalize_check_entries(
-                json.loads(f.read_text(encoding="utf-8")), label=str(f)
+                json.loads(f.read_text(encoding="utf-8")),
+                label=str(f),
+                review_policy=review_policy,
             )
             for r in entries:
                 merged[r["id"]] = r          # 后到覆盖：子批(04a)覆盖原批(04)残留
@@ -251,7 +271,11 @@ def _cmd_merge_locked(args, job: Path, state: dict):
             "[merge] legacy batch outputs cannot publish into a current job; "
             "use lqe_chunk.py split/publish-module/merge"
         )
-    out = build_results(state["segments"], list(merged.values()))
+    out = build_results(
+        state["segments"],
+        list(merged.values()),
+        review_policy=review_policy,
+    )
     (job / "errors.json").write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
 
     print(

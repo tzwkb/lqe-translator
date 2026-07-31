@@ -17,6 +17,7 @@ from lqe_engine import (
     VALID_CATEGORIES,
     VALID_SEVERITIES,
     current_target,
+    get_review_policy,
     read_json,
     requires_bound_artifacts,
 )
@@ -26,11 +27,11 @@ from lqe_split_contract import canonical_digest
 
 
 PACKET_SCHEMA = "lqe.reference-suggestion-packet"
-PACKET_VERSION = 2
+PACKET_VERSION = 3
 DRAFT_SCHEMA = "lqe.reference-suggestion-draft"
-DRAFT_VERSION = 2
+DRAFT_VERSION = 3
 ARTIFACT_SCHEMA = "lqe.reference-suggestions"
-ARTIFACT_VERSION = 2
+ARTIFACT_VERSION = 3
 PACKET_NAME = "reference_suggestions.packet.json"
 ARTIFACT_NAME = "reference_suggestions.json"
 DEFAULT_SUGGESTION_SEVERITIES = ("Critical", "Major")
@@ -66,11 +67,18 @@ def _issue_projection(issue: dict) -> dict:
     }
 
 
-def _normalize_selection(selection: object | None) -> dict:
+def _normalize_selection(
+    selection: object | None,
+    review_policy: dict | None = None,
+) -> dict:
+    policy = get_review_policy(
+        {"review_policy": review_policy} if review_policy is not None else {}
+    )
+    supported_severities = tuple(policy["suggestion_candidate_severities"])
     if selection is None:
         return {
             "categories": [],
-            "severities": list(DEFAULT_SUGGESTION_SEVERITIES),
+            "severities": list(supported_severities),
             "only_missing": False,
         }
     if not isinstance(selection, dict) or set(selection) != {
@@ -111,13 +119,16 @@ def _normalize_selection(selection: object | None) -> dict:
         raise ValueError(
             f"reference suggestion severities are unknown: {unknown}"
         )
-    unsupported = sorted(
-        set(severities) - set(DEFAULT_SUGGESTION_SEVERITIES)
-    )
+    unsupported = sorted(set(severities) - set(supported_severities))
     if unsupported:
+        if policy["mode"] == "optimized":
+            raise ValueError(
+                "reference suggestions only support Major/Critical candidates "
+                f"in optimized review mode: {unsupported}"
+            )
         raise ValueError(
-            "reference suggestions only support Major/Critical candidates: "
-            f"{unsupported}"
+            f"reference suggestion severities conflict with {policy['mode']} "
+            f"review mode: {unsupported}"
         )
     if type(only_missing) is not bool:
         raise ValueError("reference suggestion only_missing must be boolean")
@@ -134,8 +145,12 @@ def build_suggestion_packet(
     results: list[dict],
     *,
     selection: object | None = None,
+    review_policy: dict | None = None,
 ) -> dict:
-    selection = _normalize_selection(selection)
+    review_policy = get_review_policy(
+        {"review_policy": review_policy} if review_policy is not None else {}
+    )
+    selection = _normalize_selection(selection, review_policy)
     selected_categories = set(selection["categories"])
     selected_severities = set(selection["severities"])
     by_id = {entry["id"]: entry for entry in results}
@@ -188,6 +203,7 @@ def build_suggestion_packet(
         "state_fingerprint": (
             manifest.get("state_fingerprint") if isinstance(manifest, dict) else None
         ),
+        "review_policy": review_policy,
         "selection": selection,
         "results_basis_digest": canonical_digest(_results_basis(results)),
         "reviewed_ids": [item["id"] for item in projected],
@@ -196,6 +212,9 @@ def build_suggestion_packet(
             "purpose": "report_only_reference_translation",
             "sparse_suggestions_allowed": True,
             "agent_decides_reliability": True,
+            "text_type_routing_enabled": review_policy[
+                "text_type_routing_enabled"
+            ],
             "preserve": [
                 "variables",
                 "tags",
@@ -235,6 +254,7 @@ def _verify_results(
         str(errors_path),
         allow_internal_provenance=bound,
         require_internal_provenance=bound,
+        review_policy=get_review_policy(state),
     )
 
 
@@ -273,6 +293,8 @@ def validate_suggestion_artifact(
         raise ValueError("reference suggestion artifact is stale")
     if artifact.get("selection") != packet["selection"]:
         raise ValueError("reference suggestion artifact selection is stale")
+    if artifact.get("review_policy") != packet["review_policy"]:
+        raise ValueError("reference suggestion artifact review policy is stale")
     if artifact.get("manifest_digest") != packet["manifest_digest"]:
         raise ValueError("reference suggestion artifact manifest is stale")
     if artifact.get("results_basis_digest") != packet["results_basis_digest"]:
@@ -329,6 +351,7 @@ def load_reference_suggestions(
     segments: list[dict],
     manifest: dict | None,
     results: list[dict],
+    review_policy: dict | None = None,
 ) -> dict[int, str]:
     artifact_path = Path(job) / ARTIFACT_NAME
     if not artifact_path.is_file():
@@ -344,12 +367,18 @@ def load_reference_suggestions(
             "reference suggestion artifact schema/version is invalid; "
             "rerun prepare and publish"
         )
-    selection = _normalize_selection(artifact.get("selection"))
+    review_policy = get_review_policy(
+        {"review_policy": review_policy} if review_policy is not None else {}
+    )
+    selection = _normalize_selection(
+        artifact.get("selection"), review_policy
+    )
     packet = build_suggestion_packet(
         segments,
         manifest,
         results,
         selection=selection,
+        review_policy=review_policy,
     )
     return validate_suggestion_artifact(
         artifact,
@@ -360,7 +389,7 @@ def load_reference_suggestions(
 
 def cmd_prepare(args) -> None:
     job = Path(args.job).resolve()
-    _, segments, manifest, results = _load_live(
+    state, segments, manifest, results = _load_live(
         job,
         state_name=args.state,
         errors_name=args.errors,
@@ -370,11 +399,16 @@ def cmd_prepare(args) -> None:
         for category in (args.categories or "").split(",")
         if category.strip()
     ]
-    severities = [
-        severity.strip()
-        for severity in args.severities.split(",")
-        if severity.strip()
-    ]
+    review_policy = get_review_policy(state)
+    severities = (
+        [
+            severity.strip()
+            for severity in args.severities.split(",")
+            if severity.strip()
+        ]
+        if args.severities is not None
+        else list(review_policy["suggestion_candidate_severities"])
+    )
     packet = build_suggestion_packet(
         segments,
         manifest,
@@ -384,6 +418,7 @@ def cmd_prepare(args) -> None:
             "severities": severities,
             "only_missing": args.only_missing,
         },
+        review_policy=review_policy,
     )
     output = Path(args.out) if args.out else job / PACKET_NAME
     write_json_atomic(output, packet)
@@ -395,7 +430,7 @@ def cmd_prepare(args) -> None:
 
 def cmd_publish(args) -> None:
     job = Path(args.job).resolve()
-    _, segments, manifest, results = _load_live(
+    state, segments, manifest, results = _load_live(
         job,
         state_name=args.state,
         errors_name=args.errors,
@@ -405,12 +440,16 @@ def cmd_publish(args) -> None:
         raise ValueError("reference suggestion draft must be an object")
     if draft.get("schema") != DRAFT_SCHEMA or draft.get("version") != DRAFT_VERSION:
         raise ValueError("reference suggestion draft schema/version is invalid")
-    selection = _normalize_selection(draft.get("selection"))
+    review_policy = get_review_policy(state)
+    selection = _normalize_selection(
+        draft.get("selection"), review_policy
+    )
     packet = build_suggestion_packet(
         segments,
         manifest,
         results,
         selection=selection,
+        review_policy=review_policy,
     )
     if draft.get("packet_digest") != packet["packet_digest"]:
         raise ValueError("reference suggestion draft is stale")
@@ -458,6 +497,7 @@ def cmd_publish(args) -> None:
         "version": ARTIFACT_VERSION,
         "packet_digest": packet["packet_digest"],
         "manifest_digest": packet["manifest_digest"],
+        "review_policy": packet["review_policy"],
         "selection": packet["selection"],
         "results_basis_digest": packet["results_basis_digest"],
         "reviewed_ids": packet["reviewed_ids"],
@@ -475,7 +515,7 @@ def cmd_publish(args) -> None:
 
 def cmd_validate(args) -> None:
     job = Path(args.job).resolve()
-    _, segments, manifest, results = _load_live(
+    state, segments, manifest, results = _load_live(
         job,
         state_name=args.state,
         errors_name=args.errors,
@@ -484,12 +524,16 @@ def cmd_validate(args) -> None:
     artifact = read_json(artifact_path)
     if not isinstance(artifact, dict):
         raise ValueError("reference suggestion artifact must be an object")
-    selection = _normalize_selection(artifact.get("selection"))
+    review_policy = get_review_policy(state)
+    selection = _normalize_selection(
+        artifact.get("selection"), review_policy
+    )
     packet = build_suggestion_packet(
         segments,
         manifest,
         results,
         selection=selection,
+        review_policy=review_policy,
     )
     suggestions = validate_suggestion_artifact(
         artifact,
@@ -520,10 +564,10 @@ def build_parser() -> argparse.ArgumentParser:
             )
             command.add_argument(
                 "--severities",
-                default=",".join(DEFAULT_SUGGESTION_SEVERITIES),
+                default=None,
                 help=(
-                    "Comma-separated candidate severities; only "
-                    "Major and Critical are supported."
+                    "Comma-separated candidate severities; defaults to the "
+                    "job review policy."
                 ),
             )
             command.add_argument(

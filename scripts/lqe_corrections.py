@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import re
 
-from lqe_engine import current_target
+from lqe_engine import current_target, get_review_policy
 
 
 class CheckFormatError(ValueError):
@@ -112,6 +112,7 @@ def _canonical_issue(
     label: str,
     allow_internal_provenance: bool = False,
     require_internal_provenance: bool = False,
+    review_policy: dict | None = None,
 ) -> dict:
     if not isinstance(value, dict):
         raise CheckFormatError(f"{label}: issue must be an object")
@@ -158,7 +159,10 @@ def _canonical_issue(
         edit = copy.deepcopy(edit) if edit is not None else None
     else:
         edit = None
-    if value["severity"] == "Minor":
+    policy = get_review_policy(
+        {"review_policy": review_policy} if review_policy is not None else {}
+    )
+    if value["severity"] == "Minor" and not policy["minor_edits_allowed"]:
         if needs_confirmation is not True:
             raise CheckFormatError(
                 f"{label}: Minor issue must set needs_confirmation to true"
@@ -198,6 +202,7 @@ def normalize_check_entries(
     label: str,
     allow_internal_provenance: bool = False,
     require_internal_provenance: bool = False,
+    review_policy: dict | None = None,
 ) -> list[dict]:
     if require_internal_provenance and not allow_internal_provenance:
         raise CheckFormatError(
@@ -232,6 +237,7 @@ def normalize_check_entries(
                         label=f"{entry_label}.issues[{issue_index}]",
                         allow_internal_provenance=allow_internal_provenance,
                         require_internal_provenance=require_internal_provenance,
+                        review_policy=review_policy,
                     )
                     for issue_index, issue in enumerate(issues)
                 ],
@@ -461,6 +467,7 @@ def build_segment_result(
     *,
     allow_internal_provenance: bool = False,
     require_internal_provenance: bool = False,
+    review_policy: dict | None = None,
 ) -> dict:
     if require_internal_provenance and not allow_internal_provenance:
         raise CheckFormatError(
@@ -480,6 +487,7 @@ def build_segment_result(
             label=f"segment {segment['id']}.issues[{index}]",
             allow_internal_provenance=allow_internal_provenance,
             require_internal_provenance=require_internal_provenance,
+            review_policy=review_policy,
         )
         for index, value in enumerate(issues)
     ]
@@ -575,6 +583,7 @@ def verify_results(
     *,
     allow_internal_provenance: bool = False,
     require_internal_provenance: bool = False,
+    review_policy: dict | None = None,
 ) -> list[dict]:
     if not isinstance(results, list):
         raise CheckFormatError(f"{label}: results must be an array")
@@ -615,6 +624,7 @@ def verify_results(
             entry["errors"],
             allow_internal_provenance=allow_internal_provenance,
             require_internal_provenance=require_internal_provenance,
+            review_policy=review_policy,
         )
         if entry["corrected"] != rebuilt["corrected"]:
             raise CheckFormatError(
@@ -630,12 +640,14 @@ def build_results(
     *,
     allow_internal_provenance: bool = False,
     require_internal_provenance: bool = False,
+    review_policy: dict | None = None,
 ) -> list[dict]:
     normalized = normalize_check_entries(
         check_entries,
         label="checks",
         allow_internal_provenance=allow_internal_provenance,
         require_internal_provenance=require_internal_provenance,
+        review_policy=review_policy,
     )
     issues_by_id = {entry["id"]: entry["issues"] for entry in normalized}
     return [
@@ -644,6 +656,7 @@ def build_results(
             issues_by_id.get(segment.get("id"), []),
             allow_internal_provenance=allow_internal_provenance,
             require_internal_provenance=require_internal_provenance,
+            review_policy=review_policy,
         )
         for segment in segments
     ]

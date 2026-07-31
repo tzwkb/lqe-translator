@@ -27,6 +27,7 @@ from lqe_engine import (
     current_target,
     disabled_modules,
     get_check_scope,
+    get_review_policy,
     load_terms,
     optional_modules,
     read_json as load,
@@ -255,7 +256,9 @@ def _load_verified_generation_unlocked(
     manifest = load(manifest_path)
     state = state if state is not None else load(state_path)
     precheck = normalize_check_entries(
-        load(precheck_path), label=precheck_path.name
+        load(precheck_path),
+        label=precheck_path.name,
+        review_policy=get_review_policy(state),
     )
     validate_scope_entries(
         state,
@@ -512,7 +515,12 @@ def load_verification_segments(
 
 def cmd_split(a):
     state = load(a.state)
-    pre = normalize_check_entries(load(a.errors), label=Path(a.errors).name)
+    review_policy = get_review_policy(state)
+    pre = normalize_check_entries(
+        load(a.errors),
+        label=Path(a.errors).name,
+        review_policy=review_policy,
+    )
     validate_scope_entries(
         state, pre, issues_key="issues", label=Path(a.errors).name
     )
@@ -665,6 +673,7 @@ def cmd_split(a):
                 "iteration": state.get("iteration", 0),
                 "state_fingerprint": revision["state_fingerprint"],
                 "split_fingerprint": split_fingerprint,
+                "review_policy": review_policy,
                 "segments": rows,
             })
         )
@@ -715,7 +724,9 @@ def cmd_split(a):
         def validate_current_inputs():
             live_state = load(a.state)
             live_pre = normalize_check_entries(
-                load(a.errors), label=Path(a.errors).name
+                load(a.errors),
+                label=Path(a.errors).name,
+                review_policy=get_review_policy(live_state),
             )
             validate_scope_entries(
                 live_state,
@@ -932,6 +943,7 @@ def _cmd_merge_unlocked(a, state: dict, outdir: Path):
                 issues,
                 allow_internal_provenance=bound_results,
                 require_internal_provenance=bound_results,
+                review_policy=get_review_policy(state),
             )
         )
 
@@ -1008,12 +1020,14 @@ def _normalize_module_output(
     *,
     allow_internal_provenance: bool = False,
     require_internal_provenance: bool = False,
+    review_policy: dict | None = None,
 ):
     return normalize_check_entries(
         arr,
         label=Path(path).name,
         allow_internal_provenance=allow_internal_provenance,
         require_internal_provenance=require_internal_provenance,
+        review_policy=review_policy,
     )
 
 
@@ -1078,12 +1092,16 @@ def build_module_output(
     label: str,
     allow_internal_provenance: bool = False,
     require_internal_provenance: bool = False,
+    review_policy: dict | None = None,
 ) -> dict:
+    if review_policy is None and isinstance(base, dict):
+        review_policy = base.get("review_policy")
     normalized = _normalize_module_output(
         entries,
         label,
         allow_internal_provenance=allow_internal_provenance,
         require_internal_provenance=require_internal_provenance,
+        review_policy=review_policy,
     )
     return {
         "contract_version": MODULE_OUTPUT_CONTRACT_VERSION,
@@ -1117,6 +1135,7 @@ def load_module_output(
             path,
             allow_internal_provenance=allow_internal_provenance,
             require_internal_provenance=require_internal_provenance,
+            review_policy=get_review_policy(state),
         )
     if not isinstance(payload, dict):
         raise CheckFormatError(
@@ -1152,6 +1171,7 @@ def load_module_output(
         path,
         allow_internal_provenance=allow_internal_provenance,
         require_internal_provenance=require_internal_provenance,
+        review_policy=get_review_policy(state),
     )
     if payload["entries_digest"] != canonical_digest(normalized):
         raise CheckFormatError(
@@ -1640,7 +1660,11 @@ def cmd_publish_module(a):
                 "[publish-module] stale task: chunk payload digest mismatch"
             )
         try:
-            entries = _normalize_module_output(load(raw_path), raw_path)
+            entries = _normalize_module_output(
+                load(raw_path),
+                raw_path,
+                review_policy=get_review_policy(state),
+            )
         except (OSError, ValueError) as exc:
             raise SystemExit(f"[publish-module] {exc}") from exc
         expected_ids = {segment["id"] for segment in base["segments"]}
@@ -1779,9 +1803,14 @@ def cmd_split_half(a):
 
 def cmd_join_parts(a):
     """Combine checked part outputs into one module output file."""
+    review_policy = get_review_policy(
+        {"review_policy": {"mode": a.review_mode, "source": "legacy-tool"}}
+    )
     combined = []
     for p in a.parts:
-        combined.extend(_normalize_module_output(load(p), p))
+        combined.extend(
+            _normalize_module_output(load(p), p, review_policy=review_policy)
+        )
     write_json_atomic(Path(a.out), combined)
     print(f"[join-parts] {len(a.parts)} 份 -> {len(combined)} 条 -> {a.out}")
 
@@ -1789,7 +1818,12 @@ def cmd_join_parts(a):
 def cmd_ckpt_append(a):
     """Validate and append one check entry to a JSONL checkpoint."""
     p = Path(a.file)
-    entry = _normalize_module_output([json.loads(a.entry)], p)[0]
+    review_policy = get_review_policy(
+        {"review_policy": {"mode": a.review_mode, "source": "legacy-tool"}}
+    )
+    entry = _normalize_module_output(
+        [json.loads(a.entry)], p, review_policy=review_policy
+    )[0]
     p.parent.mkdir(parents=True, exist_ok=True)
     with p.open("a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
@@ -1802,13 +1836,18 @@ def cmd_ckpt_finalize(a):
     p = Path(a.jsonl)
     by_id = {}
     line_count = 0
+    review_policy = get_review_policy(
+        {"review_policy": {"mode": a.review_mode, "source": "legacy-tool"}}
+    )
     if p.exists():
         for line in p.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if not line:
                 continue
             line_count += 1
-            e = _normalize_module_output([json.loads(line)], p)[0]
+            e = _normalize_module_output(
+                [json.loads(line)], p, review_policy=review_policy
+            )[0]
             by_id[e["id"]] = e
     out = [by_id[i] for i in sorted(by_id)]
     Path(a.out).write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -1858,14 +1897,17 @@ def main():
     jp = sub.add_parser("join-parts")
     jp.add_argument("--parts", required=True, nargs="+", help="两个 part 的输出文件路径")
     jp.add_argument("--out", required=True)
+    jp.add_argument("--review-mode", choices=["optimized", "full"], default="optimized")
     jp.set_defaults(fn=cmd_join_parts)
     ca = sub.add_parser("ckpt-append")
     ca.add_argument("--file", required=True, help="ckpt jsonl 路径")
     ca.add_argument("--entry", required=True, help="JSON object {id,issues}")
+    ca.add_argument("--review-mode", choices=["optimized", "full"], default="optimized")
     ca.set_defaults(fn=cmd_ckpt_append)
     cf = sub.add_parser("ckpt-finalize")    # 全部段判完后调1次，去重+排序+转成正式 JSON 数组
     cf.add_argument("--jsonl", required=True)
     cf.add_argument("--out", required=True)
+    cf.add_argument("--review-mode", choices=["optimized", "full"], default="optimized")
     cf.set_defaults(fn=cmd_ckpt_finalize)
     a = ap.parse_args()
     a.fn(a)

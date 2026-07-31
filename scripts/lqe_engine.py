@@ -165,6 +165,50 @@ STANDARD_REQUIRED_MODULES = ("terminology", "accuracy", "grammar", "naturalness"
 NO_TERMINOLOGY_REQUIRED_MODULES = ("precheck_review", "accuracy", "grammar", "naturalness")
 OPTIONAL_MODULES = ("proper_names",)
 TERMINOLOGY_MODULES = ("terminology", "proper_names", "term_audit")
+REVIEW_MODES = ("optimized", "full")
+
+
+def build_review_policy(mode: str, source: str = "runtime") -> dict:
+    if mode not in REVIEW_MODES:
+        raise ValueError(f"unsupported review mode: {mode!r}")
+    optimized = mode == "optimized"
+    return {
+        "mode": mode,
+        "minor_edits_allowed": not optimized,
+        "comment_soft_target": (
+            {"min_chars": 20, "max_chars": 30} if optimized else None
+        ),
+        "suggestion_candidate_severities": (
+            ["Critical", "Major"]
+            if optimized
+            else ["Neutral", "Minor", "Major", "Critical"]
+        ),
+        "text_type_routing_enabled": optimized,
+        "source": source,
+    }
+
+
+def get_review_policy(state: dict) -> dict:
+    if not isinstance(state, dict):
+        raise ValueError("state must be an object")
+    raw = state.get("review_policy")
+    if raw is None:
+        return build_review_policy("optimized", "legacy-default")
+    if not isinstance(raw, dict):
+        raise ValueError("review_policy must be an object")
+    mode = raw.get("mode")
+    if mode not in REVIEW_MODES:
+        raise ValueError(f"unsupported review_policy mode: {mode!r}")
+    resolved = build_review_policy(mode, raw.get("source") or "state")
+    for key in (
+        "minor_edits_allowed",
+        "comment_soft_target",
+        "suggestion_candidate_severities",
+        "text_type_routing_enabled",
+    ):
+        if key in raw and raw[key] != resolved[key]:
+            raise ValueError(f"review_policy {key} conflicts with mode {mode}")
+    return resolved
 
 
 def build_check_scope(no_terminology: bool, source: str = "runtime") -> dict:
@@ -219,7 +263,10 @@ def terminology_enabled(state: dict) -> bool:
     return bool(get_check_scope(state)["terminology_enabled"])
 
 
-def issue_contract_problem(issue: dict) -> str | None:
+def issue_contract_problem(
+    issue: dict,
+    review_policy: dict | None = None,
+) -> str | None:
     if not isinstance(issue, dict):
         return "issue must be an object"
     category = issue.get("category")
@@ -237,7 +284,10 @@ def issue_contract_problem(issue: dict) -> str | None:
         return "comment must be a string"
     if not comment.strip():
         return "comment must be non-empty"
-    if severity == "Minor":
+    policy = get_review_policy(
+        {"review_policy": review_policy} if review_policy is not None else {}
+    )
+    if severity == "Minor" and not policy["minor_edits_allowed"]:
         if issue.get("needs_confirmation") is not True:
             return "Minor issue must set needs_confirmation to true"
         if issue.get("edit") is not None:
@@ -249,7 +299,7 @@ def issue_contract_problem(issue: dict) -> str | None:
 
 
 def scope_issue_problem(state: dict, issue: dict) -> str | None:
-    problem = issue_contract_problem(issue)
+    problem = issue_contract_problem(issue, get_review_policy(state))
     if problem:
         return problem
     if terminology_enabled(state):

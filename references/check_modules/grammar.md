@@ -13,7 +13,7 @@
 
 ## 修改规则
 
-Minor 只报告问题，固定给 `"needs_confirmation": true` 和 `"edit": null`。非 Minor 问题中，单个拼写、标点、词形或可唯一定位的小范围语法问题可给 `"needs_confirmation": false` 和局部 `"edit"`。需要重排或整句改写时写 `"needs_confirmation": true`、`"edit": null`。
+`optimized` 中 Minor 只报告问题，固定给 `"needs_confirmation": true` 和 `"edit": null`；非 Minor 问题中的安全局部修改才可写 `edit`。`full` 中所有严重度（包括 Minor）的单个拼写、标点、词形或可唯一定位的小范围语法问题都可给 `"needs_confirmation": false` 和局部 `"edit"`。需要重排或整句改写时，两种模式都写 `"needs_confirmation": true`、`"edit": null`。
 
 ```json
 [{"id": 5, "issues": [{"category": "Spelling", "severity": "Minor", "comment": "The word is misspelled.", "needs_confirmation": true, "edit": null}]}]

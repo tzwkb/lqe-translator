@@ -86,6 +86,8 @@ python3 scripts/run_tests.py
 
 优先使用项目档案；一个参数即可加载语言设置、检查项、确认规则、术语和风格指南。
 
+新任务初始化前，Agent 必须先询问用户选择审校输出模式，除非当前请求已明确：`optimized` 为降本模式，`full` 为完整模式。选择通过 `--review-mode` 写入 `state.review_policy`；已有 job 直接沿用 state，不中途切换。
+
 ```bash
 JOB="jobs/<任务名>"
 python3 "$SCRIPTS/lqe_io.py" read \
@@ -93,6 +95,7 @@ python3 "$SCRIPTS/lqe_io.py" read \
   --input "<file>.xlsx" \
   --source-col "<原文列>" \
   --target-col "<译文列>" \
+  --review-mode "<optimized|full>" \
   --out "$JOB/state.json"
 ```
 
@@ -274,13 +277,13 @@ chunk_NN.naturalness.json
 }
 ```
 
-所有 `comment` 必须为非空英文，以 20–30 个字符为软目标，完整和清楚优先。Minor 固定使用 `needs_confirmation: true`、`edit: null`，不生成 corrected 或自动迭代修改；非 Minor 问题仍由 Agent 判断是否存在安全、唯一的局部 edit。
+`optimized` 中，所有 `comment` 必须为非空英文，以 20–30 个字符为软目标；Minor 固定使用 `needs_confirmation: true`、`edit: null`，不生成 corrected 或自动迭代修改。`full` 中 comment 无字符目标，包括 Minor 在内的所有严重度均由 Agent 判断是否存在安全、唯一的局部 edit。
 
 新译名、术语表缺词、多个合理方案或整句重写，使用 `needs_confirmation: true` 和 `edit: null`。术语或专名修改还必须有唯一的 `confirmed: true` 候选和 `confirmed_term` 证据。
 
 机器预检生成的 Terminology issue 会附带只读的 `term_source` 和 `expected_targets`；模型无需输出或改写，publisher 会按 `precheck_ref` 保留。
 
-表格中的 `content_type`、`text_type`、`文本类型`、`文本类别` 会作为上游文本分类传入 review packet。Agent 优先使用行级 `content_type`，否则使用 `text_type_context`；缺失或未知时按标准强度检查，不自行分类。UI、技能/道具、主线对话、支线/NPC 对话、系统/教程、世界观和战斗/操作提示的模块强度矩阵见 `references/check_modules/common.md`。分类只调整检查重点，不关闭机器预检或必需模块。
+表格中的 `content_type`、`text_type`、`文本类型`、`文本类别` 会作为上游文本分类传入 review packet，不自行分类。`optimized` 优先使用行级 `content_type`，否则使用 `text_type_context`，并按 `references/check_modules/common.md` 的矩阵调整重点；`full` 只把分类作为上下文，不改变检查强度。两种模式都不关闭机器预检或必需模块。
 
 ### 5. 校验、合并和评分
 
@@ -310,7 +313,7 @@ python3 "$SCRIPTS/lqe_suggestions.py" publish \
   --job "$JOB" --input <参考建议草稿.json>
 ```
 
-Minor 不进入建议 packet。Major/Critical 只作为候选范围，是否提交完整建议译文仍由 Agent 根据可靠性判断；未提交建议不影响问题说明。建议 artifact 版本为 2，旧版本需重新 prepare 和 publish。
+`optimized` 默认只将 Major/Critical 放入建议 packet；`full` 默认纳入全部严重度。是否提交完整建议译文始终由 Agent 根据可靠性判断，未提交建议不影响问题说明。建议 artifact 版本为 3，旧版本需重新 prepare 和 publish。
 
 首轮检查应明确使用 `single`：
 

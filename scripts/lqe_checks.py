@@ -14,7 +14,7 @@ from pathlib import Path
 from lqe_engine import (
     read_json, load_terms as _load_terms, group_terms as _group_terms,
     RE_CJK as _RE_CJK, _target_lang, _load_lang, _lang_toggle_defaults,
-    current_target, terminology_enabled, validate_scope_entries,
+    current_target, get_review_policy, terminology_enabled, validate_scope_entries,
 )
 from lqe_paths import state_reference_paths, validate_artifact_paths, write_json_atomic
 
@@ -205,12 +205,15 @@ def _local_edit(frm: str, to: str, start: int, end: int) -> dict:
     }
 
 
-def _check_issues(errors: list[dict]) -> list[dict]:
+def _check_issues(errors: list[dict], review_policy: dict | None = None) -> list[dict]:
     issues = []
+    policy = get_review_policy(
+        {"review_policy": review_policy} if review_policy is not None else {}
+    )
     for error in errors:
         issue = dict(error)
         edit = issue.get("edit")
-        if issue.get("severity") == "Minor":
+        if issue.get("severity") == "Minor" and not policy["minor_edits_allowed"]:
             issue["needs_confirmation"] = True
             issue["edit"] = None
         else:
@@ -230,6 +233,7 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
         context="pre-check",
     )
     segments = state["segments"]
+    review_policy = get_review_policy(state)
 
     terms = _load_terms(state)
     term_map: dict[str, list[dict]] = {}
@@ -298,7 +302,7 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
         if on("empty_target") and src.strip() and not tgt.strip():
             results.append({"id": seg["id"], "issues": _check_issues([
                 {"category": "Untranslated", "severity": "Major",
-                 "comment": "Target is empty"}])})
+                 "comment": "Target is empty"}], review_policy)})
             total += 1
             continue
 
@@ -563,7 +567,10 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
                              "comment": f"{c.get('comment', c.get('id', 'custom check'))} [match: {m.group(0)[:30]}]"})
 
         total += len(errs)
-        results.append({"id": seg["id"], "issues": _check_issues(errs)})
+        results.append({
+            "id": seg["id"],
+            "issues": _check_issues(errs, review_policy),
+        })
 
     try:
         validate_scope_entries(

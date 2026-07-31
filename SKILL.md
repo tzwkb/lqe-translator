@@ -19,6 +19,16 @@ SCRIPTS=~/.codex/skills/lqe-translator/scripts
 - 表格输入的原文列和译文列；SDLXLIFF 从句段结构读取，不需要列名。
 - 项目语言轨，如 `nrc/zh-th`、`nrc/zh-en`、`wwm/zh-en`。
 - 是否启用自动迭代；默认只跑首轮。
+- 审校输出模式：降本模式（`optimized`）或完整模式（`full`）。
+
+开始任何新任务前，如果用户尚未在当前请求中明确审校输出模式，Agent **必须先询问一次并等待回答**：
+
+> 本次使用哪种审校输出模式：降本模式还是完整模式？
+
+- 降本模式：Minor 只报告问题；comment 以 20–30 字符为软目标；完整参考建议默认只纳入 Major/Critical 候选；有上游文本分类时按分类矩阵调整重点。
+- 完整模式：恢复降本改造前的行为；所有严重度都由 Agent 判断是否能给安全局部修改或完整参考建议；comment 无 20–30 字符目标；文本分类只作上下文，不改变检查强度或建议口径。
+
+不得根据项目、文件、历史任务或成本偏好代替用户选择。用户已在当前请求中明确选择时不重复询问；继续已有 job 时读取 `state.review_policy`，不再询问。一个 job 内不得中途切换；需要换模式时重新执行 `read` 并重建后续 artifact。
 
 优先使用 `read --project <game>/<source>-<target>`。用户只给游戏名时，列出该游戏已有语言轨；没有目标语言轨时，先建立 profile，不回退到另一套临时入口。
 
@@ -84,6 +94,7 @@ python "$SCRIPTS/lqe_io.py" read \
   --input "<输入文件>" \
   --source-col "<原文列>" \
   --target-col "<译文列>" \
+  --review-mode "<optimized|full>" \
   --out "jobs/<文件名>/state.json"
 ```
 
@@ -94,10 +105,35 @@ python "$SCRIPTS/lqe_io.py" read \
   --project "<game>/<source>-<target>" \
   --input "<SDLXLIFF 文件或目录>" \
   --input-format sdlxliff \
+  --review-mode "<optimized|full>" \
   --out "jobs/<文件名>/state.json"
 ```
 
 `--input-format` 可取 `auto`、`tabular`、`sdlxliff`，默认 `auto`。单个 `.sdlxliff` 或只含 SDLXLIFF 的目录可自动识别；混有表格文件的目录必须显式使用 `--input-format sdlxliff`，未选中的受支持文件会记录在来源清单。目录会递归读取并按相对路径排序。表格目录仍不支持。
+
+`--review-mode` 可取 `optimized`、`full`。Agent 正常运行必须传入用户选择；CLI 为兼容旧调用在省略时按 `optimized` 解析。初始化将解析后的完整策略写入 `state.review_policy`，split、review packet、suggestion packet 和报告都受该策略约束。
+
+<pre data-lqe-review-mode-contract>
+{
+  "decision": "ask_before_new_job_unless_explicit",
+  "flag": "--review-mode",
+  "optimized": {
+    "minor_edits_allowed": false,
+    "comment_soft_target": "20-30 characters",
+    "suggestion_candidate_severities": ["Critical", "Major"],
+    "text_type_routing_enabled": true
+  },
+  "full": {
+    "minor_edits_allowed": true,
+    "comment_soft_target": null,
+    "suggestion_candidate_severities": ["Neutral", "Minor", "Major", "Critical"],
+    "text_type_routing_enabled": false
+  },
+  "state_field": "state.review_policy",
+  "immutable_within_job": true,
+  "legacy_cli_default": "optimized"
+}
+</pre>
 
 第一版只接受带 SDL namespace 的 XLIFF 1.2/SDLXLIFF 1.2；XLIFF 2.0 明确失败。未知厂商扩展若不影响句段定位、文本边界和 `mid` 配对，会保留证据并记录 namespace；存在结构歧义时失败，不猜测。内容类型与排除只能来自 profile 的显式 `sdlxliff.content_type_rules` 和 `sdlxliff.exclude_rules`，不得根据 CC、FF、文件名或目录名推断。
 
@@ -273,12 +309,11 @@ references/suggestions.md
 ]
 ```
 
-固定接口为 `{id, issues:[{category,severity,comment,needs_confirmation,edit}]}`（模型输出）。机器预检生成的 Terminology issue 另带只读的 `term_source` 和 `expected_targets`；模型无需输出或改写，publisher 会按 `precheck_ref` 保留。默认模型草稿使用第 7 节的紧凑包装，只列确有问题的接口项；publisher 补齐无问题 id。检查模块不得输出 corrected；`lqe_corrections.py` 验证局部修改后生成该内部字段。
+固定接口为 `{id, issues:[{category,severity,comment,needs_confirmation,edit}]}`（模型输出）。机器预检生成的 Terminology issue 另带只读的 `term_source` 和 `expected_targets`；模型无需输出或改写，publisher 会按 `precheck_ref` 保留。默认模型草稿使用第 7 节的紧凑包装，只列确有问题的接口项；publisher 补齐无问题 id。检查模块不得输出 corrected；`lqe_corrections.py` 验证局部修改后生成该内部字段。每个 review packet 都带 `review_policy`，worker 必须按其中的 `mode` 执行。
 
 - 所有必需模块的正式产物覆盖全部 id；无问题项由 publisher 写成 `issues: []`。
-- `comment` 统一用英文，以 20–30 个字符为软目标；完整、清楚优先，不机械补字或截断。
-- Minor 只报告问题：必须写非空 `comment`、`needs_confirmation: true` 和 `edit: null`，即使改法唯一也不输出局部修改。
-- 非 Minor 问题中，安全、唯一、局部的改法可写 `needs_confirmation: false` 和 `edit`。
+- `optimized`：`comment` 统一用英文，以 20–30 个字符为软目标；完整、清楚优先，不机械补字或截断。Minor 只报告问题：必须写非空 `comment`、`needs_confirmation: true` 和 `edit: null`；非 Minor 的安全、唯一、局部改法才可写入 `edit`。
+- `full`：`comment` 统一用英文并保持简明完整，不设 20–30 字符目标。包括 Minor 在内的任何严重度，只要 Agent 判断改法安全、唯一且局部，都可写 `needs_confirmation: false` 和 `edit`；无法安全修改时仍写 `needs_confirmation: true`、`edit: null`。
 - 新译名、术语表错误或缺词、多个合理方案、整句重写写 `needs_confirmation: true` 和 `edit: null`。
 - 术语或专名修改必须引用唯一的 `confirmed: true` 候选，证据格式为 `{"type":"confirmed_term","source":"...","target":"..."}`。
 - 变量、标签、换行、受保护文本和受保护段不得被修改。
@@ -294,7 +329,7 @@ references/suggestions.md
 | `naturalness` | Audience appropriateness、Culture specific reference、Unidiomatic |
 | `proper_names` | 术语表自检中的专名音译 |
 
-文本分类只使用上游提供的列或规则结果。表格输入已识别 `content_type`、`text_type`、`文本类型`、`文本类别`；检查时优先使用非空 `content_type`，否则使用 `text_type_context`。两者都为空或分类未知时按标准强度处理，不得根据文本、文件名、工作表名或目录名自行分类。
+文本分类只使用上游提供的列或规则结果。表格输入已识别 `content_type`、`text_type`、`文本类型`、`文本类别`；不得根据文本、文件名、工作表名或目录名自行分类。`optimized` 优先使用非空 `content_type`，否则使用 `text_type_context`；两者都为空或分类未知时按标准强度处理。`full` 保留这些字段作为上下文，但不按下表改变检查强度。
 
 分类只调整检查重点，不改变模块分工、严重度定义、机器预检、术语模式和保护规则：
 
@@ -412,7 +447,7 @@ python "$SCRIPTS/lqe_suggestions.py" publish \
   --job "$JOB" --input <参考建议草稿.json>
 ```
 
-参考建议允许整句改写。默认候选严重度为 Major/Critical，`--categories` 可进一步限定类别，`--only-missing` 只纳入尚无安全局部建议的段。严重度只决定候选范围；是否能可靠给出建议仍由 Agent 判断，草稿可只提交有可靠方案的 id。Minor 不进入建议 packet，也不生成局部 edit、corrected 或自动迭代修改。publisher 仍强制保留变量、标签、换行和 `protected_texts`，并拒绝受保护段。建议 worker 优先使用 `content_type`，否则使用 `text_type_context` 调整技术文本的简洁性、对话的角色声音及世界观文本的风格，不自行分类。正式产物 `reference_suggestions.json` 只供报告展示，不写入 `corrected`，不进入 apply、export 或 corrected 文件。未提交建议的有问题段在报告中标为“未生成建议，需人工处理”。
+参考建议允许整句改写。`optimized` 默认候选严重度为 Major/Critical，Minor 不进入建议 packet，也不生成局部 edit、corrected 或自动迭代修改，并按上游文本分类调整建议口径。`full` 默认纳入 Neutral/Minor/Major/Critical，所有严重度都由 Agent 判断是否能给出安全局部修改或可靠完整建议，不按文本分类改变建议口径。两种模式下，`--categories` 可进一步限定类别，`--only-missing` 只纳入尚无安全局部建议的段；进入候选不代表必须提交，草稿可只提交有可靠方案的 id。publisher 仍强制保留变量、标签、换行和 `protected_texts`，并拒绝受保护段。正式产物 `reference_suggestions.json` 只供报告展示，不写入 `corrected`，不进入 apply、export 或 corrected 文件。未提交建议的有问题段在报告中标为“未生成建议，需人工处理”。
 
 一键收尾：
 

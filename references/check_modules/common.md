@@ -8,6 +8,7 @@
 - `confirmed_rules.md`：客户已经确认的规则，优先于风格指南和通用规则。
 - 风格指南与语言说明。
 - 当前模块的 `review_packets/<module>/chunk_NN.json`。packet 只保留该模块所需字段，并绑定原 chunk 的指纹。
+- packet 中的 `review_policy`。`mode=optimized` 执行降本规则，`mode=full` 执行完整规则；不得自行切换。
 
 按 `review_packets/batch_plan.json` 分配有界 worker。每个 worker 只处理一个批次：最多 4 个 packet，同时不超过 25,000 原译字符或 100,000 packet 字节；单个超限 packet 独占一个 worker。worker 在批次开始时读取本文件、自己的模块说明和项目上下文；新批次必须新建 worker 并重新读取。发生上下文压缩、异常重复判断或连续格式错误时立即重开，不得依赖上一 worker 的记忆作为证据。
 
@@ -48,11 +49,11 @@
 
 模型草稿不得输出 `review_provenance`。正式合并会根据当前绑定模块、`precheck_ref`、实际审阅段和脚本验证结果生成该字段；草稿自报的 AI 状态不会成为报告证据。
 
-- `comment` 用英文简短说明，可引用少量原文或译文。以 20–30 个字符为软目标；完整、清楚优先，不得机械补字或截断。
+- `comment` 用英文简短说明，可引用少量原文或译文。
 - `severity` 只能是 `Neutral`、`Minor`、`Major`、`Critical`。
 - `edit` 只表示一个可安全应用的局部替换，必须带 `from`、`to`、`evidence`；同一子串出现多次时再带 `start`、`end`。
-- Minor 只报告问题：必须写非空 `comment`、`needs_confirmation: true` 和 `edit: null`，即使改法唯一也不输出局部修改。
-- 非 Minor 问题如果改法唯一且不会碰变量、标签、换行或受保护文本，可写 `needs_confirmation: false` 和具体 `edit`。
+- `optimized`：comment 以 20–30 个字符为软目标，完整、清楚优先，不得机械补字或截断。Minor 只报告问题，必须写非空 `comment`、`needs_confirmation: true` 和 `edit: null`；非 Minor 问题如果改法唯一且安全，才可提交具体 `edit`。
+- `full`：comment 不设字符目标，只要求简明完整。所有严重度（包括 Minor）如果改法唯一且不会碰变量、标签、换行或受保护文本，都可写 `needs_confirmation: false` 和具体 `edit`。
 - 新译名、术语表错误、术语表缺词、多个合理译法或任何无法安全局部修改的问题，写 `needs_confirmation: true` 和 `edit: null`。
 - 专名或术语改动只有在 `term_hits` 中存在唯一且 `confirmed: true` 的匹配时才可直接修改；`evidence` 写 `{"type":"confirmed_term","source":"...","target":"..."}`。
 - 受保护段写空 `issues`，不建议修改。
@@ -79,7 +80,7 @@ packet 超过 30 段时，每完成最多 20 个 id 就原子更新一次紧凑�
 
 ## 文本分类
 
-文本分类只使用上游数据：优先读取非空 `content_type`，否则读取 `text_type_context`。两者都为空或分类无法识别时，所有模块按“标准”检查。不得根据文本内容、文件名、工作表名或目录名自行分类。
+文本分类只使用上游数据，不得根据文本内容、文件名、工作表名或目录名自行分类。`optimized` 优先读取非空 `content_type`，否则读取 `text_type_context`；两者都为空或分类无法识别时，所有模块按“标准”检查。`full` 保留分类字段作为上下文，但不使用下表改变检查强度。
 
 强度含义：
 

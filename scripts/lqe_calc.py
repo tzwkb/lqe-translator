@@ -7,6 +7,7 @@ from pathlib import Path
 from lqe_chunk import verification_generation_lease
 from lqe_corrections import CheckFormatError, verify_results
 from lqe_engine import (
+    get_review_policy,
     read_json,
     requires_bound_artifacts,
     validate_scope_entries,
@@ -143,6 +144,7 @@ def main():
                 str(errors_path),
                 allow_internal_provenance=True,
                 require_internal_provenance=True,
+                review_policy=get_review_policy(state),
             )
             policy = resolve_scoring_policy(
                 state,
