@@ -37,6 +37,7 @@ from lqe_chunk import (
 from lqe_corrections import CheckFormatError, build_results, normalize_check_entries
 from lqe_engine import (
     get_check_scope,
+    get_review_policy,
     load_terms,
     requires_bound_artifacts,
     validate_scope_entries,
@@ -250,6 +251,7 @@ def cmd_chunks(a):
     precheck_entries = normalize_check_entries(
         json.loads(precheck_path.read_text("utf-8")),
         label=precheck_path.name,
+        review_policy=get_review_policy(state),
     )
     validate_scope_entries(
         state,
@@ -300,6 +302,7 @@ def cmd_chunks(a):
                     "iteration": state.get("iteration", 0),
                     "state_fingerprint": revision["state_fingerprint"],
                     "split_fingerprint": revision["split_fingerprint"],
+                    "review_policy": get_review_policy(state),
                     "segments": segments,
                 }
             )
@@ -486,7 +489,7 @@ def _cmd_merge_locked(a, job: Path, state: dict, manifest: dict, revalidate):
                     merged[sid]["issues"].append({
                         "category": "Inconsistency", "severity": "Minor",
                         "comment": f"[一致性] 同源 '{src}' 跨词条出现多种泰译 {variants}；需统一。",
-                        "needs_confirmation": False,
+                        "needs_confirmation": True,
                         "edit": None,
                         **(
                             {
@@ -512,6 +515,7 @@ def _cmd_merge_locked(a, job: Path, state: dict, manifest: dict, revalidate):
         checks,
         allow_internal_provenance=bound,
         require_internal_provenance=bound,
+        review_policy=get_review_policy(state),
     )
     errors_path = job / "errors.json"
     revalidate()

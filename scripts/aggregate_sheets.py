@@ -30,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lqe_engine import (  # noqa: E402
     _SKILL_ROOT,
     current_target,
+    get_review_policy,
     read_json,
     requires_bound_artifacts,
     validate_scope_entries,
@@ -201,6 +202,7 @@ def _validated_results(
                 f"{sj.name}/errors.json",
                 allow_internal_provenance=bound,
                 require_internal_provenance=bound,
+                review_policy=get_review_policy(state),
             )
             validate_scope_entries(
                 state,

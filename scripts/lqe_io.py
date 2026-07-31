@@ -33,7 +33,8 @@ from lqe_engine import (
     read_json, RE_CJK as _RE_CJK, _source_lang, _target_lang, _load_lang, _LANG_DIR, _SKILL_ROOT,
     CATEGORY_ORDER as _ALL_CATS, CATEGORY_PARENT as _PARENT,
     VALID_CATEGORIES as _VALID_CATEGORIES, VALID_SEVERITIES as _VALID_SEVERITIES,
-    apply_severity, build_check_scope, get_check_scope,
+    apply_severity, build_check_scope, build_review_policy,
+    get_check_scope, get_review_policy,
     current_target,
     load_terms as _load_terms, group_terms as _group_terms,
     requires_bound_artifacts,
@@ -99,6 +100,7 @@ def _validate_scope_or_exit(
 ) -> None:
     try:
         get_check_scope(state)
+        get_review_policy(state)
         validate_scope_entries(
             state, entries, issues_key=issues_key, label=label
         )
@@ -342,6 +344,7 @@ def _prepare_read_assets(
     args,
     prof: dict | None,
     check_scope: dict,
+    review_policy: dict,
     segments: list[dict],
     source_lang: str,
     target_lang: str,
@@ -503,6 +506,7 @@ def _prepare_read_assets(
     return {
         "aipe_url": None,
         "check_scope": check_scope,
+        "review_policy": review_policy,
         "project": prof.get("name", "") if prof else "",
         "language_pair": prof.get("language_pair", "") if prof else (
             f"{source_lang}-{target_lang}" if source_lang and target_lang else ""
@@ -684,7 +688,12 @@ def _publish_sdlxliff_job(
             path.unlink(missing_ok=True)
 
 
-def _read_sdlxliff_job(args, prof: dict | None, check_scope: dict) -> None:
+def _read_sdlxliff_job(
+    args,
+    prof: dict | None,
+    check_scope: dict,
+    review_policy: dict,
+) -> None:
     state_path = Path(args.out)
     job_dir = state_path.parent
     helper_paths = (
@@ -734,6 +743,7 @@ def _read_sdlxliff_job(args, prof: dict | None, check_scope: dict) -> None:
             args,
             prof,
             check_scope,
+            review_policy,
             result.segments,
             source_lang,
             target_lang,
@@ -789,6 +799,9 @@ def _read_sdlxliff_job(args, prof: dict | None, check_scope: dict) -> None:
 
 def _cmd_read_locked(args):
     check_scope = build_check_scope(getattr(args, "no_terminology", False))
+    review_policy = build_review_policy(
+        getattr(args, "review_mode", "optimized")
+    )
     out_path = Path(args.out)
     job_dir = out_path.parent
     scope_path = job_dir / "scope.json"
@@ -885,7 +898,7 @@ def _cmd_read_locked(args):
 
     if input_format == "sdlxliff":
         try:
-            _read_sdlxliff_job(args, prof, check_scope)
+            _read_sdlxliff_job(args, prof, check_scope, review_policy)
         except (OSError, ValueError) as exc:
             print(f"[ERROR] {exc}", file=sys.stderr)
             sys.exit(1)
@@ -1024,6 +1037,7 @@ def _cmd_read_locked(args):
                 args,
                 prof,
                 check_scope,
+                review_policy,
                 segments,
                 source_lang,
                 lang,
@@ -1465,6 +1479,7 @@ def _cmd_build_results_locked(args, state_path: Path, state: dict):
     entries = normalize_check_entries(
         json.loads(checks_path.read_text(encoding="utf-8")),
         label=args.checks,
+        review_policy=get_review_policy(state),
     )
     _validate_scope_or_exit(
         state,
@@ -1483,7 +1498,11 @@ def _cmd_build_results_locked(args, state_path: Path, state: dict):
             f"[build-results] check ids must match state segment ids: "
             f"missing={missing} extra={extra}"
         )
-    results = build_results(segments, entries)
+    results = build_results(
+        segments,
+        entries,
+        review_policy=get_review_policy(state),
+    )
     if requires_bound_artifacts(state):
         raise SystemExit(
             "[build-results] unbound checks cannot publish into a current job; "
@@ -2083,6 +2102,7 @@ def _build_xlsx(
     )
     categories = scorecard_category_order(scorecard_profile)
     check_scope = get_check_scope(state)
+    review_policy = get_review_policy(state)
     terminology_status = (
         "Enabled"
         if check_scope["terminology_enabled"]
@@ -2253,9 +2273,13 @@ def _build_xlsx(
     def _review_suggestion(seg, entry, errs, is_protected):
         if is_protected:
             return "", "已保护"
-        if errs and not any(
+        if (
+            not review_policy["minor_edits_allowed"]
+            and errs
+            and not any(
             issue.get("severity") in {"Major", "Critical"}
             for issue in errs
+            )
         ):
             return "", "未生成建议，需人工处理"
         reference = reference_suggestions.get(seg["id"])
@@ -3130,6 +3154,7 @@ def _cmd_write_locked(
             segments,
             manifest,
             final_errors_data,
+            review_policy=get_review_policy(state),
         )
     except (CheckFormatError, OSError, ValueError) as exc:
         raise SystemExit(f"[write] {exc}") from exc
@@ -3365,6 +3390,7 @@ def _verify_result_payload_with_segments(
             str(errors_path),
             allow_internal_provenance=bound,
             require_internal_provenance=bound,
+            review_policy=get_review_policy(state),
         )
     except (CheckFormatError, OSError, ValueError) as exc:
         raise SystemExit(f"[{command}] {exc}") from exc
@@ -3992,6 +4018,16 @@ def main():
                    dest="wordcount_basis",
                    help="词数基准：target-words=译文空格分词（EN 等）；source-chars=源文 CJK 字符数+拉丁词数（泰语等无空格译文用）")
     r.add_argument("--out", default="lqe_state.json")
+    r.add_argument(
+        "--review-mode",
+        choices=["optimized", "full"],
+        default="optimized",
+        dest="review_mode",
+        help=(
+            "审校输出模式：optimized=降本规则；full=完整建议行为。"
+            "Agent 应在初始化前向用户确认。"
+        ),
+    )
 
     af = sub.add_parser("apply-fixes")
     af.add_argument("--state",     required=True)

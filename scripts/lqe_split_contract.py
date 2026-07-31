@@ -22,7 +22,7 @@ try:
 except ImportError:  # pragma: no cover - POSIX fallback
     msvcrt = None
 
-from lqe_engine import current_target
+from lqe_engine import current_target, get_review_policy
 
 
 CONTRACT_VERSION = 1
@@ -170,6 +170,7 @@ def state_revision_payload(state: dict) -> dict:
         "target_lang": state.get("target_lang"),
         "wordcount": state.get("wordcount"),
         "check_scope": deepcopy(state.get("check_scope")),
+        "review_policy": get_review_policy(state),
         "asset_paths": {
             key: _asset_snapshot(state.get(key), key)
             for key in (

@@ -62,6 +62,30 @@ EXPECTED_MULTISHEET_DELIVERY_CONTRACT = {
         "combined child Results/Scorecard workbook",
     ],
 }
+EXPECTED_REVIEW_MODE_CONTRACT = {
+    "decision": "ask_before_new_job_unless_explicit",
+    "flag": "--review-mode",
+    "optimized": {
+        "minor_edits_allowed": False,
+        "comment_soft_target": "20-30 characters",
+        "suggestion_candidate_severities": ["Critical", "Major"],
+        "text_type_routing_enabled": True,
+    },
+    "full": {
+        "minor_edits_allowed": True,
+        "comment_soft_target": None,
+        "suggestion_candidate_severities": [
+            "Neutral",
+            "Minor",
+            "Major",
+            "Critical",
+        ],
+        "text_type_routing_enabled": False,
+    },
+    "state_field": "state.review_policy",
+    "immutable_within_job": True,
+    "legacy_cli_default": "optimized",
+}
 
 
 def scope_contract_blocks(content: str) -> list[str]:
@@ -105,6 +129,20 @@ def parse_multisheet_delivery_contract(content: str) -> dict:
     if len(blocks) != 1:
         raise AssertionError(
             "expected one visible data-lqe-multisheet-delivery-contract block, "
+            f"found {len(blocks)}"
+        )
+    return json.loads(html.unescape(blocks[0]))
+
+
+def parse_review_mode_contract(content: str) -> dict:
+    blocks = re.findall(
+        r"<pre(?=[^>]*\bdata-lqe-review-mode-contract\b)[^>]*>(.*?)</pre>",
+        content,
+        re.DOTALL,
+    )
+    if len(blocks) != 1:
+        raise AssertionError(
+            "expected one visible data-lqe-review-mode-contract block, "
             f"found {len(blocks)}"
         )
     return json.loads(html.unescape(blocks[0]))
@@ -215,7 +253,7 @@ class DocumentedContractTests(unittest.TestCase):
 
     def test_reference_suggestions_keep_agent_reliability_judgment(self):
         for phrase in (
-            '"version": 2',
+            '"version": 3',
             '"severities": ["Critical", "Major"]',
             "严重度只决定候选范围",
             "Agent 判断为可靠",
@@ -223,6 +261,13 @@ class DocumentedContractTests(unittest.TestCase):
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, self.suggestions)
+
+    def test_skill_publishes_review_mode_contract(self):
+        self.assertEqual(
+            parse_review_mode_contract(self.skill),
+            EXPECTED_REVIEW_MODE_CONTRACT,
+        )
+        self.assertIn("必须先询问一次并等待回答", self.skill)
 
     def test_user_documents_publish_complete_scope_contract(self):
         for path in USER_DOCUMENTS:

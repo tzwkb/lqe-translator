@@ -86,6 +86,8 @@ python3 scripts/run_tests.py
 
 Project profiles are preferred because one option loads language settings, checks, confirmed rules, terminology, and the style guide.
 
+Before initializing a new job, the agent must ask the user to choose a review-output mode unless the current request already specifies it: `optimized` is the cost-saving mode and `full` restores complete suggestion behavior. `--review-mode` stores the choice in `state.review_policy`; an existing job keeps its stored mode.
+
 ```bash
 JOB="jobs/<job>"
 python3 "$SCRIPTS/lqe_io.py" read \
@@ -93,6 +95,7 @@ python3 "$SCRIPTS/lqe_io.py" read \
   --input "<file>.xlsx" \
   --source-col "<source column>" \
   --target-col "<target column>" \
+  --review-mode "<optimized|full>" \
   --out "$JOB/state.json"
 ```
 
@@ -267,13 +270,13 @@ The compact draft contract is:
 }
 ```
 
-Every `comment` must be non-empty English, with 20–30 characters as a soft target; completeness and clarity take priority. Minor issues must use `needs_confirmation: true` and `edit: null`, and never produce corrected text or automatic iteration changes. For non-Minor issues, the agent still decides whether a safe, unique local edit exists.
+In `optimized` mode, every `comment` must be non-empty English with 20–30 characters as a soft target; Minor issues use `needs_confirmation: true` and `edit: null` and never produce corrected text or automatic iteration changes. In `full` mode there is no character target, and the agent may provide a safe, unique local edit for any severity, including Minor.
 
 Use `needs_confirmation: true` and `edit: null` for a new name, missing terminology, multiple reasonable options, or a rewrite. A terminology or proper-name edit also requires one unique `confirmed: true` candidate and `confirmed_term` evidence.
 
 Machine-generated Terminology issues also carry read-only `term_source` and `expected_targets`; models do not need to emit or rewrite them, and the publisher preserves them through `precheck_ref`.
 
-The tabular columns `content_type`, `text_type`, `文本类型`, and `文本类别` are passed into review packets as upstream text classifications. Agents use row-level `content_type` first and then `text_type_context`; missing or unknown values fall back to standard review intensity and must not be inferred. The module-intensity matrix for UI, skill/item, main dialogue, side/NPC dialogue, system/tutorial, lore, and combat/operation text is defined in `references/check_modules/common.md`. Classification changes review emphasis only; it does not disable deterministic checks or required modules.
+The tabular columns `content_type`, `text_type`, `文本类型`, and `文本类别` are passed into review packets as upstream text classifications and are never inferred. `optimized` mode uses row-level `content_type`, then `text_type_context`, to apply the matrix in `references/check_modules/common.md`; `full` keeps the classification as context without changing review intensity. Neither mode disables deterministic checks or required modules.
 
 ### 5. Validate, merge, score, and export
 
@@ -303,7 +306,7 @@ python3 "$SCRIPTS/lqe_suggestions.py" publish \
   --job "$JOB" --input <reference-suggestion-draft.json>
 ```
 
-Minor issues never enter the suggestion packet. Major/Critical defines the candidate set only; the agent still decides whether a reliable full suggestion can be submitted, and an omitted suggestion never removes the issue explanation. Suggestion artifacts are version 2; older artifacts must be prepared and published again.
+`optimized` mode defaults the suggestion packet to Major/Critical; `full` defaults to every severity. The agent still decides whether a reliable full suggestion can be submitted, and an omitted suggestion never removes the issue explanation. Suggestion artifacts are version 3; older artifacts must be prepared and published again.
 
 For a first-round review, explicitly use `single`:
 

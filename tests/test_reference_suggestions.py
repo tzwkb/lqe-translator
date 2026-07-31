@@ -12,6 +12,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 import lqe_io
 from lqe_corrections import CheckFormatError, validate_reference_target
+from lqe_engine import build_review_policy
 from lqe_split_contract import canonical_digest
 from lqe_suggestions import (
     ARTIFACT_SCHEMA,
@@ -198,6 +199,7 @@ class ReferenceSuggestionContractTests(unittest.TestCase):
                 "version": ARTIFACT_VERSION,
                 "packet_digest": packet["packet_digest"],
                 "manifest_digest": packet["manifest_digest"],
+                "review_policy": packet["review_policy"],
                 "selection": packet["selection"],
                 "results_basis_digest": packet["results_basis_digest"],
                 "reviewed_ids": packet["reviewed_ids"],
@@ -227,6 +229,37 @@ class ReferenceSuggestionContractTests(unittest.TestCase):
         ])
         with self.assertRaises(CheckFormatError):
             validate_suggestion_artifact(unsafe, packet, segments)
+
+    def test_full_mode_includes_minor_candidates(self):
+        segments = [{"id": 0, "source": "Source", "target": "Target"}]
+        results = [{
+            "id": 0,
+            "errors": [
+                issue(
+                    "Minor problem.",
+                    severity="Minor",
+                    needs_confirmation=False,
+                )
+            ],
+            "corrected": None,
+        }]
+        policy = build_review_policy("full")
+
+        packet = build_suggestion_packet(
+            segments,
+            None,
+            results,
+            review_policy=policy,
+        )
+
+        self.assertEqual(packet["reviewed_ids"], [0])
+        self.assertEqual(
+            packet["selection"]["severities"],
+            ["Neutral", "Minor", "Major", "Critical"],
+        )
+        self.assertFalse(
+            packet["instructions"]["text_type_routing_enabled"]
+        )
 
 
 class ReviewerWorkbookTests(unittest.TestCase):
@@ -272,6 +305,57 @@ class ReviewerWorkbookTests(unittest.TestCase):
                 self.assertEqual(
                     sheet.cell(2, 5).value,
                     "未生成建议，需人工处理",
+                )
+            finally:
+                workbook.close()
+
+    def test_full_mode_displays_minor_suggested_translation(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            output = Path(tempdir) / "minor-full-review.xlsx"
+            state = {
+                "input_path": str(Path(tempdir) / "source.xlsx"),
+                "headers": ["原文", "译文"],
+                "rows_raw": [["Source", "Target"]],
+                "target_col": 1,
+                "review_policy": build_review_policy("full"),
+                "segments": [
+                    {"id": 0, "source": "Source", "target": "Target"}
+                ],
+                "wordcount": 1,
+            }
+            results = [
+                {
+                    "id": 0,
+                    "errors": [
+                        issue(
+                            "Minor problem.",
+                            severity="Minor",
+                            needs_confirmation=False,
+                            edit={
+                                "from": "Target",
+                                "to": "Better target",
+                                "evidence": None,
+                            },
+                        )
+                    ],
+                    "corrected": "Better target",
+                }
+            ]
+            lqe_io._build_xlsx(
+                state,
+                [{"iteration": 0, "errors": results}],
+                99,
+                98,
+                output,
+            )
+
+            workbook = openpyxl.load_workbook(output, data_only=True)
+            try:
+                sheet = workbook["LQE Results"]
+                headers = [cell.value for cell in sheet[1]]
+                self.assertEqual(
+                    sheet.cell(2, headers.index("AI/建议译文") + 1).value,
+                    "Better target",
                 )
             finally:
                 workbook.close()

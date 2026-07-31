@@ -22,13 +22,13 @@ from lqe_chunk import (
     _normalize_module_output,
     cmd_publish_module,
 )
-from lqe_engine import read_json as load, required_modules
+from lqe_engine import get_review_policy, read_json as load, required_modules
 from lqe_paths import write_json_atomic
 from lqe_split_contract import canonical_digest, generation_lock, publish_generation
 
 
 PACKET_SCHEMA = "lqe.review-packet"
-PACKET_VERSION = 1
+PACKET_VERSION = 2
 PACKET_MANIFEST_SCHEMA = "lqe.review-packet-manifest"
 BATCH_PLAN_SCHEMA = "lqe.review-worker-batch-plan"
 COMPACT_DRAFT_SCHEMA = "lqe.compact-module-draft"
@@ -116,10 +116,25 @@ def _project_segment(segment: dict, module: str) -> dict | None:
     return projected
 
 
-def build_review_packet(base: dict, module: str) -> dict:
+def build_review_packet(
+    base: dict,
+    module: str,
+    review_policy: dict | None = None,
+) -> dict:
     if module not in _SUPPORTED_MODULES:
         raise ValueError(f"compact review does not support module {module!r}")
 
+    review_policy = get_review_policy(
+        {
+            "review_policy": (
+                review_policy
+                if review_policy is not None
+                else base.get("review_policy")
+            )
+        }
+        if review_policy is not None or base.get("review_policy") is not None
+        else {}
+    )
     segments = []
     protected = 0
     not_applicable = 0
@@ -146,6 +161,7 @@ def build_review_packet(base: dict, module: str) -> dict:
         "iteration": base.get("iteration", 0),
         "split_fingerprint": base["split_fingerprint"],
         "chunk_payload_digest": base["payload_digest"],
+        "review_policy": review_policy,
         "reviewed_ids": reviewed_ids,
         "review_text_chars": review_text_chars,
         "segments": segments,
@@ -332,7 +348,7 @@ def cmd_prepare(args) -> None:
                 + ", ".join(unsupported)
             )
         packets = [
-            build_review_packet(base, module)
+            build_review_packet(base, module, get_review_policy(state))
             for module in modules
             for base in bases
         ]
@@ -423,7 +439,7 @@ def _live_review_packet(
             raise SystemExit(
                 f"[review-publish] chunk {chunk_id} is not in the live generation"
             )
-        return base, build_review_packet(base, module)
+        return base, build_review_packet(base, module, get_review_policy(state))
 
 
 def _load_compact_draft(
@@ -460,7 +476,11 @@ def _load_compact_draft(
             "compact draft reviewed_ids must exactly match the review packet"
         )
 
-    findings = _normalize_module_output(raw.get("findings"), path)
+    findings = _normalize_module_output(
+        raw.get("findings"),
+        path,
+        review_policy=packet["review_policy"],
+    )
     reviewed_set = set(reviewed_ids)
     for entry in findings:
         if entry["id"] not in reviewed_set:
@@ -539,7 +559,9 @@ def cmd_auto_publish(args) -> None:
             (base, module)
             for module in required_modules(state)
             for base in bases
-            if not build_review_packet(base, module)["requires_ai"]
+            if not build_review_packet(
+                base, module, get_review_policy(state)
+            )["requires_ai"]
         ]
 
     for base, module in pending:
