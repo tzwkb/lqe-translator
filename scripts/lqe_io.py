@@ -256,6 +256,145 @@ def _profile_reference_paths(prof: dict | None) -> dict[str, Path]:
     return references
 
 
+def _docx_list_value(value: int, fmt: str) -> str:
+    if fmt in {"lowerLetter", "upperLetter"}:
+        chars = []
+        while value > 0:
+            value -= 1
+            chars.append(chr(ord("a") + value % 26))
+            value //= 26
+        text = "".join(reversed(chars)) or "0"
+        return text.upper() if fmt == "upperLetter" else text
+    if fmt in {"lowerRoman", "upperRoman"}:
+        parts = []
+        remainder = value
+        for amount, token in (
+            (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),
+            (100, "C"), (90, "XC"), (50, "L"), (40, "XL"),
+            (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I"),
+        ):
+            while remainder >= amount:
+                parts.append(token)
+                remainder -= amount
+        text = "".join(parts) or "0"
+        return text.lower() if fmt == "lowerRoman" else text
+    return str(value)
+
+
+def _docx_numbering_levels(doc) -> dict[int, dict[int, dict]]:
+    from docx.oxml.ns import qn
+
+    root = doc.part.numbering_part.element
+    abstract_by_id = {
+        int(node.get(qn("w:abstractNumId"))): node
+        for node in root.findall(qn("w:abstractNum"))
+    }
+    result = {}
+    for num in root.findall(qn("w:num")):
+        num_id = int(num.get(qn("w:numId")))
+        abstract_ref = num.find(qn("w:abstractNumId"))
+        if abstract_ref is None:
+            continue
+        abstract = abstract_by_id.get(int(abstract_ref.get(qn("w:val"))))
+        if abstract is None:
+            continue
+        levels = {}
+        for level in abstract.findall(qn("w:lvl")):
+            level_id = int(level.get(qn("w:ilvl")))
+            start = level.find(qn("w:start"))
+            num_fmt = level.find(qn("w:numFmt"))
+            level_text = level.find(qn("w:lvlText"))
+            levels[level_id] = {
+                "start": int(start.get(qn("w:val"))) if start is not None else 1,
+                "format": num_fmt.get(qn("w:val")) if num_fmt is not None else "decimal",
+                "text": level_text.get(qn("w:val")) if level_text is not None else f"%{level_id + 1}.",
+            }
+        for override in num.findall(qn("w:lvlOverride")):
+            level_id = int(override.get(qn("w:ilvl")))
+            start_override = override.find(qn("w:startOverride"))
+            if start_override is not None and level_id in levels:
+                levels[level_id]["start"] = int(start_override.get(qn("w:val")))
+        result[num_id] = levels
+    return result
+
+
+def _docx_list_prefix(para, levels_by_num: dict, counters: dict) -> str:
+    ppr = para._p.pPr
+    numpr = ppr.numPr if ppr is not None else None
+    if numpr is None or numpr.numId is None:
+        return ""
+    num_id = int(numpr.numId.val)
+    level_id = int(numpr.ilvl.val) if numpr.ilvl is not None else 0
+    levels = levels_by_num.get(num_id)
+    if not levels or level_id not in levels:
+        return ""
+    level_counters = counters.setdefault(num_id, {})
+    start = levels[level_id]["start"]
+    level_counters[level_id] = level_counters.get(level_id, start - 1) + 1
+    for deeper in [key for key in level_counters if key > level_id]:
+        del level_counters[deeper]
+    if levels[level_id]["format"] == "bullet":
+        return "-"
+    prefix = levels[level_id]["text"]
+    for referenced_level in range(9):
+        marker = f"%{referenced_level + 1}"
+        if marker not in prefix:
+            continue
+        referenced = levels.get(referenced_level, levels[level_id])
+        number = level_counters.get(referenced_level, referenced["start"])
+        prefix = prefix.replace(marker, _docx_list_value(number, referenced["format"]))
+    return prefix
+
+
+def _docx_table_lines(table) -> list[str]:
+    rows = []
+    for row in table.rows:
+        cells = []
+        for cell in row.cells:
+            parts = [part.strip() for part in cell.text.replace("\u00a0", " ").splitlines() if part.strip()]
+            cells.append(" / ".join(parts).replace("|", "\\|"))
+        rows.append(cells)
+    if not rows:
+        return []
+    width = max(len(row) for row in rows)
+    rows = [row + [""] * (width - len(row)) for row in rows]
+    lines = ["| " + " | ".join(rows[0]) + " |"]
+    lines.append("| " + " | ".join(["---"] * width) + " |")
+    lines.extend("| " + " | ".join(row) + " |" for row in rows[1:])
+    return lines
+
+
+def _docx_style_guide_text(doc) -> str:
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
+    lines = []
+    levels_by_num = _docx_numbering_levels(doc)
+    counters = {}
+    for block in doc.iter_inner_content():
+        if isinstance(block, Table):
+            table_lines = _docx_table_lines(block)
+            if table_lines:
+                lines.extend(["", *table_lines, ""])
+            continue
+        if not isinstance(block, Paragraph):
+            continue
+        text = block.text.strip()
+        if not text:
+            continue
+        style = block.style.name
+        if style.startswith("Heading 1"):
+            lines.append(f"\n# {text}")
+        elif style.startswith("Heading 2"):
+            lines.append(f"\n## {text}")
+        elif style.startswith("Heading 3"):
+            lines.append(f"\n### {text}")
+        else:
+            prefix = _docx_list_prefix(block, levels_by_num, counters)
+            lines.append(f"{prefix} {text}" if prefix else text)
+    return "\n".join(lines)
+
+
 def _load_style_guide(path: str) -> str:
     p = Path(path)
     if not p.exists():
@@ -265,21 +404,7 @@ def _load_style_guide(path: str) -> str:
     if suffix == ".docx":
         import docx
         doc = docx.Document(str(p))
-        lines = []
-        for para in doc.paragraphs:
-            text = para.text.strip()
-            if not text:
-                continue
-            style = para.style.name
-            if style.startswith("Heading 1"):
-                lines.append(f"\n# {text}")
-            elif style.startswith("Heading 2"):
-                lines.append(f"\n## {text}")
-            elif style.startswith("Heading 3"):
-                lines.append(f"\n### {text}")
-            else:
-                lines.append(text)
-        return "\n".join(lines)
+        return _docx_style_guide_text(doc)
     if suffix in (".xlsx", ".xlsm"):
         wb = openpyxl.load_workbook(str(p), data_only=True)
         out = []

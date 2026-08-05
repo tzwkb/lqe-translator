@@ -1,4 +1,4 @@
-WWM Style Guide 整合-0423更新
+WWM Style Guide - 0804更新
 本指南建议打开【目录】以及【评论】进行阅读
 WWM General  SG
 
@@ -8,37 +8,37 @@ H72项目不同模块下的内容应遵从不同的大小写规则，“标题�
 ## 标题模式
 
 ### 需要大写的单词
-标题中的第一个和最后一个单词必须大写，无论这个单词的词性如何，它都必须大写。
+(1) 标题中的第一个和最后一个单词必须大写，无论这个单词的词性如何，它都必须大写。
 ✅ Correct: The Beauty of the Night
 ❌ Incorrect: the beauty of the night
-✅ Correct: A Journey through the Dark
+✅ Correct: A Journey Through the Dark
 ❌ Incorrect: A journey through the dark
-所有的名词（Nouns）必须大写
+(2) 所有的名词（Nouns）必须大写
 名词指人、地点、事物、概念等。
 ✅ Correct: A Study of Birds and Mammals
 ❌ Incorrect: A study of birds and mammals
-所有的代词（Pronouns）必须大写
+(3) 所有的代词（Pronouns）必须大写
 代词包括 I, You, He, She, It, We, They 及其所有格、反身形式等。
 ✅ Correct: What She Knows about History
 ❌ Incorrect: What she knows about history
-所有的动词（Verbs）必须大写
+(4) 所有的动词（Verbs）必须大写
 即使是短小的动词（如 is, am, are, was, be, do 等），也必须大写。
 ✅ Correct: Why We Run and Jump
 ❌ Incorrect: Why We run and jump
 ✅ Correct: She Is Going to the Market
 ❌ Incorrect: She is going to the market
-所有的形容词（Adjectives）必须大写
+(5) 所有的形容词（Adjectives）必须大写
 形容词用来修饰名词。
 ✅ Correct: The Bright and Beautiful Stars
 ❌ Incorrect: The bright and beautiful stars
-所有的副词（Adverbs）必须大写
+(6) 所有的副词（Adverbs）必须大写
 副词通常修饰动词、形容词或其他副词。
 ✅ Correct: Why You Should Always Speak Clearly
 ❌ Incorrect: Why You Should always Speak clearly
 
 ### 不需要大写的单词
-介词（Prepositions，少于 5 个字母）一般不大写
-常见介词包括：in, on, at, to, of, up, by, for, with, from, over, under, between 等。
+(1) 介词（Prepositions，少于 5 个字母）一般不大写
+常见介词包括：in, on, at, to, of, up, by, for, with, from, over, under等。
 ✅ Correct: A Journey to the Center of the Earth
 ❌ Incorrect: A Journey To The Center Of The Earth
 ✅ Correct: The View from the Bridge
@@ -49,13 +49,13 @@ H72项目不同模块下的内容应遵从不同的大小写规则，“标题�
 ❌ Incorrect: up in the Sky
 ✅ Correct: Looking Up at the Stars
 ❌ Incorrect: Looking up at the Stars
-冠词（Articles）不大写
+(2) 冠词（Articles）不大写
 冠词包括 a, an, the，除非它是标题的第一个单词。
 ✅ Correct: The Mystery of an Ancient City
 ❌ Incorrect: The Mystery Of An Ancient City
 ✅ Correct: A Night in the Museum
 ❌ Incorrect: A Night In The Museum
-并列连词（Coordinating Conjunctions，少于 5 个字母）不大写
+(3) 并列连词（Coordinating Conjunctions，少于 5 个字母）不大写
 常见连词：and, but, or, nor, for, so, yet。
 ✅ Correct: War and Peace in the 20th Century
 ❌ Incorrect: War And Peace In The 20th Century
@@ -63,18 +63,18 @@ H72项目不同模块下的内容应遵从不同的大小写规则，“标题�
 ❌ Incorrect: Life Or Death: A Difficult Choice
 
 ### 例外情况
-长介词（超过 5 个字母）需要大写
-介词若超过 5 个字母，则应大写，例如 Before, Beyond, Toward, Through, About, Against。
-✅ Correct: A Walk through the Valley
+(1) 长介词（超过 5 个字母）需要大写
+介词若超过 5 个字母，则应大写，例如 Before, Beyond, Toward, Through, About, Against，Between。
+✅ Correct: A Walk Through the Valley
 ✅ Correct: A Journey Beyond the Stars
 ❌ Incorrect: A Journey beyond the Stars
-动词短语中的介词或副词必须大写
+(2) 动词短语中的介词或副词必须大写
 在动词短语（如 Give Up, Look After, Break Down）中，即使是短小的介词或副词，也要大写。
 ✅ Correct: Never Give Up on Your Dreams
 ❌ Incorrect: Never Give up on Your Dreams
 ✅ Correct: Looking Up at the Sky
 ❌ Incorrect: Looking up at the Sky
-破折号或冒号后面的第一个单词必须大写
+(3) 破折号或冒号后面的第一个单词必须大写
 ✅ Correct: The Truth About the Universe: What Scientists Know
 ❌ Incorrect: The Truth About the Universe: what Scientists Know
 ✅ Correct: The Best Advice—Never Give Up
@@ -91,18 +91,20 @@ H72项目不同模块下的内容应遵从不同的大小写规则，“标题�
 | 长介词（5+ 字母） |  |
 | 动词短语中的介词或副词 |  |
 | 破折号/冒号后的第一个单词 |  |
-句子模式
-句子首字母大写
-专有名词（Proper Nouns）
+
+
+## 句子模式
+1. 句子首字母大写
+2. 专有名词（Proper Nouns）
 人名、地名、术语等专有名词需大写
-引文中的大小写
+3. 引文中的大小写
 完整引语的句首字母需大写：
 ✅ He stated, “The results are significant.”
 ❌ He stated, “the results are significant.”
 嵌入句中的引语无需大写（若引语非完整句子）：
 ✅ She called the situation “a turning point.”
 ❌ She called the situation “A turning point.”
-冒号后的首字母
+4. 冒号后的首字母
 冒号后若为独立子句或引语，首字母大写：
 ✅ He made a promise: We will finish the project on time.
 ❌ He made a promise: we will finish the project on time.
@@ -111,7 +113,7 @@ H72项目不同模块下的内容应遵从不同的大小写规则，“标题�
 ❌ Bring three things: A pen, Paper, and Your ID.
 
 # 二．标点符号
-严格遵循原文标点符号，即原文以标点符号结尾的，目标语言也需要以相同作用的对应标点符号作为结尾；原文结尾无标点符号的，目标语言结尾也不应该添加标点符号。
+1. 严格遵循原文标点符号，即原文以标点符号结尾的，目标语言也需要以相同作用的对应标点符号作为结尾；原文结尾无标点符号的，目标语言结尾也不应该添加标点符号。
 案例1：交谈
 ✅ Correct: Talk
 ❌ Incorrect: Talk.
@@ -124,7 +126,7 @@ H72项目不同模块下的内容应遵从不同的大小写规则，“标题�
 案例4：“虽远不远，空也不空”
 ✅ Correct: "Not quite far, not entirely empty"
 ❌ Incorrect: "Not quite far, not entirely empty."
-全半角
+2. 全半角
 目标语言中的所有标点符号应使用半角符号。
 ✅ Correct: .
 ❌ Incorrect: 。
@@ -151,21 +153,19 @@ H72项目不同模块下的内容应遵从不同的大小写规则，“标题�
 | 书名号 | 《 》 | (none) | 用于书名、作品名时，英文则通过大写表示。 |
 | 中括号 | 【】 | [] |  |
 | 斜杠 | ／ | / |  |
-特殊标点符号·-
-如无特殊说明，中文的名字中如果出现用·或-连接的组合词，英文则以 - 代替（前后需要有空格），例如：
-猫猫·珍珠 Cat - Pearl
-工匠-黎顺 Craftsman - Li Shun
-在非代码内容中不要出现< >符号（即在段落中<>仅起到文字强调作用时，可以在译文中省略<>符号）
+| 中原点 | · | : | 目前语言包里是 - 和 : 混用的（是历史遗留问题）。 / wyf建议是 : ，吃不准的可以找客户确认下 / 特别是原文就涉及 · 和：混用的 / 目前流派这些还是用 - |
+
+4. 在非代码内容中不要出现< >符号（即在段落中<>仅起到文字强调作用时，可以在译文中省略<>符号）
 ① 如果原文是必须要用符号分开才不会影响阅读的，可以用直引号代替。<xx> → "xx"
 ② 如果原文是不加符号不影响阅读的（比如这个技能名字，实际上在欧美游戏很多技能名都不需要加符号强调，可以忽略） 直接不加符号。<xx> → xx
-英语文本不要使用em dash —
-如果是活动任务名等，去掉双引号会更符合欧美游戏的UI习惯，可以做省略符号的调整。
+5. 英语文本不要使用em dash —
+6. 如果是活动任务名等，去掉双引号会更符合欧美游戏的UI习惯，可以做省略符号的调整。
 
 # 三．数字、数值格式
-使用千分位符
+1. 使用千分位符
 ✅ Correct: 2,000
 ❌ Incorrect: 2000
-乘法表示（【物品】 ×数量, ×前有空个，×后无空格，物品术语使用其单数形式。）
+2. 乘法表示（【物品】 ×数量, ×前有空个，×后无空格，物品术语使用其单数形式。）
 原文：100铜钱
 ✅ Correct: Copper x100
 ❌ Incorrect: 100 Coppers
@@ -177,13 +177,14 @@ H72项目不同模块下的内容应遵从不同的大小写规则，“标题�
 ❌ Incorrect: Coins ×500
 ❌ Incorrect: Coin×500
 ❌ Incorrect: Coins × 500
-使用罗马数字而不是英文字母拼写：Ⅰ、Ⅱ、Ⅲ、Ⅳ、Ⅴ、Ⅵ、Ⅶ、Ⅷ、Ⅸ
+3. 只有任务使用罗马数字拼写：Ⅰ、Ⅱ、Ⅲ、Ⅳ、Ⅴ、Ⅵ、Ⅶ、Ⅷ、Ⅸ；
+其他道具名之类的使用英文字母拼写：I，II，III，IV，V，VI，VII，VIII，IX
 
 # 四．富文本
-#G......#E、#C......#E、#Y......#E：字体格式标签，非打印字符，用于定义二者之间的文字格式，译文需要放在对应的位置。
-{}：文本变量，打印字符，翻译时将其考虑为实际文本内容处理。
-{slot1_qishu_name}、{kungfu_main_name}等：文本变量，打印字符，有实际的文本对应。译文需要考虑其实际含义将其放在恰当的位置。
-{standard_value}、{qishu_standard_value}等：数值标量，打印字符，有实际的数值对应。译文需要考虑其实际含义将其放在恰当的位置。
+1. #G......#E、#C......#E、#Y......#E：字体格式标签，非打印字符，用于定义二者之间的文字格式，译文需要放在对应的位置。
+2. {}：文本变量，打印字符，翻译时将其考虑为实际文本内容处理。
+3. {slot1_qishu_name}、{kungfu_main_name}等：文本变量，打印字符，有实际的文本对应。译文需要考虑其实际含义将其放在恰当的位置。
+4. {standard_value}、{qishu_standard_value}等：数值标量，打印字符，有实际的数值对应。译文需要考虑其实际含义将其放在恰当的位置。
 
 # 五．字符限制
 鉴于本作同时登陆PC和Mobile双端，虽然在PC端上对于字符限制的要求并不苛刻，但是考虑到Mobile玩家体验，应尽量减少翻译的长度。
@@ -191,23 +192,23 @@ H72项目不同模块下的内容应遵从不同的大小写规则，“标题�
 对于有特殊字符限制要求的文件，请遵循具体的文件要求。
 
 # 六．文化与IP风险
-文化标志性词语优先采用当地文化叫法音译。
-对于中文和其他语种中均有对应叫法，但其他语种叫法更流行的词语，仍采用中文拼写。
-仅对标志性词语采用音译，非核心文化符号词语采取释义。
+1. 文化标志性词语优先采用当地文化叫法音译。
+2. 对于中文和其他语种中均有对应叫法，但其他语种叫法更流行的词语，仍采用中文拼写。
+3. 仅对标志性词语采用音译，非核心文化符号词语采取释义。
 例子1：盆栽
 ✅ Correct: Penjing
 ❌ Incorrect: Bonsai
 例子2：相声的逗哏与捧哏
 ✅ Correct: Comic and stooge of Xiangsheng
 ❌ Incorrect: Dougen and penggen of Xiangsheng
-禁止使用侮辱性、歧视性词语。
-中文中出现英语世界不能接受的梗/用语时，尽量中性化处理，处理不了的上报。
-禁止关于性别、肤色、性取向、体型的刻板印象/歧视性评论
+4. 禁止使用侮辱性、歧视性词语。
+5. 中文中出现英语世界不能接受的梗/用语时，尽量中性化处理，处理不了的上报。
+6. 禁止关于性别、肤色、性取向、体型的刻板印象/歧视性评论
 例子2：肥胖的
 ✅ Correct: Chubby
 ❌ Incorrect: Obese
-避免使用现实世界存在的IP相关词语，包括但不限于：其他游戏内术语、经典电影/漫画台词、歌词等。
-借鉴现实热梗时，避免直接使用，应化用处理。
+7. 避免使用现实世界存在的IP相关词语，包括但不限于：其他游戏内术语、经典电影/漫画台词、歌词等。
+8. 借鉴现实热梗时，避免直接使用，应化用处理。
 例子3：能力越大，责任越大。
 ✅ Correct: Greater strengths mean greater responsibilities
 ❌ Incorrect: With great power comes great responsibility
@@ -221,8 +222,8 @@ WWM文化类词汇翻译注意点
 火药是中国古代的四大发明之一，在唐代已大规模运用于军事当中。
 但考虑到时代背景，因此“Gunpowder”并不是最适合的翻译，可以考虑的替代方案是“Black Powder”，“Exposive Powder”，“Explosive”
 a.  Black Powder：理论上没问题，但考虑到欧美种族歧视方面的政治正确，应该避免使用Black这一词汇，因此Black Powder不作为第一选择；（在翻译当中应该充分考虑到欧美政治正确的影响，包括种族、性别等，选择替代性词汇）
-Explosive Powder 适用于大部分场景中描述“火药”
-Explosive 适用于明确可以定义为“炸药”“爆炸物”的场景。
+b. Explosive Powder 适用于大部分场景中描述“火药”
+c. Explosive 适用于明确可以定义为“炸药”“爆炸物”的场景。
 
 # 侠、大侠、少侠、女侠
 虽然国内网络有不少玩家建议从推崇中国本土文化“侠”文化出海的角度，将“侠”音译为"Xia"。但考虑到国外玩家对这一次汇的熟悉程度和从游戏性角度出发，H72项目中不采纳这一建议。
@@ -271,266 +272,64 @@ WWM文本分类型SG
 # 分类别规范细则
 
 # UI文本
-大小写规则：标题模式
-提炼核心内容，极尽可能简练，尽量只用1-3个单词来完成表达
-偏向功能玩法，尽量避免风格化，语言简洁为主，偏向书面语
-标点 “·”和书卷特殊处理方式，《孙不弃手札·一》 Notes from Sun Buqi, Volume I;《长生仙人传·上》《长生仙人传·中》《长生仙人传·下》The Legend of the Immortal, Volume I(II, III)；非书卷中的·依然遵循通用SG中的指导
+1. 大小写规则：标题模式
+2. 提炼核心内容，极尽可能简练，尽量只用1-3个单词来完成表达
+3. 偏向功能玩法，尽量避免风格化，语言简洁为主，偏向书面语
+4. 标点 “·”和书卷特殊处理方式，《孙不弃手札·一》 Notes from Sun Buqi, Volume I;《长生仙人传·上》《长生仙人传·中》《长生仙人传·下》The Legend of the Immortal, Volume I(II, III)；非书卷中的·依然遵循通用SG中的指导
 
 # 剧情
-大小写规则：故事标题或章节标题采用标题模式，对话或故事内容采用标题模式
-对话类内容避免直译，译文读起来的时长应该与原中文保持近似长度，必要情况下可以忽略一些不容要的信息（如果不确认哪些信息可以忽略请提报Query）
-对话内容一般情况请采用现在时态
-对话内容请参考人设文档，尽量口语化，对不同角色做出差异化风格设定，让角色形象更加立体。
+1. 大小写规则：故事标题或章节标题采用标题模式，对话或故事内容采用标题模式
+2. 对话类内容避免直译，译文读起来的时长应该与原中文保持近似长度，必要情况下可以忽略一些不容要的信息（如果不确认哪些信息可以忽略请提报Query）
+3. 对话内容一般情况请采用现在时态
+4. 对话内容请参考人设文档，尽量口语化，对不同角色做出差异化风格设定，让角色形象更加立体。
 
-# 地区地点
-术语遵循大小写规则：标题模式
-对于历史真实存在的地名，采用最为通用的官方翻译，例如“开封”
-对于有隐喻含义的地名，例如“承恩镇”，“清心圃”等，需要仔细考虑其背景设定，进行创译，杜绝简单音译。
-地名创译：对于游戏核心概念，可以考虑结合世界观进行生造词，造词时应考虑玩家理解成本，避免过度包装或使用生僻词/词根1. 大小写规则：标题模式
-中文的名字中如果出现用·或-连接的组合词，英文则以“,”进行间隔，并且语序也应按照英文的逻辑进行调整，例如：
+# 地名
+地点名称尽量意译，玩家应能读懂并快速了解地区特性、特征，从而对地图有一定印象，译文也尽量突出各地区的特点，尽量保持原文想要表现的意境和美感。
+1. 术语遵循大小写规则：标题模式
+2. 对于历史真实存在的地名，采用最为通用的官方翻译，例如“开封”
+3. 中文的名字中如果出现用·或-连接的组合词，英文则以“,”进行间隔，并且语序也应按照英文的逻辑进行调整，例如：
 隐月山-荒魂村 Village of Desolation, Moonshade Mountains
 隐月山-荒魂村-西 West of Village of Desolation, Moonshade Mountains
+4. 核心原则：意译优先，兼顾直译，音译为辅
+首选意译：对于具有描述性、功能性或意境性的地名，优先选择意译。通过揭示地点的功能、景观特点或其代表的文化含义，使玩家不需额外解释即可理解。
+例：弱水岸 Weak River Shore → Still Shore （强调地名中“弱”的意境，比直译更具有美感）
+酒肉山林 Feastwood Hills→Gourmand's Grove（突出“酒肉”的享乐主义，押头韵保留意境）
+墨城旧址 Old Mo City→ Old Inkspire（提取“墨”的意境和“旧址”的废墟感，舍弃Mo City的音译）
+辅助直译：对于含义直白、字面意义清晰的地名，可采用直译。直译应力求简洁自然，避免生硬。
+例：水流墓碑 Flowing Water Tombstone→Flowing Grave （直译“水流”和“墓碑”，但更具有墓碑性质地名的意境)
+碧水云涛 Emerald Tide→ Jadecloud Strand（译文无法判定地点特征，提取“碧水”和“云涛”的色彩和形态，补充名词Strand进行说明）
+常平仓 Ever-Normal Granary→Civil Granary（Ever-Normal的搭配比较生硬）
+最后考虑音译：仅当名称为专有历史/地理实体（如省市名称、特定山脉名称）、或意译/直译会丧失其特有文化内涵、或译文拗口难读时，才考虑音译，并通常需搭配通用名词（如Mount, River, City, Town, Temple等）以明确类型。
+例：蹴鞠场 Cuju Field （Cuju是专有名词，保留文化特征；Field确定场景功能）
+坎儿井区域 Karez Well Area （Karez是专有音译，结合Well Area解释其功能）
+秦岭 Qinling→Qinling Mountains （特有山脉名，保留音译，加上通用名词）
+升平桥 Shengping Bridge（真实地名，保留音译，加上通用名词）
+5. 简洁性、地道性与易读性
+精炼词语：在不损失核心信息的前提下，力求译文简洁，避免冗余。
+符合英语习惯：遵循英语的语法和词序，选择自然、地道的表达，避免中式英语。
+易于发音和记忆：译文应读起来流畅，方便玩家快速识别和记住。
+例：水龙首 Water Loonghead→ Dragonhead Springs （Loong西方玩家难以理解，Springs指明水源）
+花海 Flower Sea→Floral Expanse（直译，但是更突出花卉广阔的意象）
+6. 保持风格一致性与类别化处理
+类型词汇统一：对于表示相同地理类型或功能的词汇（如“山”、“河”、“村”、“店”、“桥”等），应在英文翻译中保持一致性。若同一类地名有不同等级或特点，则通过不同的修饰词或后缀来区分。
+例：山/岭/丘/岗→Mountain/Ridge/Hill/Knoll、镇/村/庄→Town/Village/Hamlet
+隐月山 →Moonveil Mountain 龙虎岭→Twinbeast Ridge 藏贤岗→Sage's Knoll
+慈心镇 →Mercy Heart Town 千佛村→Thousand Buddha Village 伏马庄 Stallion Hamlet
+* 佛教相关地名尽量采用对应梵语。
+例：修罗无相 Shura Animitta​
+7. 地名尽量用2个单词，一般不超过3个单词
 
 # 角色 /人物
-大小写规则：标题模式
-无特殊含义的人名：音译优先，姓氏在前，名在后，姓和名之间用空格间隔。（例如：秦大力 Qing Dali）
-称谓+名字的人名：称谓意译，人名音译。（鲁大师 Master Lu; 张捕头 Constable Zhang）
-有特殊含义的人名：意译优先，突出人物特点。（哭婆婆 Weeping Granny）
-无需在名字前加定冠词，例如哭婆婆译为Weeping Granny即可，而不是The Weeping Granny；囚犯 Prisoner 而不是The Prisoner
-名字中用“-”隔开称号和名字的角色，例如 疯老头-烈阳，按照下方格式翻译Lieyang the Mad Man 或省略“老头”译为Mad Lieyang，不能译为 The Mad Man - Lieyang
-一些涉及到剧情的人名，例如“东阙公子”是男扮女装的，在身份揭晓前后公子的翻译应有所不同体现不同性别；一共有50位左右的重点角色，需要详细阅读背景资料和人设进行创译。
-如果出现中文姓名读音相同，英语在音译时可以适当进行变化进行区分
-
-# 势力
-势力名称请采用标题模式大小写规则
-势力介绍请采用句子模式大小写规则
-势力介绍请采用过去时
-势力介绍内容应尽可能地忠实于原文，将原文信息完整地阐述，不要有遗漏
-
-# 技能
-大小写规则：标题模式
-技能名应该充分考虑技能描述效果，名字应该与描述相对应，能够从名字上体现出技能的特点
-技能名创译：对于游戏核心概念，可以考虑结合技能描述和世界观进行生造词，造词时应考虑玩家理解成本，避免过度包装或使用生僻词/词根
-品级定义“凡量珍极”请使用“Common, Uncommon, Rare, Supreme”
-长度应尽量简短
-
-# 外观
-大小写规则：标题模式
-标点 “·”特殊处理方式
-发型·一 Hair 1，发型·二 Hair 2，发型·三 Hair 3即可，但在“江湖客·发”这种情况下依然采用通用SG中的指导
-此标签内容中存在大量形而上的名称，例如“问春何苦”、“也无晴”、“也无晴”，从字面意义上完全无法体现外观形象特征，请参照参考图片的特征，进行创译形式的英文本地化，允许与中文完全无关
-外观名称需要尽量简短，1-2个单词内表达，2个单词最佳（系列名除外）
-介词冠词不算在内，强调复刻意境，并非逐字翻译。
-
-# 任务
-大小写规则：任务名称-标题模式，任务描述-句子模式。
-长度应尽量简短，提炼核心信息进行创译
-对于有隐喻含义的名字，例如“风起凌烟-形”，“风起凌烟-蕴”，“试炼-容鸢”，“试炼-伊刀”等，需要仔细考虑其背景设定，进行创译，杜绝简单直译，必要情况下可以与中文有较大差距，只要能凸显出其核心内容即可。
-
-# 成就
-大小写规则，成就标题-标题模式，成就内容描述-故事模式
-成就名称需要根据成就描述进行创译，严格控制长度
-成就描述需要提炼核心信息进行翻译，冗余信息可以忽略（如果不确认哪些内容可以忽略请提报Query）
-
-# 武林录
-万事知标题、见闻标题采用标题模式大小写规则
-万事知内容、见闻内容采用句子模式大小写规则
-标题类翻译应该尽量简短，表达出原文的核心语义即可，可以创译
-内容类翻译一般情况下请采用现在时
-其一、其二等章节分类，请用罗马数字表达，例如 XXX I， XXXX II, XXX IIII
-
-# entity相关
-如果句段种仅包含交互对象，例如人名，物品，道具或其他机关类名称，请采用标题模式大小写规则
-交互操作描述请采用句子模式大小写规则
-在翻译交互操作时应提炼核心语义，尽可能简短的翻译，例如：
-需要两把钥匙才能打开！- Requires two keys!而不是Can only be opened with two keys，“才可以打开”是可以忽略的信息，因为只有玩家尝试去打开才会弹出这个提示，操作对象是明确的
-拿起恭桶、放下恭桶 - 翻译的时候可以只用翻译出来拿起和放下即可，因为只有玩家靠近物品，才会弹出此类按钮提示，操作的目标是明确的
-获取一株芍药、获取一株白术、获取一株覆盆子 - 跟上方案例相反，这几处string因为不确定场景，因此任何信息都不能被忽略
-
-# 提示文本
-采用句子模式大小写规则
-中文原句删减所有冗余修饰，尽可能简洁
-用短语替代完整句
-操作提示以祈使动词开头
-情感中立，禁用感叹号
-
-# 通知弹窗
-采用句子模式大小写规则
-中文原句删减所有冗余修饰，尽可能简洁
-用短语替代完整句
-操作提示以祈使动词开头
-情感中立，禁用感叹号
-
-# 道具
-大小写规则：标题模式
-标点 “·”和书卷特殊处理方式，妙善语录·上(中，下） XXX， Volume I(II,III)
-英文本地化需要在理解物品名称含义的基础上进行核心内容提炼，尽量精简英文，如果对物品作用不清楚的，请及时提Query
-
-# 药方
-药方名采用标题模式大小写规则
-药方描述采用通用的游戏技能描述翻译方法，尽可能简洁，提炼核心信息，冗余修饰性信息可以忽略
-描述采用第三人称单数
-固定句式例句
-a. Reduces XXX by XXX% for 2 XXs/xx turns.
-b. Increases xxx by xx% for XXs/xx turns
-c. 扣除xxx，获得xxx - Consumes xxx and gains xxxx
-d 本次治疗持续期间，for the duration of this healing session
-e. 获得护盾时对病症造成 - When gaining a shield
-f. 本医方使用后消耗 - this prescription is consumed after use
-f. 获得护盾 Gains xxx% Shield
-
-# 话术
-大小写规则：句子模式
-提炼核心内容，创作翻译，偏向口语化
-文风需要古韵和中国风，但不晦涩拗口
-可以使用英语文化中的俗语来表达相同或相似的内容，禁用俚语
-可以引经据典（西方古籍），但要避免明显的西方文化元素，例如“梁山伯与祝英台”不得用“罗密欧与朱丽叶”来代替；“整天之乎者也，子曰诗云的，也没见你当圣人啊！”也不能翻译成“Stop spouting Latin to sound profound—just say what you mean!”（错误原因：spouting Latin），可以“Your ivory tower rhetoric won’t solve real-world problems.”
-此模块台词的说话人基本都是市井小民，文化程度不会太高，因此在设计台词时应该用简单、通俗、市井的词汇，甚至可以刻意设计一些错误的语法表达；但在引用名人名言时，要设计出明显区别于市井小名对话的文化高深感。
-明显具有方言感的对话，例如中文的“俺......”，在英语中也应设计恰当的口音
-
-# 博物(图鉴)
-大小写规则：标题模式
-长度应尽量简短，提炼核心信息进行创译
-对于有隐喻含义的名字，例如“双辙出郭门”，“山中忆故人”等，需要仔细考虑其背景设定，进行创译，杜绝简单直译，必要情况下可以与中文有较大差距，只要能凸显出其核心内容即可。
-标点 “·”和书卷特殊处理方式，孙不弃手札·一(二，三） XXX， Volume I(II,III)， 长生仙人传·上（中，下）XXX， Volume I(II,III）；与把头之信·一（二，三）Letter with xxxx, Part I,(II,III)或 The First (Second, Third) Letter with xxxx （取决于是否是三份不同的信，还是同一封信的三个部分）；史记·吴太伯世 Th
-
-# 【风华】及外观衍生系统
-1. 适用范围
-适用于游戏内【风华】系统及相关衍生内容的翻译，包括但不限于：姿态（Poses）、外观/武器皮肤、置景、环境以及题跋的名称与描述文本。
-2. 字符限制与用词规范
-为确保UI界面的美观与适配，所有标题类文本必须严格遵循以下字符与用词限制：
-姿态名：
-限制：1-2个单词，总长度严格控制在 12个字符以内（包含空格）。
-策略：优先使用动感强、表意精准的短词，避免使用冗长的复合词。
-外观/置景等名称：
-限制：2-3个实词（不含介词/连词等虚词）。
-策略：尽量避开音节过多、拼写过长的生僻词。例如，表达“哀伤”时，优先使用 Gloom 或 Sigh，而不是 Melancholia，以防UI换行或截断。
-3. Ukey 定位与大小写规范
-翻译前必须依托大表中的 Ukey 进行上下文定位，准确判断文本属性，并应用对应的大小写格式：
-标题类文本
-特征： Ukey 包含 name（例：风华配置表.xlsx_置景_name_2902233）
-格式要求：采用 Title Case（标题首字母大写）。首尾单词及实词首字母大写，虚词（冠词、介词、连词）小写。
-标点： 末尾不加句号。
-描述/故事类文本
-特征： Ukey 包含 describe 或 story（例：风华配置表.xlsx_置景_story_describe_str_2902310）
-格式要求：采用 Sentence case（句首字母大写）。仅句子首字母和专有名词大写，其余小写。
-标点： 遵循正常英文语法规则，末尾需有正确的标点符号。
-4. 创译策略与查证流程
-外观类名词往往具有极高的意境感，严禁生硬机翻。译员需遵循以下“三步走”查证与创译流程：
-实机考证：
-在游戏/资料库内使用关键词搜索该名称的实机表现。若查到实机画面，需根据其视觉特征（如颜色、材质、动态效果）进行翻译。
-意境推导：
-若无实机参考，需检索该ID对应的 description 文本，提取氛围关键词进行创译 。
-【案例说明】 翻译置景名“怜花意”（Ukey：...name_2902310）时，因缺乏直观实机图，通过查阅其描述文本（“花开花落花无悔，缘来缘去缘如水”），提取出“幽怨、哀伤、花落”的氛围感。最终创译为 Petals’ Sigh，不仅契合字数限制，且完美传达了中文的凄美意境。
-Query 提问规范：
-为提高沟通效率，只有在“无实机表现 + 无相关描述文本 + 无法推断语境”的极端情况下，才允许向客户提交 Query 获取视觉设定。严禁未作调查的泛滥提问。
-5. 古诗词与风味文本处理
-风华系统的描述中常包含古典诗词或意境骈文。此类文本的翻译核心是“传神重于达意”。
-禁忌： 绝对禁止字对字直译。
-韵律与结构： 翻译时需重点考虑英文诗歌的押韵体系（如 AABB 或 ABAB 韵脚），增强韵律感与文化张力。
-意象保留： 提炼核心意象（如雷、雪、生死）。
-【案例说明】 “千雷震九幽，生灭亦何咎。万般皆无常，唯余雪依旧。”
-指导方向： 需将其处理为具有史诗感的高级奇幻韵文，保留“Thunder/Snow/Fate/Eternity”等意象，利用英文诗歌的断句和韵脚，重现原文那种苍凉、宏大的宿命感。参考译文：
-Though thunder shakes the earth below, in life and death, what should we know? For all things fade and drift away, but pure and white, the snow will stay.
-
-# 家业部分
-1、核心名词与“文本双关”处理
-避免直译，名称冗长或难以理解，部分依附中国文化的内容可进行创译处理
-要可读、易懂、有趣，能引起玩家注意或会心一笑；
-可适当使用英语中的双关、头韵、尾韵、俗语、幽默表达，提升记忆点与趣味性
-例：
-嗟夫刀法与劫富刀法的江湖传言
-原文中利用了“嗟夫”与“劫富”在汉语中的谐音/典故衍生。在英文中，由于发音不同，必须通过意译的视觉/听觉关联来重现这个江湖民谣的幽默感。
-嗟夫刀法的TB译法：Thundercry Blade
-劫富刀法在TB中没有出现，结合 Thunder 与 Plunder (掠夺/劫掠) 的押韵，译为Plundercry Blade
-2、古诗词与风味文本处理
-包含古典诗词或意境骈文的，此类文本的翻译核心是“传神重于达意”。
-禁忌： 绝对禁止字对字直译。
-韵律与结构： 翻译时需重点考虑英文诗歌的押韵体系（如 AABB 或 ABAB 韵脚），增强韵律感与文化张力。
-意象保留： 提炼核心意象（如雷、雪、生死）。
-原诗： 托交从剧孟，买醉入新丰。笑尽一杯酒，杀人都市中。（取自李白《结客少年行》）
-原则： 严禁逐字死译。可采用英语古诗的双行押韵（AABB）来建立节奏感。
-参考译文：
-We ride with Ju Meng, the legend of the blade,
-In Xinfeng, where the finest wine is made.
-We drain our cups and share a roaring laugh,
-Then paint the city in the tyrant's wrath.
-版本记录
-本指南为动态文件，将随项目进展不断更新。
-翻译时如遇本指南未涵盖或不确定之处，务必在表格中提报Query。
-
-# 0701【燕云】Style guide 补充更新
-技能描述
-1. 传达技能的核心效果、战斗定位或意境，兼顾简洁性与战斗语境下的可读性。
-2. 用主动语态明确技能效果。控制/增益/减益类效果采用通用游戏术语，注意游戏内独特术语的一致性，典故类描述保留核心意象而非逐字翻译。
-3. 需注意代码位置不可进行拆分，如#Y内容#E
-1）描述玩家自己主动行动或操作效果的内容：用第一人称动词（主语"我"隐含，省略主语，使用动词原形）
-例："Move swiftly", "Shoot a spread of arrows", "Channel energy"
-2）描述增强、造成伤害、效果变化的内容：用第三人称动词（如"increases"，"deals"，"reduces"）
-例："Increases damage", "Deals 200 damage", "Reduces stamina recovery"
-3）通用动词：
-伤害类动词
-Deal 通用直接伤害 Deals 300 Fire damage to all enemies in range.
-状态附加类动词
-Grant 增益（友方）Grants [Haste] for 5 seconds, increasing movement speed by 30%.
-Inflict 减益（敌方）Inflicts [Bleed] for 8 seconds, dealing 50 damage per second.
-Apply 中性状态 Applies [Marked] to the target for 15 seconds.
-治疗/护盾类动词
-Restore 直接治疗 Restores 250 HP to all party members.
-Regenerate 持续治疗 Regenerates 3% max HP per second over 12 seconds.
-Shield 生成护盾 Shields the caster for 200% of spell power for 8 seconds.
-Absorb 伤害吸收 Creates a barrier that absorbs 400 damage before breaking.
-位移/控制类动词
-Knock back 击退 Knocks back enemies 5m and stuns them for 1.5 seconds.
-Pull 牵引 Pulls all enemies within 10m toward the caster.
-Stun 定身 Stuns the target in place for 4 seconds.
-Suspend 浮空 Suspends enemies hit in mid-air for 2 seconds.
-特殊效果动词
-Cleanse 驱散减益 Cleanses 2 debuffs from all allies.
-Dispel 驱散增益 Dispels 1 buff from each enemy.
-被动效果动词
-Increase 属性提升 Increases Critical Strike chance by 15%.
-Reduce 属性降低 Reduces all incoming Magic damage by 20%.
-Extend 持续时间延长 Extends the duration of your buffs by 25%.
-Ignore 效果无视 Ignores 30% of the target's Armor.
-2. 标点格式：
-1）时间单位不缩写：second，minute；范围单位缩写：meter→m
-2）获得“XX”状态/幻化成“XX”状态，XX部分首字母大写，不需要保留引号。
-3. 技能造成的增益、减益等效果名称首字母大写，不采用缩写格式
-例：会心 Critical Hit 穿透 Penetration
-身形腾挪，如影随身动，获得“迷踪”状态。 #Y迷踪：#E持续20秒，期间地面闪避类技能降低40%的耐力消耗，小幅度提升不可选中时长。
-Move like a shifting shadow, gaining the "Mirage" status. #YMirage: #EReduces the Endurance cost of ground-based dodge skills by 40% for 20 seconds and slightly increases the duration of untargetable.
-→Move like a shifting shadow, gaining the Mirage status. #YMirage: #EReduces ground dodge Endurance cost by 40% for 20s
-and slightly extends Untargetable duration.
-4.
-1）持续性伤害/效果（DoT/HoT），强调效果随时间分段生效，使用over x seconds
-例： Deals 600 damage, lasting 5 seconds→Deals 600 damage over 5 seconds
-2）状态持续时间（非持续生效型），表示状态 持续存在但一次性生效，可以使用"for X seconds"
-5. 针对范围伤害（AoE），“最多”使用“Up to”，不使用“a maximum of”：
-例： 向前方突进，对最多3名敌人造成伤害
-Charges forward, dealing damage to a maximum of 5 enemies
-→Charges forward, damaging up to 5 enemies
-6. 针对范围伤害（AoE），目标范围内，使用“nearby”，不使用 “around the...”或 “surrounding”
-例：向目标跳跃，对目标范围内的敌人造成伤害
-Leaps toward the target, dealing damage to surrounding enemies.
-→Leaps toward the target, dealing damage to nearby enemies
-外观名
-参考商城道具名：
-建议≤20字符
-最长≤40字符
-规避直译/音译，突出外观的核心视觉特征（服饰风格/颜色/主题/材质/形态），同时保持简洁和UI友好性。
-1.名称应简洁易记，同时具有一定的独特性，避免与其他外观混淆。如果是一系列外观，名称应保持风格一致性。
-2.适当融入中国古典诗词、神话传说或自然意象，提升名字的文化韵味和想象空间。
-*如出现原文难以理解的内容，可进行创译优先实际外观设计或详细描述
-例：
-龙凤缠 Loong and Phoenix → Celestial Knot（过于直译）
-阮郎归 Ruan's Return → Lute of Love（过于直译）
-落笔生花 Brushstroke of Flowers→Penstroke Posy（过于直译）
-坐忘道 Sitting in Oblivion→Master Deceiver（过于直译，坐忘道在游戏里和骗人的玩法有关）
-浣溪沙 Silk Streamveil→Green Veil（服装实际为墨绿色）
-人物名
-字符限制	12字符，超长可到25
-核心原则
+1. 大小写规则：标题模式。
+2. 字符限制	12字符，超长可到25
+3. 无特殊含义的人名：音译优先，姓氏在前，名在后，姓和名之间用空格间隔。（例如：秦大力 Qing Dali）
+4. 称谓+名字的人名：称谓意译，人名音译。（鲁大师 Master Lu; 张捕头 Constable Zhang）
+5. 有特殊含义的人名：意译优先，突出人物特点。（哭婆婆 Weeping Granny）
+6. 无需在名字前加定冠词，例如哭婆婆译为Weeping Granny即可，而不是The Weeping Granny；囚犯 Prisoner 而不是The Prisoner
+7. 名字中用“-”隔开称号和名字的角色，例如 疯老头-烈阳，按照下方格式翻译Lieyang the Mad Man 或省略“老头”译为Mad Lieyang，不能译为 The Mad Man - Lieyang
+8. 一些涉及到剧情的人名，例如“东阙公子”是男扮女装的，在身份揭晓前后公子的翻译应有所不同体现不同性别；一共有50位左右的重点角色，需要详细阅读背景资料和人设进行创译。
+9. 如果出现中文姓名读音相同，英语在音译时可以适当进行变化进行区分
+核心原则：
 1. 人名本名音译
 ＊真实历史人物采用既定译文
 ＊拼音发音需要易读，避免尴尬和敏感的发音
@@ -631,21 +430,104 @@ Lady+姓氏音译
 寒姨 Aunt Han/江叔 Uncle Jiang
 如果是路人NPC，出于简洁性考虑，可以省略Aunt/Uncle，直接音译名或者姓氏
 伏三叔 Fu San
-任务名
+
+# 势力名
+门派、势力及其内部机构名，除了与已有历史或文化译名强相关（如华山、玄元教）的，都尽量创造性意译，从而传达门派势力的核心元素或神韵，让玩家能对门派或势力既能比较直观了解，又能有文字上的审美享受（一如原文的类似效果）。
+1. 势力名称请采用标题模式大小写规则
+2. 势力介绍请采用句子模式大小写规则
+3. 势力介绍请采用过去时
+4. 势力介绍内容应尽可能地忠实于原文，将原文信息完整地阐述，不要有遗漏
+
+# 技能
+技能描述：
+1. 传达技能的核心效果、战斗定位或意境，兼顾简洁性与战斗语境下的可读性。
+2. 用主动语态明确技能效果。控制/增益/减益类效果采用通用游戏术语，注意游戏内独特术语的一致性，典故类描述保留核心意象而非逐字翻译。
+3. 需注意代码位置不可进行拆分，如#Y内容#E
+1）描述玩家自己主动行动或操作效果的内容：用第一人称动词（主语"我"隐含，省略主语，使用动词原形）
+例："Move swiftly", "Shoot a spread of arrows", "Channel energy"
+2）描述增强、造成伤害、效果变化的内容：用第三人称动词（如"increases"，"deals"，"reduces"）
+例："Increases damage", "Deals 200 damage", "Reduces stamina recovery"
+3）通用动词：
+伤害类动词
+Deal 通用直接伤害 Deals 300 Fire damage to all enemies in range.
+状态附加类动词
+Grant 增益（友方）Grants [Haste] for 5 seconds, increasing movement speed by 30%.
+Inflict 减益（敌方）Inflicts [Bleed] for 8 seconds, dealing 50 damage per second.
+Apply 中性状态 Applies [Marked] to the target for 15 seconds.
+治疗/护盾类动词
+Restore 直接治疗 Restores 250 HP to all party members.
+Regenerate 持续治疗 Regenerates 3% max HP per second over 12 seconds.
+Shield 生成护盾 Shields the caster for 200% of spell power for 8 seconds.
+Absorb 伤害吸收 Creates a barrier that absorbs 400 damage before breaking.
+位移/控制类动词
+Knock back 击退 Knocks back enemies 5m and stuns them for 1.5 seconds.
+Pull 牵引 Pulls all enemies within 10m toward the caster.
+Stun 定身 Stuns the target in place for 4 seconds.
+Suspend 浮空 Suspends enemies hit in mid-air for 2 seconds.
+特殊效果动词
+Cleanse 驱散减益 Cleanses 2 debuffs from all allies.
+Dispel 驱散增益 Dispels 1 buff from each enemy.
+被动效果动词
+Increase 属性提升 Increases Critical Strike chance by 15%.
+Reduce 属性降低 Reduces all incoming Magic damage by 20%.
+Extend 持续时间延长 Extends the duration of your buffs by 25%.
+Ignore 效果无视 Ignores 30% of the target's Armor.
+标点&格式：
+1. 时间单位不缩写：second，minute；范围单位缩写：meter→m
+2. 获得“XX”状态/幻化成“XX”状态，XX部分首字母大写，不需要保留引号。
+3. 技能造成的增益、减益等效果名称首字母大写，不采用缩写格式
+例：会心 Critical Hit 穿透 Penetration
+身形腾挪，如影随身动，获得“迷踪”状态。 #Y迷踪：#E持续20秒，期间地面闪避类技能降低40%的耐力消耗，小幅度提升不可选中时长。
+Move like a shifting shadow, gaining the "Mirage" status. #YMirage: #EReduces the Endurance cost of ground-based dodge skills by 40% for 20 seconds and slightly increases the duration of untargetable.
+→ Move like a shifting shadow, gaining the Mirage status. #YMirage: #EReduces ground dodge Endurance cost by 40% for 20s
+and slightly extends Untargetable duration.
+4.
+1）持续性伤害/效果（DoT/HoT），强调效果随时间分段生效，使用over x seconds
+例： Deals 600 damage, lasting 5 seconds→Deals 600 damage over 5 seconds
+2）状态持续时间（非持续生效型），表示状态 持续存在但一次性生效，可以使用"for X seconds"
+5. 针对范围伤害（AoE），“最多”使用“Up to”，不使用“a maximum of”：
+例： 向前方突进，对最多3名敌人造成伤害
+Charges forward, dealing damage to a maximum of 5 enemies
+→Charges forward, damaging up to 5 enemies
+6. 针对范围伤害（AoE），目标范围内，使用“nearby”，不使用 “around the...”或 “surrounding”
+例：向目标跳跃，对目标范围内的敌人造成伤害
+Leaps toward the target, dealing damage to surrounding enemies.
+→Leaps toward the target, dealing damage to nearby enemies
+
+# 外观
+1. 大小写规则：标题模式
+2. 标点 “·”特殊处理方式
+发型·一 Hair 1，发型·二 Hair 2，发型·三 Hair 3即可，但在“江湖客·发”这种情况下依然采用通用SG中的指导
+3. 此标签内容中存在大量形而上的名称，例如“问春何苦”、“也无晴”、“也无晴”，从字面意义上完全无法体现外观形象特征，请参照参考图片的特征，进行创译形式的英文本地化，允许与中文完全无关
+4. 外观名称参考商城道具名：
+建议≤20字符
+最长≤40字符
+规避直译/音译，突出外观的核心视觉特征（服饰风格/颜色/主题/材质/形态），同时保持简洁和UI友好性。
+5. 名称应简洁易记，同时具有一定的独特性，避免与其他外观混淆。如果是一系列外观，名称应保持风格一致性。
+6. 适当融入中国古典诗词、神话传说或自然意象，提升名字的文化韵味和想象空间。
+*如出现原文难以理解的内容，可进行创译优先实际外观设计或详细描述
+例：
+龙凤缠 Loong and Phoenix → Celestial Knot（过于直译）
+阮郎归 Ruan's Return → Lute of Love（过于直译）
+落笔生花 Brushstroke of Flowers→Penstroke Posy（过于直译）
+坐忘道 Sitting in Oblivion→Master Deceiver（过于直译，坐忘道在游戏里和骗人的玩法有关）
+浣溪沙 Silk Streamveil→Green Veil（服装实际为墨绿色）
+
+# 任务名
 最长＜30字
 任务名的翻译以传达出任务核心元素为主，同时兼顾原文文化意象，出于可读性和趣味性考虑会有更多围绕核心元素的创译处理。
-一、精简表达
-1. 文字数：尽量控制在3-5个单词，复杂信息可放宽至6-7个单词，但以简洁明了为首要目标，确保玩家快速理解核心。
-2. 表达：许多中文任务名倾向于名词或名词短语，英文也可采用类似策略，使用动名词、抽象名词或名词短语。优先选择英文母语者习惯的语序和表达方式
-3. 避免冗余词汇： 剔除那些在标题中不必要的功能词（如 the, a/an, of，除非影响理解），优先选择英文母语者习惯的语序和表达方式。
+1. 精简表达
+1) 文字数：尽量控制在3-5个单词，复杂信息可放宽至6-7个单词，但以简洁明了为首要目标，确保玩家快速理解核心。
+2) 表达：许多中文任务名倾向于名词或名词短语，英文也可采用类似策略，使用动名词、抽象名词或名词短语。优先选择英文母语者习惯的语序和表达方式
+3) 避免冗余词汇： 剔除那些在标题中不必要的功能词（如 the, a/an, of，除非影响理解），优先选择英文母语者习惯的语序和表达方式。
 例：落花多情 Lingering Affection of Falling Petals→Petals' Lament
 美味惊喜 Delicious Surprise→A Savory Revelation（改为不定冠词，更符合“惊喜”的偶然性，且此处“惊喜”不确定是否是褒义）
-二、文本地道
+2. 文本地道
 避免直译和中式英语，用自然、地道的英语表达核心信息。遵循英语语法和词序，用词精准，不生僻复杂。
 例：花海无颜 Flower Sea Without Beauty→The Hidden Ugliness（任务讲述了花海中可能被忽视的不好的一面（比如只注重花的美丽而忽略其他价值），也象征着丑娘被隐藏的痛苦经历和她所遭遇的不公正对待，不能直接直译）
 酒逢知己·上 Kindred Spirits Through Wine, Part I→A Toast to Destiny: Part I（表达过于直译、文本也较长）
 美食继承者 Gourmet Successor→Recipe's Heir （Gourmet通常表示美食家，Successor也通常在正式语境下表示继承者，和原文有出入）
-三、标点格式
+3. 标点格式
 遵循英语标点习惯，根据原文分隔符号作用合理转换。
 章节标记：
 原文中出现数字为汉字/大写数字，则首字母大写，用罗马数字（例：其一/卷壹→Chapter I/Volume I）
@@ -656,16 +538,21 @@ Lady+姓氏音译
 中文" - " → 英文破折号"—"（例：大世界 - 探索 → Open World—Exploration）
 大小写：
 单词首字母大写，冠词、介词小写（例：鹅命鹅价→To Heal or Not to Heal）
-四、文化与武侠风味保留（作参考）
+4. 文化与武侠风味保留（作参考）
 保留武侠、特定文化背景任务的独特隐喻、意象和风格，选用对应英文词汇或意译传达。避免生僻表述，确保玩家能领会核心文化内涵。
 例：孤鸿托愿 Lone Swan's Wish→Lone Wanderer's Wish（鸿雁在古诗中常常象征孤独、离别或信使，直接翻译为“Goose”显得不够诗意，西方玩家也可能难以理解。而“Swan”虽然在西方文化中较为常见，比如“Swan Song”，但在这里与原意并不吻合。因此，建议采用意译，以更好地表达原文中所传达的孤独之感）
 归去来兮 Homecoming→Frontier Defender's Echoes（任务描述：一桩送还尸骨的奇闻，一件尘封已久的往事……死在多年之前的戍烽人，时至今日才揭开了面貌的真相。在西方文化语境里，Homecoming 常与欢迎回家、回归熟悉且安全的环境相关联，比如学校举办校友返校日，与原文归去来兮传达的的文化内涵以及任务描述营造的氛围不匹配）
-任务描述、万事知
+
+# 任务描述、万事知
 端内界面
-字符限制	UX建议值：字符限制良好7行，如遇到分点说明的，可接受整体最多10行英文-良好<630字符，分点最长<900字符
+字符限制
+UX建议值：
+字符限制良好7行，如遇到分点说明的，可接受整体最多10行英文-良好<630字符，分点最长<900字符
 界面很宽裕，所以英文不需要考虑字符限制的问题。考虑到视觉效果，大段长文本适当分段，2-3段为宜。
-核心原则	核心原则是需要叙事以玩家视角呈现，显化事件的时间、因果逻辑，并强化可操作性，以便于玩家理解和推进任务。
-具体规则和示例	1. 玩家对事件和环境的观察，需要使用第二人称You，避免使用被动句式
+核心原则
+核心原则是需要叙事以玩家视角呈现，显化事件的时间、因果逻辑，并强化可操作性，以便于玩家理解和推进任务。
+具体规则和示例
+1. 玩家对事件和环境的观察，需要使用第二人称You，避免使用被动句式
 正面案例
 原文：
 深夜，偶经一屋舍时，隐约听见屋内传来阵阵怒斥之声，愤慨之情，溢于言表，慷慨陈词，良久不息.....
@@ -723,37 +610,8 @@ Instead of the Gold-Making Vessel, what you hold is a chamber pot. Prove that yo
 修改建议：There are five remarkable figures, who once worked with Dou Yue. Bring craftng tools as tokens and find them in Qinghe.
 原译文从句套从句，难以理解。需要重新整合，用短句。
 修改建议：There are five remarkable figures, who once worked with Dou Yue. Bring craftng tools as tokens and find them in Qinghe.
-地名
-地点名称尽量意译，玩家应能读懂并快速了解地区特性、特征，从而对地图有一定印象，译文也尽量突出各地区的特点，尽量保持原文想要表现的意境和美感
-1. 核心原则：意译优先，兼顾直译，音译为辅
-首选意译：对于具有描述性、功能性或意境性的地名，优先选择意译。通过揭示地点的功能、景观特点或其代表的文化含义，使玩家不需额外解释即可理解。
-例：弱水岸 Weak River Shore → Still Shore （强调地名中“弱”的意境，比直译更具有美感）
-酒肉山林 Feastwood Hills→Gourmand's Grove（突出“酒肉”的享乐主义，押头韵保留意境）
-墨城旧址 Old Mo City→ Old Inkspire（提取“墨”的意境和“旧址”的废墟感，舍弃Mo City的音译）
-辅助直译：对于含义直白、字面意义清晰的地名，可采用直译。直译应力求简洁自然，避免生硬。
-例：水流墓碑 Flowing Water Tombstone→Flowing Grave （直译“水流”和“墓碑”，但更具有墓碑性质地名的意境)
-碧水云涛 Emerald Tide→ Jadecloud Strand（译文无法判定地点特征，提取“碧水”和“云涛”的色彩和形态，补充名词Strand进行说明）
-常平仓 Ever-Normal Granary→Civil Granary（Ever-Normal的搭配比较生硬）
-最后考虑音译：仅当名称为专有历史/地理实体（如省市名称、特定山脉名称）、或意译/直译会丧失其特有文化内涵、或译文拗口难读时，才考虑音译，并通常需搭配通用名词（如Mount, River, City, Town, Temple等）以明确类型。
-例：蹴鞠场 Cuju Field （Cuju是专有名词，保留文化特征；Field确定场景功能）
-坎儿井区域 Karez Well Area （Karez是专有音译，结合Well Area解释其功能）
-秦岭 Qinling→Qinling Mountains （特有山脉名，保留音译，加上通用名词）
-升平桥 Shengping Bridge（真实地名，保留音译，加上通用名词）
-2. 简洁性、地道性与易读性
-精炼词语：在不损失核心信息的前提下，力求译文简洁，避免冗余。
-符合英语习惯：遵循英语的语法和词序，选择自然、地道的表达，避免中式英语。
-易于发音和记忆：译文应读起来流畅，方便玩家快速识别和记住。
-例：水龙首 Water Loonghead→ Dragonhead Springs （Loong西方玩家难以理解，Springs指明水源）
-花海 Flower Sea→Floral Expanse（直译，但是更突出花卉广阔的意象）
-3. 保持风格一致性与类别化处理
-类型词汇统一：对于表示相同地理类型或功能的词汇（如“山”、“河”、“村”、“店”、“桥”等），应在英文翻译中保持一致性。若同一类地名有不同等级或特点，则通过不同的修饰词或后缀来区分。
-例：山/岭/丘/岗→Mountain/Ridge/Hill/Knoll、镇/村/庄→Town/Village/Hamlet
-隐月山 →Moonveil Mountain 龙虎岭→Twinbeast Ridge 藏贤岗→Sage's Knoll
-慈心镇 →Mercy Heart Town 千佛村→Thousand Buddha Village 伏马庄 Stallion Hamlet
-* 佛教相关地名尽量采用对应梵语。
-例：修罗无相 Shura Animitta​
-4. 地名尽量用2个单词，一般不超过3个单词
-成就名
+
+# 成就名
 避免直译，名称冗长或难以理解，部分依附中国文化的内容可进行创译处理
 1. 地道性
 成就名要可读、易懂、有趣，能引起玩家注意或会心一笑；
@@ -777,19 +635,20 @@ Instead of the Gold-Making Vessel, what you hold is a chamber pot. Prove that yo
 神鬼莫测 Unfathomable as Spirits→Master of Mystic Arts 解锁博物志中任意30个奇术分类的条目。
 河边蓑笠翁 Old Raincoat by the River→River's Watchman 成功捕获任意鱼类100条。
 2. 格式
-大小写：所有实词（名词、动词、形容词等）首字母​​大写​，​​冠词/介词/连词​不大写​​（除非在成就名开头）；
+大小写：所有实词（名词、动词、形容词等）首字母大写，冠词/介词/连词不大写（除非在成就名开头）；
 长度：成就名长度控制在3-5个单词左右
 例：
 岂其食鱼，必河之鲂? Is river bream the only fish worth eating? 成功捕获河鲂10条。→Bream or Nothing
 答得很好，不要再答了！ Great Answer—Now Please Stop!→You've Said Enough 在红炉雅集玩法中，累计抢答错误带偏100名玩家。
 恭喜你，都会抢答了！ Congrats, You've Mastered Buzzing In!→The Quick-Draw Quizzer 在红炉雅集玩法中，累计抢答正确50次。
 3. 文化适配
-中文成就名中若包含​​中国特有的文化元素、成语、历史梗、网络流行语、谐音梗、诗词化表达等​​，不能直接硬译。应根据成就实际意义，改编为西方玩家熟悉的俗语或表达。可以​​玩梗​​，但​​仅限西方玩家普遍认知、不过时、不涉及其他游戏/电影IP的梗​​。
+中文成就名中若包含中国特有的文化元素、成语、历史梗、网络流行语、谐音梗、诗词化表达等，不能直接硬译。应根据成就实际意义，改编为西方玩家熟悉的俗语或表达。可以玩梗，但仅限西方玩家普遍认知、不过时、不涉及其他游戏/电影IP的梗。
 例：
 你大爷永远是你大爷 Your Uncle Will Always be Your Superior→The Old Timer Still Got It 在切磋中被公孙大爷打败。
 铁子们心中的神 The God for Iron Bones→The People's Champion 获得天泉老铁们高度认可的证明！恭喜，首次成为天泉的一堂之主！
 狱中行·偷盗九月天 Inside Prison - Stolen September Skies→Inside Prison: Petty Thief 触犯5次窃盗罪。
-成就描述
+
+# 成就描述
 简单说明达成条件，避免描述过长的情况
 1. 格式
 文本格式：动词短语优先，一般放开头
@@ -815,28 +674,56 @@ Earn over 10,000 profit in commerce coins by trading goods. →Earn over 10K pro
 在红炉雅集玩法中，累计抢答正确50次。 Rush to correct answer 50 times in the Scholars' Hearth.
 →Buzz in correctly 50 times in the Scholars' Hearth.
 成功捕获任意一条体长超过30寸的鱼。 Catch any fish longer than 30 cun.
-→​​Catch a fish over 30 Chinese inches (cun) long.​​
-势力名
-门派、势力及其内部机构名，除了与已有历史或文化译名强相关（如华山、玄元教）的，都尽量创造性意译，从而传达门派势力的核心元素或神韵，让玩家能对门派或势力既能比较直观了解，又能有文字上的审美享受（一如原文的类似效果）。
-道具名
+→Catch a fish over 30 Chinese inches (cun) long.
+
+# 武林录
+3. 万事知标题、见闻标题采用标题模式大小写规则
+4. 万事知内容、见闻内容采用句子模式大小写规则
+5. 标题类翻译应该尽量简短，表达出原文的核心语义即可，可以创译
+6. 内容类翻译一般情况下请采用现在时
+7. 其一、其二等章节分类，请用罗马数字表达，例如 XXX I， XXXX II, XXX IIII
+
+# entity相关
+1. 如果句段种仅包含交互对象，例如人名，物品，道具或其他机关类名称，请采用标题模式大小写规则
+2. 交互操作描述请采用句子模式大小写规则
+3. 在翻译交互操作时应提炼核心语义，尽可能简短的翻译，例如：
+a. 需要两把钥匙才能打开！- Requires two keys!而不是Can only be opened with two keys，“才可以打开”是可以忽略的信息，因为只有玩家尝试去打开才会弹出这个提示，操作对象是明确的
+b. 拿起恭桶、放下恭桶 - 翻译的时候可以只用翻译出来拿起和放下即可，因为只有玩家靠近物品，才会弹出此类按钮提示，操作的目标是明确的
+c. 获取一株芍药、获取一株白术、获取一株覆盆子 - 跟上方案例相反，这几处string因为不确定场景，因此任何信息都不能被忽略
+
+# 提示文本
+1. 采用句子模式大小写规则
+2. 中文原句删减所有冗余修饰，尽可能简洁
+3. 用短语替代完整句
+4. 操作提示以祈使动词开头
+5. 情感中立，禁用感叹号
+
+# 通知弹窗
+1. 采用句子模式大小写规则
+2. 中文原句删减所有冗余修饰，尽可能简洁
+3. 用短语替代完整句
+4. 操作提示以祈使动词开头
+5. 情感中立，禁用感叹号
+
+# 道具名
 装备道具名根据其用途功能与背景故事翻译，可进行创译处理，从而避免直译过去名称过长或难以理解。功能性道具（如丹药等）优先传达功能，重要剧情道具则更多考虑其背景和在剧情中的作用。
-一、文本长度控制
+1. 文本长度控制
 2-3个单词为佳，一般不超过5个（避免过长影响UI显示）。
-二、翻译要求
-1. 历史文化概念：
+2. 翻译要求
+1) 历史文化概念：
 国名/民族名：参考英文文献，拼音音译为主（例：契丹 → Khitan）。
-2. 特殊文化概念（如十二声、推背图）：
+2) 特殊文化概念（如十二声、推背图）：
 优先拼音音译（例：Tuibeitu），类似日语文化词（如“Ninja”“Bushido”）的国际化处理。
 已有权威译名则沿用（例：太极 → Taichi）。
-3. 玩梗类内容：等效玩梗 > 意译 > 拼音音译，避免字对字直译。
+3) 玩梗类内容：等效玩梗 > 意译 > 拼音音译，避免字对字直译。
 例：《五年科举三年模拟》 5-Year Imperial Exam, 3-Year Practice→5-Year Imperial Exam Cram
-三、格式
-1. 书名号与数字处理
+3. 格式
+1) 书名号与数字处理
 中文书名号《》不翻译，直接使用英文格式（斜体/首字母大写）。
 数字统一转为罗马数字（I, II, III…），不保留“Part/Volume”等冗余词。
 例：《韩微遗作·其一》 Han Wei's Lost Works I
 《木经》法式一 Timberwork Manual 1→Timberwork Manual I
-2. “·”符号的处理
+2) “·”符号的处理
 出现在开头 → “单词 + 冒号”（避免用短横线）
 例：叁·终归的迷途→Three: Lost Path
 线索图·蹴鞠 Clue Map - Cuju→Clue Map: Cuju
@@ -846,11 +733,12 @@ Earn over 10,000 profit in commerce coins by trading goods. →Earn over 10K pro
 摸鱼写真·上 Portrait of a Slacker, Volume I→Portrait of a Slacker I
 出现多个→第一个“·”改为冒号“:”，第二个“·”改为连字符“-”，前后添加空格。
 例：谁殓此生·金·虹 Casket's Cradle - Gold - Splendor→Casket's Cradle: Gold - Splendor
-3. 阶数/级数统一格式：阶数用Tier XX，表示级数用Lv. XX
-4. 乘号：
+3) 阶数/级数统一格式：阶数用Tier XX，表示级数用Lv. XX
+4) 乘号：
 使用乘法符号(×)来表示乘法运算，禁止使用大小写形式的字母x或键盘上的*来表示。表示物品数量是左侧需要空格，右侧接数字，无需空格输入方法为：Alt+0215。
 例：凝华染膏*5 Timeless Hairdye Cream x5→Timeless Hairdye Cream ×5
-道具描述
+
+# 道具描述
 功能文本格式：
 1. 动作类词汇统一翻译
 优先使用动词形式表达功能，简洁明了。
@@ -870,7 +758,36 @@ Earn over 10,000 profit in commerce coins by trading goods. →Earn over 10K pro
 从乾祐三年，至显德元年。四年光阴，风云变幻。沈义仁、贺岳峙、谢渊停，这三名乱世兄弟与众流寇生民们从并肩到四散的过往，一如这个纷乱又聚合的时代，都被记录其中。
 From the third year of Qianyou to the first year of Xiande, four years passed, marked by changing winds and clouds. The past of the three brothers, Shen Yiren, He Yuezhi, and Xie Yuanting, who once stood side by side with the bandits and common folk, only to be scattered apart, is recorded here, much like this chaotic and ever-shifting era.
 →From Qianyou to Xiande, four turbulent years unfolded. This chronicle records how brothers Shen, He, and Xie stood with outlaws and common folk, only to scatter like leaves in the storm of those chaotic times.（历史信息西方玩家不了解，此处只保留年号信息并翻译出动荡的意思；拼音名只保留姓，增加可读性；句子整体长度适中）
-风华及外观衍生系统
+
+# 药方
+1. 药方名采用标题模式大小写规则
+2. 药方描述采用通用的游戏技能描述翻译方法，尽可能简洁，提炼核心信息，冗余修饰性信息可以忽略
+3. 描述采用第三人称单数
+4. 固定句式例句
+a. Reduces XXX by XXX% for 2 XXs/xx turns.
+b. Increases xxx by xx% for XXs/xx turns
+c. 扣除xxx，获得xxx - Consumes xxx and gains xxxx
+d 本次治疗持续期间，for the duration of this healing session
+e. 获得护盾时对病症造成 - When gaining a shield
+f. 本医方使用后消耗 - this prescription is consumed after use
+f. 获得护盾 Gains xxx% Shield
+
+# 话术
+1. 大小写规则：句子模式
+2. 提炼核心内容，创作翻译，偏向口语化
+3. 文风需要古韵和中国风，但不晦涩拗口
+4. 可以使用英语文化中的俗语来表达相同或相似的内容，禁用俚语
+5. 可以引经据典（西方古籍），但要避免明显的西方文化元素，例如“梁山伯与祝英台”不得用“罗密欧与朱丽叶”来代替；“整天之乎者也，子曰诗云的，也没见你当圣人啊！”也不能翻译成“Stop spouting Latin to sound profound—just say what you mean!”（错误原因：spouting Latin），可以“Your ivory tower rhetoric won’t solve real-world problems.”
+6. 此模块台词的说话人基本都是市井小民，文化程度不会太高，因此在设计台词时应该用简单、通俗、市井的词汇，甚至可以刻意设计一些错误的语法表达；但在引用名人名言时，要设计出明显区别于市井小名对话的文化高深感。
+7. 明显具有方言感的对话，例如中文的“俺......”，在英语中也应设计恰当的口音
+
+# 博物(图鉴)
+1. 大小写规则：标题模式
+2. 长度应尽量简短，提炼核心信息进行创译
+3. 对于有隐喻含义的名字，例如“双辙出郭门”，“山中忆故人”等，需要仔细考虑其背景设定，进行创译，杜绝简单直译，必要情况下可以与中文有较大差距，只要能凸显出其核心内容即可。
+4. 标点 “·”和书卷特殊处理方式，孙不弃手札·一(二，三） XXX， Volume I(II,III)， 长生仙人传·上（中，下）XXX， Volume I(II,III）；与把头之信·一（二，三）Letter with xxxx, Part I,(II,III)或 The First (Second, Third) Letter with xxxx （取决于是否是三份不同的信，还是同一封信的三个部分）
+
+# 【风华】及外观衍生系统
 1. 适用范围
 适用于游戏内【风华】系统及相关衍生内容的翻译，包括但不限于：姿态（Poses）、外观/武器皮肤、置景、环境以及题跋的名称与描述文本。
 2. 字符限制与用词规范
@@ -908,3 +825,35 @@ Query 提问规范：
 【案例说明】 “千雷震九幽，生灭亦何咎。万般皆无常，唯余雪依旧。”
 指导方向： 需将其处理为具有史诗感的高级奇幻韵文，保留“Thunder/Snow/Fate/Eternity”等意象，利用英文诗歌的断句和韵脚，重现原文那种苍凉、宏大的宿命感。参考译文：
 Though thunder shakes the earth below, in life and death, what should we know? For all things fade and drift away, but pure and white, the snow will stay.
+
+# 家业部分
+1、核心名词与“文本双关”处理
+避免直译，名称冗长或难以理解，部分依附中国文化的内容可进行创译处理
+要可读、易懂、有趣，能引起玩家注意或会心一笑；
+可适当使用英语中的双关、头韵、尾韵、俗语、幽默表达，提升记忆点与趣味性
+例：
+嗟夫刀法与劫富刀法的江湖传言
+原文中利用了“嗟夫”与“劫富”在汉语中的谐音/典故衍生。在英文中，由于发音不同，必须通过意译的视觉/听觉关联来重现这个江湖民谣的幽默感。
+嗟夫刀法的TB译法：Thundercry Blade
+劫富刀法在TB中没有出现，结合 Thunder 与 Plunder (掠夺/劫掠) 的押韵，译为Plundercry Blade
+2、古诗词与风味文本处理
+包含古典诗词或意境骈文的，此类文本的翻译核心是“传神重于达意”。
+禁忌： 绝对禁止字对字直译。
+韵律与结构： 翻译时需重点考虑英文诗歌的押韵体系（如 AABB 或 ABAB 韵脚），增强韵律感与文化张力。
+意象保留： 提炼核心意象（如雷、雪、生死）。
+原诗： 托交从剧孟，买醉入新丰。笑尽一杯酒，杀人都市中。（取自李白《结客少年行》）
+原则： 严禁逐字死译。可采用英语古诗的双行押韵（AABB）来建立节奏感。
+参考译文：
+We ride with Ju Meng, the legend of the blade,
+In Xinfeng, where the finest wine is made.
+We drain our cups and share a roaring laugh,
+Then paint the city in the tyrant's wrath.
+
+# 青州任务更新：
+关于地名、门派名等专有名词前是否加the，单独存在时不加，如果在句子中则灵活处理。客户提供的案例比如：
+Raging Tides is a sect...
+Upon joining the Raging Tides...
+NPC描述文本中，无法判断NPC性别的，比如“耕读村人，好议论是非，雇刘花越为帮手。”翻译的时候应模糊性别，不得用they/their来指代。
+版本记录
+本指南为动态文件，将随项目进展不断更新。
+翻译时如遇本指南未涵盖或不确定之处，务必在表格中提报Query。
