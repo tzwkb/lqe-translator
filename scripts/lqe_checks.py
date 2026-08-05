@@ -8,15 +8,22 @@ Toggle keys & merge order: builtin defaults < language-attribute derivation
 import re
 import sys
 import json
+import tempfile
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from lqe_corrections import CheckFormatError, validate_error_history_term_contract
 from lqe_engine import (
     read_json, load_terms as _load_terms, group_terms as _group_terms,
     RE_CJK as _RE_CJK, _target_lang, _load_lang, _lang_toggle_defaults,
     current_target, get_review_policy, terminology_enabled, validate_scope_entries,
 )
-from lqe_paths import state_reference_paths, validate_artifact_paths, write_json_atomic
+from lqe_paths import (
+    publish_replacement_transaction,
+    state_reference_paths,
+    validate_artifact_paths,
+    write_json_atomic,
+)
 
 _RE_DASH     = re.compile(r'—')
 _RE_NUM      = re.compile(r'(?<!\d)(\d{4,})(?!\d)')
@@ -205,6 +212,16 @@ def _local_edit(frm: str, to: str, start: int, end: int) -> dict:
     }
 
 
+def _exact_term_spans(text: str, term: str) -> list[dict]:
+    spans = []
+    start = text.find(term)
+    while start >= 0:
+        end = start + len(term)
+        spans.append({"start": start, "end": end, "text": term})
+        start = text.find(term, end)
+    return spans
+
+
 def _check_issues(errors: list[dict], review_policy: dict | None = None) -> list[dict]:
     issues = []
     policy = get_review_policy(
@@ -223,6 +240,46 @@ def _check_issues(errors: list[dict], review_policy: dict | None = None) -> list
     return issues
 
 
+def _publish_precheck_results(
+    out: Path,
+    results: list[dict],
+    *,
+    state_path: Path,
+    state: dict,
+    clear_term_history: bool,
+) -> None:
+    if not clear_term_history:
+        write_json_atomic(out, results)
+        return
+
+    cleaned_state = dict(state)
+    cleaned_state["error_history"] = []
+    staged_paths = []
+    try:
+        replacements = []
+        for destination, value in (
+            (out, results),
+            (state_path, cleaned_state),
+        ):
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=destination.parent,
+                prefix=f".{destination.name}.precheck.",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                staged = Path(handle.name)
+                json.dump(value, handle, ensure_ascii=False, indent=2)
+            staged_paths.append(staged)
+            replacements.append((staged, destination))
+        publish_replacement_transaction(replacements)
+    finally:
+        for staged in staged_paths:
+            staged.unlink(missing_ok=True)
+
+
 def run_pre_check(state_path: Path, out_path: Path | None = None):
     state_path = Path(state_path)
     state = read_json(state_path)
@@ -234,6 +291,17 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
     )
     segments = state["segments"]
     review_policy = get_review_policy(state)
+    clear_term_history = False
+    term_history_problem = None
+    try:
+        validate_error_history_term_contract(
+            state.get("error_history", []),
+            segments=segments,
+            label="state.error_history",
+        )
+    except CheckFormatError as exc:
+        clear_term_history = True
+        term_history_problem = str(exc)
 
     terms = _load_terms(state)
     term_map: dict[str, list[dict]] = {}
@@ -395,6 +463,10 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
                         "comment": f"'{term_src}' → expected {cands}{note}",
                         "term_source": term_src,
                         "expected_targets": [s["target"] for s in senses],
+                        "term_spans": {
+                            "source": _exact_term_spans(src, term_src),
+                            "target": [],
+                        },
                     })
                 else:
                     errs.append({"category": "Other", "severity": "Neutral",
@@ -579,7 +651,19 @@ def run_pre_check(state_path: Path, out_path: Path | None = None):
     except ValueError as exc:
         raise SystemExit(f"[pre-check] {exc}") from exc
 
-    write_json_atomic(out, results)
+    _publish_precheck_results(
+        out,
+        results,
+        state_path=state_path,
+        state=state,
+        clear_term_history=clear_term_history,
+    )
+    if term_history_problem is not None:
+        print(
+            "[pre-check] cleared incompatible terminology error_history: "
+            f"{term_history_problem}",
+            file=sys.stderr,
+        )
 
     dist = Counter(e["category"] for r in results for e in r["issues"])
     flagged = sum(1 for r in results if r["issues"])

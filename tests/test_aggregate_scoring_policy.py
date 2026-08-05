@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import openpyxl
+from openpyxl.cell.rich_text import CellRichText, TextBlock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,6 +36,33 @@ def issue(*, severity: str, category: str = "Grammar") -> dict:
         "comment": "Scoring fixture.",
         "needs_confirmation": True,
         "edit": None,
+    }
+
+
+def exact_spans(text: str, value: str) -> list[dict]:
+    spans = []
+    start = text.find(value)
+    while start >= 0:
+        end = start + len(value)
+        spans.append({"start": start, "end": end, "text": value})
+        start = text.find(value, end)
+    return spans
+
+
+def term_fields(
+    term_source: str,
+    expected_targets: list[str],
+    source_text: str,
+    target_text: str,
+    target_term: str,
+) -> dict:
+    return {
+        "term_source": term_source,
+        "expected_targets": expected_targets,
+        "term_spans": {
+            "source": exact_spans(source_text, term_source),
+            "target": exact_spans(target_text, target_term),
+        },
     }
 
 
@@ -295,6 +323,13 @@ class AggregateScoringPolicyTests(unittest.TestCase):
                             "category": "Terminology",
                             "severity": "Major",
                             "comment": "Use the confirmed term.",
+                            **term_fields(
+                                "Source 0",
+                                ["Canonical target"],
+                                "Source 0",
+                                "Target 0",
+                                "Target 0",
+                            ),
                             "needs_confirmation": False,
                             "edit": {
                                 "from": "Target 0",
@@ -440,10 +475,17 @@ class AggregateScoringPolicyTests(unittest.TestCase):
             "critical_gate": False,
             "repeat_dedup": True,
         }
-        job = self.make_job(
-            [policy, policy],
-            [[issue(severity="Major", category="Terminology")], []],
+        terminology_issue = issue(severity="Major", category="Terminology")
+        terminology_issue.update(
+            term_fields(
+                "Source 0",
+                ["Canonical target"],
+                "Source 0",
+                "Target 0",
+                "Target 0",
+            )
         )
+        job = self.make_job([policy, policy], [[terminology_issue], []])
         state_path = job / "Sheet1" / "state.json"
         state = json.loads(state_path.read_text(encoding="utf-8"))
         state["check_scope"] = {
@@ -466,6 +508,47 @@ class AggregateScoringPolicyTests(unittest.TestCase):
         self.assertIn("scope conflict", result.stderr)
         self.assertFalse((job / "multi_corrected.xlsx").exists())
         self.assertFalse((job / "multi_lqe.xlsx").exists())
+
+    def test_incompatible_term_history_cannot_be_aggregated(self):
+        policy = {
+            "threshold": 98,
+            "scorecard_profile": "legacy",
+            "severity_scale": "lisa",
+            "critical_gate": False,
+            "repeat_dedup": True,
+        }
+        job = self.make_job([policy, policy], [[], []])
+        state_path = job / "Sheet1" / "state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["error_history"] = [
+            {
+                "iteration": 0,
+                "errors": [
+                    {
+                        "id": 0,
+                        "errors": [
+                            {
+                                "category": "Terminology",
+                                "severity": "Major",
+                                "comment": "Legacy term issue.",
+                                "needs_confirmation": True,
+                                "edit": None,
+                            }
+                        ],
+                        "corrected": None,
+                    }
+                ],
+                "review_targets": {"0": "Target 0"},
+            }
+        ]
+        write_json(state_path, state)
+
+        result = self.run_aggregate(job)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Sheet1/state.error_history", result.stderr)
+        self.assertFalse((job / "multi_lqe.xlsx").exists())
+        self.assertFalse((job / "multi_corrected.xlsx").exists())
 
     def test_missing_child_report_fails_closed(self):
         policy = {
@@ -942,6 +1025,112 @@ class AggregateScoringPolicyTests(unittest.TestCase):
         finally:
             aggregate.close()
             child_book.close()
+
+    def test_current_aggregate_uses_current_target_for_term_span_offsets(self):
+        job = self.root / "iteration-current"
+        child = job / "Sheet1"
+        source = self.root / "iteration-current-source.xlsx"
+        initial_target = "Check the control desk"
+        current = "Updated prefix: Check the control desk"
+        workbook = openpyxl.Workbook()
+        workbook.active.title = "Sheet1"
+        workbook.active.append(["Source", "Target"])
+        workbook.active.append(["Source 0", initial_target])
+        workbook.save(source)
+        workbook.close()
+
+        state = {
+            "artifact_contract_version": 1,
+            "input_path": str(source),
+            "input_format": "tabular",
+            "sheet_name": "Sheet1",
+            "headers": ["Source", "Target"],
+            "rows_raw": [["Source 0", initial_target]],
+            "source_col": 0,
+            "target_col": 1,
+            "no_header": False,
+            "wordcount": 6,
+            "iteration": 1,
+            "segments": [
+                {
+                    "id": 0,
+                    "row_index": 0,
+                    "source": "Source 0",
+                    "target": initial_target,
+                    "current_target": current,
+                    "kind": "desc",
+                    "term_hits": [],
+                    "protected_texts": [],
+                }
+            ],
+        }
+        term_issue = {
+            **issue(severity="Major", category="Terminology"),
+            **term_fields(
+                "Source 0",
+                ["Approved target"],
+                "Source 0",
+                current,
+                "control desk",
+            ),
+            "review_provenance": {
+                "finding_origin": "ai_module",
+                "ai_reviewed": True,
+                "ai_edited": False,
+                "review_module": "terminology",
+                "reviewed_segment_id": 0,
+                "edit_origin": None,
+            },
+        }
+        errors = [
+            {"id": 0, "errors": [term_issue], "corrected": None}
+        ]
+        write_json(child / "state.json", state)
+        write_json(child / "errors.json", errors)
+        self.split_child(child)
+        manifest = json.loads(
+            (child / "chunks" / "split_manifest.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        write_json(
+            child / "errors.contract.json",
+            build_result_contract(manifest, errors),
+        )
+        lqe_io._build_xlsx(
+            state,
+            [
+                {
+                    "iteration": 1,
+                    "errors": errors,
+                    "review_targets": {"0": current},
+                }
+            ],
+            99,
+            98,
+            child / "Sheet1_lqe.xlsx",
+            report_contract_results=errors,
+        )
+
+        result = self.run_aggregate(job, refresh_contracts=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        aggregate = openpyxl.load_workbook(
+            job / "iteration-current_lqe.xlsx",
+            rich_text=True,
+        )
+        try:
+            sheet = aggregate["Sheet1 Results"]
+            headers = [cell.value for cell in sheet[1]]
+            original = sheet.cell(2, headers.index("原译") + 1).value
+            self.assertEqual(str(original), current)
+            self.assertIsInstance(original, CellRichText)
+            blocks = [
+                run for run in original if isinstance(run, TextBlock)
+            ]
+            self.assertEqual([block.text for block in blocks], ["control desk"])
+            self.assertFalse(bool(blocks[0].font.strike))
+        finally:
+            aggregate.close()
 
 
 if __name__ == "__main__":

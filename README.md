@@ -274,7 +274,20 @@ In `optimized` mode, every `comment` must be non-empty English with 20–30 char
 
 Use `needs_confirmation: true` and `edit: null` for a new name, missing terminology, multiple reasonable options, or a rewrite. A terminology or proper-name edit also requires one unique `confirmed: true` candidate and `confirmed_term` evidence.
 
-Machine-generated Terminology issues also carry read-only `term_source` and `expected_targets`; models do not need to emit or rewrite them, and the publisher preserves them through `precheck_ref`.
+Every Terminology issue must also carry `term_source`, `expected_targets`, and `term_spans`:
+
+```json
+{
+  "term_source": "督管案台",
+  "expected_targets": ["Supervisor's Counter"],
+  "term_spans": {
+    "source": [{"start": 2, "end": 6, "text": "督管案台"}],
+    "target": [{"start": 10, "end": 22, "text": "control desk"}]
+  }
+}
+```
+
+`term_spans` has exactly the `source` and `target` arrays. Each span object has exactly integer `start`, integer `end`, and non-empty `text`, using a non-empty zero-based, half-open range. Arrays are sorted by `(start,end,text)` and contain no duplicates or overlaps. `text` must exactly equal the corresponding source or current-target slice, and every source-span `text` must equal `term_source`. `source` is non-empty. `target` may be empty when no affected target token can be located safely, including omissions; do not guess or mark the whole sentence. When reviewing a machine-generated Terminology issue, inherit read-only `term_source`, `expected_targets`, and `term_spans.source` through `precheck_ref`, then locate the affected current-target token in `term_spans.target`; leave that array empty only when no token can be marked safely. Newly found Terminology issues must supply all three fields.
 
 The tabular columns `content_type`, `text_type`, `文本类型`, and `文本类别` are passed into review packets as upstream text classifications and are never inferred. `optimized` mode uses row-level `content_type`, then `text_type_context`, to apply the matrix in `references/check_modules/common.md`; `full` keeps the classification as context without changing review intensity. Neither mode disables deterministic checks or required modules.
 
@@ -339,11 +352,11 @@ Every input produces `<job>_lqe.xlsx` with the score, issues, suggested text, re
 
 Reports have three visible worksheets: `说明·导读`, `LQA Scorecard`, and `LQE Results`; `_LQE_CONTRACT` remains very hidden. The guide is first and is the default opening sheet, with a three-step reading flow, Scorecard guidance, definitions for all ten review columns, status and decision guidance, and a delivery checklist. The Scorecard shows the verdict, score, compact category summary, and all per-issue review rows without hidden rows or columns.
 
-The Scorecard issue area and `LQE Results` share ten review columns: `Segment ID`, `原文`, `原译`, `AI/建议译文`, `建议状态`, `错误类别`, `严重度`, `问题说明`, `审校结论`, and `审校终稿或备注`. The Scorecard combines parent and sub-category and omits file name, iteration, processing, and AI provenance columns; those audit fields remain in the hidden Results area. The Results reviewer view uses one visible row per segment; extra per-issue audit rows and clean segments are hidden. Status values are `可直接采用`, `建议待确认`, `部分修正，仍需确认`, `未生成建议，需人工处理`, and `已保护`.
+The Scorecard issue area and `LQE Results` share ten review columns: `Segment ID`, `原文`, `原译`, `AI/建议译文`, `建议状态`, `错误类别`, `严重度`, `问题说明`, `审校结论`, and `审校终稿或备注`. `原译` means the translation actually reviewed in that iteration: the imported target in iteration 0 and the previously applied `current_target` afterward. Term spans, diff rendering, and suggestions use that same baseline. The Scorecard combines parent and sub-category and omits file name, iteration, processing, and AI provenance columns; those audit fields remain in the hidden Results area. The Results reviewer view uses one visible row per segment; extra per-issue audit rows and clean segments are hidden. Status values are `可直接采用`, `建议待确认`, `部分修正，仍需确认`, `未生成建议，需人工处理`, and `已保护`.
 
-Terminology detail exports must read `term_source` and `expected_targets` from each issue, or the hidden `术语原文（结构化）` and `术语库译文（结构化）` Results columns. Do not reverse-parse terms from `comment` with quote-delimited regexes: apostrophes and punctuation are data. Legacy artifacts can be read with `lqe_terms.terminology_issue_fields()`.
+Terminology detail exports and report highlighting read `term_source`, `expected_targets`, and `term_spans` directly from each issue. They never recover terms or offsets from `comment`. An old job with any Terminology issue missing these fields is incompatible and must rerun from `pre-check`, then rebuild all downstream artifacts.
 
-Rich-text diffs use red strikethrough for removed/replaced original text and red font for inserted/replaced suggested text. Safe local edits can enter the corrected workflow. Full-sentence entries in the separate `reference_suggestions.json` artifact are report-only and always marked `建议待确认`. Corrected files do not receive diff styling.
+Rich-text reports show affected source terms in red. Affected original-target terms are red; when the same text is removed or replaced, it is red with strikethrough. Inserted or replaced suggested text is red. When `term_spans.target` is empty, only the source term is highlighted. Results uses the union of all Terminology spans for a segment; each Scorecard row uses only that issue's spans. Historical entries containing Terminology or `term_spans` must carry `review_targets` as `{"<segment_id>": "reviewed target"}`; missing, damaged, or slice-mismatched snapshots fail closed. Safe local edits can enter the corrected workflow. Full-sentence entries in the separate `reference_suggestions.json` artifact are report-only and always marked `建议待确认`. Corrected files remain plain text and receive no diff or terminology styling.
 
 In verified internal results, `corrected: ""` is a valid deletion of the whole target; only `corrected: null` means no suggested change. Write, apply, export, and aggregation preserve that distinction.
 

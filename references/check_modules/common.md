@@ -41,7 +41,35 @@
 }
 ```
 
-`findings` 中每项的字段固定为 `{id, issues:[{category,severity,comment,needs_confirmation,edit}]}`。检查模块不得输出 corrected；脚本会补齐空结果，并在合并时生成该内部字段。
+`findings` 中每项的通用字段固定为 `{id, issues:[{category,severity,comment,needs_confirmation,edit}]}`。Terminology issue 还必须带 `term_source`、`expected_targets` 和 `term_spans`。检查模块不得输出 corrected；脚本会补齐空结果，并在合并时生成该内部字段。
+
+```json
+{
+  "category": "Terminology",
+  "severity": "Major",
+  "comment": "The confirmed project term is not used.",
+  "needs_confirmation": false,
+  "edit": {
+    "from": "control desk",
+    "to": "Supervisor's Counter",
+    "start": 10,
+    "end": 22,
+    "evidence": {
+      "type": "confirmed_term",
+      "source": "督管案台",
+      "target": "Supervisor's Counter"
+    }
+  },
+  "term_source": "督管案台",
+  "expected_targets": ["Supervisor's Counter"],
+  "term_spans": {
+    "source": [{"start": 2, "end": 6, "text": "督管案台"}],
+    "target": [{"start": 10, "end": 22, "text": "control desk"}]
+  }
+}
+```
+
+`term_spans` 必须恰有 `source` 和 `target` 两个数组。每个 span 对象恰有整数 `start`、整数 `end` 和非空 `text`，使用 0-based、左闭右开的非空区间；数组按 `(start,end,text)` 升序排列，不得重复或重叠。`text` 必须严格等于对应原文或当前译文的切片，且每个 source span 的 `text` 必须等于 `term_source`。`source` 至少一项；`target` 可为空，表示当前译文没有可安全定位的受影响词（如漏译），不得猜测或整句标记。复核机器预检 Terminology issue 时，必须按 `precheck_ref` 继承 `term_source`、`expected_targets` 和 `term_spans.source`，并在 `term_spans.target` 中精确补充当前译文的问题词；确实没有可标词时保留空数组。新发现的 Terminology issue 由本模块完整提交三个结构化字段。
 
 正式模块结果仍覆盖原 chunk 的全部 id。每个 id 无问题时也输出 `{"id": 0, "issues": []}`；这个补齐动作由 `lqe_review.py publish` 完成。受保护段，以及 `precheck_review` 中没有其负责类别预检的段，会被 packet 确定性排除并补空，不消耗 AI 审阅。
 

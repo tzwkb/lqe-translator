@@ -6,7 +6,8 @@
 
 产出（父 job 目录）：
   <label>_corrected.xlsx  保留原始 workbook 的 sheet/公式/样式/合并单元格，
-                          仅将程序生成的非空 corrected 写回原译文列。
+                          将程序生成且已验证的 corrected 写回原译文列；
+                          空字符串表示合法的整段删除。
   <label>_lqe.xlsx         汇总 sheet（各子表分数 + 按词数加权总分）+ 各子表 LQE Results 明细。
 
 子 job 发现：父 job 目录下含 state.json 的直接子目录即一个 sheet 子 job。
@@ -35,9 +36,13 @@ from lqe_engine import (  # noqa: E402
     requires_bound_artifacts,
     validate_scope_entries,
 )
-from lqe_corrections import CheckFormatError, verify_results  # noqa: E402
+from lqe_corrections import (  # noqa: E402
+    CheckFormatError,
+    validate_error_history_term_contract,
+    verify_results,
+)
 from lqe_chunk import verification_generation_lease  # noqa: E402
-from lqe_excel_diff import build_rich_diff  # noqa: E402
+from lqe_excel_diff import build_review_rich_texts  # noqa: E402
 from lqe_paths import (  # noqa: E402
     file_sha256,
     paths_alias,
@@ -160,6 +165,49 @@ def _first_data_row(state: dict) -> int:
 
 def _cell_text(value: object) -> str:
     return "" if value is None else str(value)
+
+
+def _union_term_spans(
+    text: str,
+    issues: list[dict],
+    field: str,
+) -> list[dict]:
+    intervals: list[tuple[int, int]] = []
+    for issue in issues:
+        term_spans = issue.get("term_spans")
+        if term_spans is None and issue.get("category") != "Terminology":
+            continue
+        if not isinstance(term_spans, dict):
+            raise ValueError("Terminology issue is missing term_spans")
+        spans = term_spans.get(field)
+        if not isinstance(spans, list):
+            raise ValueError(f"term_spans.{field} must be a list")
+        for span in spans:
+            if not isinstance(span, dict):
+                raise ValueError(f"term_spans.{field} entries must be objects")
+            start = span.get("start")
+            end = span.get("end")
+            if (
+                type(start) is not int
+                or type(end) is not int
+                or not 0 <= start < end <= len(text)
+                or span.get("text") != text[start:end]
+            ):
+                raise ValueError(f"invalid term_spans.{field} entry")
+            intervals.append((start, end))
+    if not intervals:
+        return []
+
+    merged: list[list[int]] = []
+    for start, end in sorted(set(intervals)):
+        if merged and start <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    return [
+        {"start": start, "end": end, "text": text[start:end]}
+        for start, end in merged
+    ]
 
 
 def _policy_signature(policy: dict) -> tuple:
@@ -388,26 +436,123 @@ def _append_child_results(
         if "原译" in headers and suggested_header is not None:
             original_column = headers.index("原译") + 1
             suggested_column = headers.index(suggested_header) + 1
-            for row_number in range(2, target_sheet.max_row + 1):
-                original_cell = target_sheet.cell(row_number, original_column)
-                suggested_cell = target_sheet.cell(row_number, suggested_column)
-                original_text = _report_text(original_cell.value)
-                suggested_text = _report_text(suggested_cell.value)
-                if (
-                    original_cell.data_type != "f"
-                    and suggested_cell.data_type != "f"
-                    and isinstance(original_text, str)
-                    and isinstance(suggested_text, str)
-                    and suggested_text
-                    and original_text != suggested_text
-                ):
-                    original_cell.value, suggested_cell.value = build_rich_diff(
-                        original_text,
-                        suggested_text,
+            if (
+                "Segment ID" in headers
+                and "原文" in headers
+                and "建议状态" in headers
+            ):
+                segment_column = headers.index("Segment ID") + 1
+                source_column = headers.index("原文") + 1
+                status_column = headers.index("建议状态") + 1
+                result_by_id = {entry["id"]: entry for entry in results}
+                segment_by_id = {
+                    segment["id"]: segment
+                    for segment in state.get("segments", [])
+                }
+                for row_number in range(2, target_sheet.max_row + 1):
+                    segment_id = target_sheet.cell(
+                        row_number,
+                        segment_column,
+                    ).value
+                    entry = result_by_id.get(segment_id)
+                    segment = segment_by_id.get(segment_id)
+                    if entry is None or segment is None:
+                        continue
+                    source_cell = target_sheet.cell(row_number, source_column)
+                    original_cell = target_sheet.cell(row_number, original_column)
+                    suggested_cell = target_sheet.cell(
+                        row_number,
+                        suggested_column,
                     )
-                    for cell in (original_cell, suggested_cell):
-                        if isinstance(cell.value, str) and cell.value.startswith("="):
-                            cell.data_type = "s"
+                    suggestion_status = target_sheet.cell(
+                        row_number,
+                        status_column,
+                    ).value
+                    source_text = _report_text(source_cell.value)
+                    original_text = current_target(segment)
+                    suggested_text = _report_text(suggested_cell.value)
+                    if (
+                        source_cell.data_type != "f"
+                        and original_cell.data_type != "f"
+                        and suggested_cell.data_type != "f"
+                        and isinstance(source_text, str)
+                        and isinstance(original_text, str)
+                        and isinstance(suggested_text, str)
+                    ):
+                        issues = entry.get("errors", [])
+                        source_spans = _union_term_spans(
+                            source_text,
+                            issues,
+                            "source",
+                        )
+                        target_spans = _union_term_spans(
+                            original_text,
+                            issues,
+                            "target",
+                        )
+                        render_suggestion = (
+                            suggested_text
+                            if suggestion_status
+                            in {
+                                "可直接采用",
+                                "建议待确认",
+                                "部分修正，仍需确认",
+                            }
+                            else None
+                        )
+                        (
+                            source_cell.value,
+                            original_cell.value,
+                            suggested_cell.value,
+                        ) = build_review_rich_texts(
+                            source_text,
+                            original_text,
+                            render_suggestion,
+                            source_spans=source_spans,
+                            target_spans=target_spans,
+                        )
+                        for cell in (
+                            source_cell,
+                            original_cell,
+                            suggested_cell,
+                        ):
+                            if (
+                                isinstance(cell.value, str)
+                                and cell.value.startswith("=")
+                            ):
+                                cell.data_type = "s"
+            else:
+                for row_number in range(2, target_sheet.max_row + 1):
+                    original_cell = target_sheet.cell(row_number, original_column)
+                    suggested_cell = target_sheet.cell(
+                        row_number,
+                        suggested_column,
+                    )
+                    original_text = _report_text(original_cell.value)
+                    suggested_text = _report_text(suggested_cell.value)
+                    if (
+                        original_cell.data_type != "f"
+                        and suggested_cell.data_type != "f"
+                        and isinstance(original_text, str)
+                        and isinstance(suggested_text, str)
+                        and suggested_text
+                        and original_text != suggested_text
+                    ):
+                        (
+                            _,
+                            original_cell.value,
+                            suggested_cell.value,
+                        ) = build_review_rich_texts(
+                            "",
+                            original_text,
+                            suggested_text,
+                        )
+                        for cell in (original_cell, suggested_cell):
+                            if (
+                                isinstance(cell.value, str)
+                                and cell.value.startswith("=")
+                            ):
+                                cell.data_type = "s"
         for merged_range in source_sheet.merged_cells.ranges:
             target_sheet.merge_cells(str(merged_range))
 
@@ -522,6 +667,14 @@ def _aggregate(a) -> None:
     policies = {}
     for sj in subs:
         state = read_json(sj / "state.json")
+        try:
+            validate_error_history_term_contract(
+                state.get("error_history", []),
+                segments=state.get("segments", []),
+                label=f"{sj.name}/state.error_history",
+            )
+        except CheckFormatError as exc:
+            raise ValueError(str(exc)) from exc
         if state.get("input_format") == "sdlxliff":
             raise ValueError("SDLXLIFF jobs are not multi-sheet workbooks")
         try:

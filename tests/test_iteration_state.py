@@ -236,6 +236,10 @@ class IterationStateTests(unittest.TestCase):
         self.assertEqual(updated["segments"][0]["current_target"], "Second pass")
         self.assertEqual(updated["iteration"], 1)
         self.assertTrue(updated["pending_recheck"])
+        self.assertEqual(
+            updated["error_history"][-1]["review_targets"],
+            {"0": "First pass"},
+        )
 
         checks_path = state_path.parent / "checks.json"
         next_errors = state_path.parent / "errors-next.json"
@@ -312,8 +316,13 @@ class IterationStateTests(unittest.TestCase):
         try:
             sheet = workbook["LQE Results"]
             headers = [cell.value for cell in sheet[1]]
+            original = headers.index("原译") + 1
             suggestion = headers.index("AI/建议译文") + 1
-            self.assertEqual(sheet.cell(row=2, column=suggestion).value, "Applied pass")
+            self.assertEqual(
+                sheet.cell(row=2, column=original).value,
+                "Applied pass",
+            )
+            self.assertIsNone(sheet.cell(row=2, column=suggestion).value)
         finally:
             workbook.close()
 
@@ -371,6 +380,12 @@ class IterationStateTests(unittest.TestCase):
             "category": "Terminology",
             "severity": "Major",
             "comment": "Use the confirmed project term.",
+            "term_source": "世界",
+            "expected_targets": ["Realm"],
+            "term_spans": {
+                "source": [{"start": 0, "end": 2, "text": "世界"}],
+                "target": [{"start": 0, "end": 5, "text": "World"}],
+            },
             "needs_confirmation": False,
             "edit": {
                 "from": "World",

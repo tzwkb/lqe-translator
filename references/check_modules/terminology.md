@@ -1,13 +1,14 @@
 # 术语检查模块
 
-公共协议见 `common.md`。本模块只处理 Terminology、Inconsistency、Company style，并复核机器预检结果。必须审阅 packet 的全部 `reviewed_ids`；紧凑草稿只在 `findings` 中写有问题的 id。每条问题使用 `"needs_confirmation"` 和 `"edit"`，不得输出 corrected。
+公共协议见 `common.md`。本模块只处理 Terminology、Inconsistency、Company style，并复核机器预检结果。必须审阅 packet 的全部 `reviewed_ids`；紧凑草稿只在 `findings` 中写有问题的 id。每条问题使用 `"needs_confirmation"` 和 `"edit"`，不得输出 corrected。每个 Terminology issue 必须同时带 `term_source`、`expected_targets` 和 `term_spans`。
 
 ## 检查内容
 
-1. 复核 `precheck`：保留确定的标记、长度、格式和空白问题时原样带对应 `precheck_ref`；数值、含义等准确性问题交给 `accuracy`。
+1. 复核 `precheck`：保留确定的 Terminology issue 时带对应 `precheck_ref`，继承 `term_source`、`expected_targets` 和 `term_spans.source`，并精确补充 `term_spans.target`；数值、含义等准确性问题交给 `accuracy`。
 2. 检查 `term_hits`：每个候选已展开成单独记录，包含 `source`、`target`、`confirmed`、`protected` 及可选的 `status/category/definition`。
 3. 同一来源概念在全文使用不同译法时报告 Inconsistency；术语表内的冲突仍归 Terminology。
 4. 只有违反明确风格指南的写法才报告 Company style；单纯不自然交给 `naturalness`。
+5. Terminology issue 的 `term_spans.source` 精确定位受影响的原文词，`term_spans.target` 精确定位当前译文中的问题词。span 只含整数 `start`、整数 `end` 和非空 `text`，使用 0-based、左闭右开的非空区间；数组升序排列，不重复、不重叠。`text` 与切片完全一致，source span 的 `text` 还必须等于 `term_source`。`source` 非空；漏译或没有可安全定位的译文词时 `target` 写空数组，不猜测、不整句标记。
 
 ## 是否可直接修改
 
@@ -19,5 +20,32 @@
 ## 输出示例
 
 ```json
-[{"id": 8, "issues": [{"category": "Terminology", "severity": "Major", "comment": "The confirmed project term is not used.", "needs_confirmation": false, "edit": {"from": "Old Name", "to": "New Name", "evidence": {"type": "confirmed_term", "source": "新名", "target": "New Name"}}}]}]
+{
+  "id": 8,
+  "issues": [
+    {
+      "category": "Terminology",
+      "severity": "Major",
+      "comment": "The confirmed project term is not used.",
+      "needs_confirmation": false,
+      "edit": {
+        "from": "Old Name",
+        "to": "New Name",
+        "start": 4,
+        "end": 12,
+        "evidence": {
+          "type": "confirmed_term",
+          "source": "新名",
+          "target": "New Name"
+        }
+      },
+      "term_source": "新名",
+      "expected_targets": ["New Name"],
+      "term_spans": {
+        "source": [{"start": 2, "end": 4, "text": "新名"}],
+        "target": [{"start": 4, "end": 12, "text": "Old Name"}]
+      }
+    }
+  ]
+}
 ```

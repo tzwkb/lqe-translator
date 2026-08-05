@@ -50,6 +50,7 @@ from lqe_corrections import (
     CheckFormatError,
     build_results,
     normalize_check_entries,
+    validate_error_history_term_contract,
     verify_results,
 )
 from lqe_inputs import SDLXLIFFImportError, detect_input_format, read_sdlxliff
@@ -57,7 +58,7 @@ from lqe_inputs.sdlxliff import (
     is_exact_tm,
     validate_options as validate_sdlxliff_options,
 )
-from lqe_excel_diff import build_rich_diff
+from lqe_excel_diff import build_review_rich_texts
 from lqe_paths import (
     file_sha256,
     paths_alias as _paths_alias,
@@ -1757,6 +1758,10 @@ def _cmd_apply_fixes_locked(
 
     cur_iter = state.get("iteration", 0)
     history = state.get("error_history", [])
+    iteration_targets = {
+        segment["id"]: current_target(segment)
+        for segment in state["segments"]
+    }
     score_result = computation["output"]
     score = score_result["score"]
     supplied_score = getattr(args, "score", None)
@@ -1776,6 +1781,10 @@ def _cmd_apply_fixes_locked(
         "corrections_count": len(corrections),
         "protected_ids": sorted(protected_ids),
         "skipped_corrections": protected_skipped,
+        "review_targets": {
+            str(segment_id): target
+            for segment_id, target in iteration_targets.items()
+        },
     }
     history.append(cur_entry)
     state["error_history"] = history
@@ -1837,6 +1846,7 @@ def _cmd_apply_fixes_locked(
             announce=False,
             scoring_policy=scoring_policy,
             scoring_computation=computation,
+            review_targets=iteration_targets,
         )
         replacements = []
         if scrubbed or computation["annotations_changed"]:
@@ -2215,7 +2225,13 @@ def _build_xlsx(
     scoring_computation=None,
     report_contract_results=None,
     reference_suggestions=None,
+    review_targets=None,
 ):
+    validate_error_history_term_contract(
+        history,
+        segments=state.get("segments", []),
+        label="report history",
+    )
     reference_suggestions = reference_suggestions or {}
     if scoring_policy is not None:
         scorecard_profile_id = scoring_policy["scorecard_profile"]
@@ -2240,6 +2256,15 @@ def _build_xlsx(
     )
     segments = state["segments"]
     seg_map = {s["id"]: s for s in segments}
+    current_review_targets = {
+        segment["id"]: (
+            review_targets[segment["id"]]
+            if review_targets is not None
+            and segment["id"] in review_targets
+            else current_target(segment)
+        )
+        for segment in segments
+    }
     cat_counts: dict[str, dict[str, int]] = {
         cat: {"Neutral": 0, "Minor": 0, "Major": 0, "Critical": 0}
         for cat in categories
@@ -2263,6 +2288,29 @@ def _build_xlsx(
     max_iter = max((entry["iteration"] for entry in history), default=0)
     latest_entry = history[-1] if history else None
 
+    def _entry_review_target(entry, segment):
+        snapshots = entry.get("review_targets")
+        if isinstance(snapshots, dict):
+            value = snapshots.get(
+                str(segment["id"]),
+                snapshots.get(segment["id"]),
+            )
+            if isinstance(value, str):
+                return value
+        has_term_spans = any(
+            result.get("id") == segment["id"]
+            and any("term_spans" in issue for issue in result.get("errors", []))
+            for result in entry.get("errors", [])
+        )
+        if has_term_spans:
+            raise ValueError(
+                f"iteration {entry.get('iteration')} segment {segment['id']} "
+                "is missing its review_targets snapshot"
+            )
+        if entry is latest_entry:
+            return current_review_targets[segment["id"]]
+        return segment.get("target", "")
+
     for entry in history:
         fixed = entry["iteration"] < max_iter
         for e_seg in entry["errors"]:
@@ -2272,12 +2320,7 @@ def _build_xlsx(
             if seg["id"] in all_protected_ids:
                 continue
             corrected = e_seg.get("corrected")
-            if (
-                corrected is None
-                and entry["iteration"] == max_iter
-                and current_target(seg) != seg.get("target", "")
-            ):
-                corrected = current_target(seg)
+            review_entry = {**e_seg, "corrected": corrected}
             for e in e_seg.get("errors", []):
                 cat = normalize_category_for_profile(e.get("category", "Other"), scorecard_profile)
                 sev = apply_severity(cat, e.get("severity", "Minor"), scorecard_profile)
@@ -2295,7 +2338,9 @@ def _build_xlsx(
                     "filename": _segment_filename(state, seg),
                     "seg_id":   seg["id"],
                     "source":   seg["source"],
-                    "original": seg["target"],
+                    "original": _entry_review_target(entry, seg),
+                    "issue":    e,
+                    "entry":    review_entry,
                     "corrected": corrected,
                     "parent":   scorecard_category_parent(cat, scorecard_profile),
                     "category": cat,
@@ -2305,7 +2350,7 @@ def _build_xlsx(
                     "fixed":    fixed,
                     "processing": _issue_processing_label(
                         e,
-                        {**e_seg, "corrected": corrected},
+                        review_entry,
                         protected=False,
                     ),
                     "review_status": review_status,
@@ -2361,21 +2406,9 @@ def _build_xlsx(
 
     def _review_entry(seg):
         current_entry = current_entries.get(seg["id"])
-        baseline = (
-            current_target(seg)
-            if current_target(seg) != seg.get("target", "")
-            else None
-        )
         if current_entry is None:
-            return {"errors": [], "corrected": baseline}
-        return {
-            **current_entry,
-            "corrected": (
-                current_entry.get("corrected")
-                if current_entry.get("corrected") is not None
-                else baseline
-            ),
-        }
+            return {"errors": [], "corrected": None}
+        return current_entry
 
     def _review_summary(errs, field):
         values = []
@@ -2394,6 +2427,38 @@ def _build_xlsx(
             f"{index}. {comment}"
             for index, comment in enumerate(comments, start=1)
         )
+
+    def _matching_term_spans(errs, field, display_text):
+        matches = []
+        for issue in errs:
+            term_spans = issue.get("term_spans")
+            if term_spans is None and issue.get("category") != "Terminology":
+                continue
+            if not isinstance(term_spans, dict):
+                raise ValueError("Terminology issue is missing term_spans")
+            spans = term_spans.get(field)
+            if not isinstance(spans, list):
+                raise ValueError(f"term_spans.{field} must be a list")
+            for span in spans:
+                if not isinstance(span, dict):
+                    raise ValueError(
+                        f"term_spans.{field} entries must be objects"
+                    )
+                start = span.get("start")
+                end = span.get("end")
+                span_text = span.get("text")
+                if not (
+                    type(start) is int
+                    and type(end) is int
+                    and isinstance(span_text, str)
+                    and 0 <= start < end <= len(display_text)
+                    and display_text[start:end] == span_text
+                ):
+                    raise ValueError(
+                        f"term_spans.{field} does not match the report baseline"
+                    )
+                matches.append(span)
+        return matches
 
     def _review_suggestion(seg, entry, errs, is_protected):
         if is_protected:
@@ -2537,13 +2602,13 @@ def _build_xlsx(
             "原文",
             "待翻译的源语言文本",
             "核对语义、语境、角色和功能",
-            "不要只比较字面词义",
+            "术语问题影响的源词显示为红色字体",
         ),
         (
             "原译",
-            "本次送检的原始译文",
+            "本轮实际送审译文；首轮为输入原译，后续轮为上一轮已应用译文",
             "确认问题是否真实存在",
-            "红色删除线表示建议删除或替换的内容",
+            "红字表示术语问题词；红色删除线表示删除/替换，重叠时保留删除线",
         ),
         (
             "AI/建议译文",
@@ -2651,7 +2716,7 @@ def _build_xlsx(
         ("阅读与交付提示", "", "", ""),
         (
             "差异标记",
-            "原译中的红色删除线表示删除/替换；建议译文中的红色字体表示新增/替换",
+            "原文/原译中的术语问题词为红色；原译差异为红色删除线；建议译文差异为红色字体",
             "差异只帮助定位修改，不代表建议一定正确",
             "",
         ),
@@ -2929,7 +2994,7 @@ def _build_xlsx(
     for dr in detail_rows:
         seg = seg_map[dr["seg_id"]]
         is_protected = dr["seg_id"] in all_protected_ids
-        entry = _review_entry(seg)
+        entry = dr["entry"]
         errs = [] if is_protected else entry.get("errors", [])
         suggestion, suggestion_status = _review_suggestion(
             seg,
@@ -2937,10 +3002,29 @@ def _build_xlsx(
             errs,
             is_protected,
         )
-        rich_pair = (
-            build_rich_diff(dr["original"], suggestion)
-            if suggestion
+        suggestion_for_diff = (
+            suggestion
+            if suggestion_status in {
+                "可直接采用",
+                "建议待确认",
+                "部分修正，仍需确认",
+            }
             else None
+        )
+        rich_source, rich_original, rich_suggestion = build_review_rich_texts(
+            dr["source"],
+            dr["original"],
+            suggestion_for_diff,
+            source_spans=_matching_term_spans(
+                [dr["issue"]],
+                "source",
+                dr["source"],
+            ),
+            target_spans=_matching_term_spans(
+                [dr["issue"]],
+                "target",
+                dr["original"],
+            ),
         )
         category = " · ".join(
             value
@@ -2949,9 +3033,9 @@ def _build_xlsx(
         )
         detail_values = [
             dr["seg_id"],
-            dr["source"],
-            rich_pair[0] if rich_pair else dr["original"],
-            rich_pair[1] if rich_pair else suggestion,
+            rich_source,
+            rich_original,
+            rich_suggestion,
             suggestion_status,
             category,
             dr["severity"],
@@ -3094,16 +3178,29 @@ def _build_xlsx(
             errs,
             is_protected,
         )
-        rich_pair = (
-            build_rich_diff(seg.get("target", ""), suggestion)
-            if suggestion
+        source_text = seg.get("source", "")
+        original_text = current_review_targets[seg["id"]]
+        suggestion_for_diff = (
+            suggestion
+            if suggestion_status in {
+                "可直接采用",
+                "建议待确认",
+                "部分修正，仍需确认",
+            }
             else None
+        )
+        rich_source, rich_original, rich_suggestion = build_review_rich_texts(
+            source_text,
+            original_text,
+            suggestion_for_diff,
+            source_spans=_matching_term_spans(errs, "source", source_text),
+            target_spans=_matching_term_spans(errs, "target", original_text),
         )
         visible_data = [
             seg["id"],
-            seg.get("source", ""),
-            rich_pair[0] if rich_pair else seg.get("target", ""),
-            rich_pair[1] if rich_pair else suggestion,
+            rich_source,
+            rich_original,
+            rich_suggestion,
             suggestion_status,
             _review_summary(errs, "category"),
             _review_summary(errs, "severity"),
@@ -3301,6 +3398,10 @@ def _cmd_write_locked(
         "errors": final_errors_data,
         "corrections_count": 0,
         "protected_ids": sorted(protected_ids),
+        "review_targets": {
+            str(segment["id"]): current_target(segment)
+            for segment in state["segments"]
+        },
     }
 
     history = state.get("error_history", [])

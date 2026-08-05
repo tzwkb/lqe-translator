@@ -281,7 +281,20 @@ chunk_NN.naturalness.json
 
 新译名、术语表缺词、多个合理方案或整句重写，使用 `needs_confirmation: true` 和 `edit: null`。术语或专名修改还必须有唯一的 `confirmed: true` 候选和 `confirmed_term` 证据。
 
-机器预检生成的 Terminology issue 会附带只读的 `term_source` 和 `expected_targets`；模型无需输出或改写，publisher 会按 `precheck_ref` 保留。
+每个 Terminology issue 必须额外带 `term_source`、`expected_targets` 和 `term_spans`：
+
+```json
+{
+  "term_source": "督管案台",
+  "expected_targets": ["Supervisor's Counter"],
+  "term_spans": {
+    "source": [{"start": 2, "end": 6, "text": "督管案台"}],
+    "target": [{"start": 10, "end": 22, "text": "control desk"}]
+  }
+}
+```
+
+`term_spans` 必须恰有 `source` 和 `target` 两个数组。每个 span 对象恰有整数 `start`、整数 `end` 和非空 `text`，使用 0-based、左闭右开的非空区间；数组按 `(start,end,text)` 升序排列，不得重复或重叠。`text` 必须严格等于原文或当前译文的对应切片，且每个 source span 的 `text` 必须等于 `term_source`。`source` 非空；漏译或没有可安全定位的译文问题词时，`target` 可为空，不得猜测或整句标记。复核机器预检 Terminology issue 时，`term_source`、`expected_targets` 和 `term_spans.source` 为只读并按 `precheck_ref` 继承；模型必须精确补充 `term_spans.target`，确实没有可标译文词时保留空数组。新发现的 Terminology issue 必须完整提交三个结构化字段。
 
 表格中的 `content_type`、`text_type`、`文本类型`、`文本类别` 会作为上游文本分类传入 review packet，不自行分类。`optimized` 优先使用行级 `content_type`，否则使用 `text_type_context`，并按 `references/check_modules/common.md` 的矩阵调整重点；`full` 只把分类作为上下文，不改变检查强度。两种模式都不关闭机器预检或必需模块。
 
@@ -346,11 +359,11 @@ python3 "$SCRIPTS/lqe_io.py" export \
 
 报告保留 `说明·导读`、`LQA Scorecard` 和 `LQE Results` 三张可见工作表；`_LQE_CONTRACT` 保持 veryHidden。导读固定排在第一张并作为默认打开页，面向新人解释阅读流程、Scorecard、10 个审校列、建议状态、审校结论和交付检查。Scorecard 完整显示判定、分数、精简类别汇总和逐错误审校行，不隐藏行列。
 
-Scorecard 的逐错误区域和 `LQE Results` 共用 10 列：Segment ID、原文、原译、AI/建议译文、建议状态、错误类别、严重度、问题说明、审校结论、审校终稿或备注。Scorecard 合并父类别和子类别，并移除文件名、迭代、处理方式和 AI provenance 等技术列；这些审计字段保留在 Results 隐藏区。Results 可见区一段一行；多错误在首行汇总，额外逐错误审计行与无问题段隐藏。建议状态固定为“可直接采用”“建议待确认”“部分修正，仍需确认”“未生成建议，需人工处理”“已保护”。
+Scorecard 的逐错误区域和 `LQE Results` 共用 10 列：Segment ID、原文、原译、AI/建议译文、建议状态、错误类别、严重度、问题说明、审校结论、审校终稿或备注。“原译”固定表示本轮实际送审译文：首轮为输入原译，后续轮为上一轮已应用的 `current_target`；术语跨度、差异比较和建议译文使用同一基线。Scorecard 合并父类别和子类别，并移除文件名、迭代、处理方式和 AI provenance 等技术列；这些审计字段保留在 Results 隐藏区。Results 可见区一段一行；多错误在首行汇总，额外逐错误审计行与无问题段隐藏。建议状态固定为“可直接采用”“建议待确认”“部分修正，仍需确认”“未生成建议，需人工处理”“已保护”。
 
-术语不一致明细必须读取 issue 的 `term_source` 和 `expected_targets`，或读取 Results 隐藏区的“术语原文（结构化）”“术语库译文（结构化）”。不得从 `comment` / “问题说明”用引号正则反解析；所有格撇号和术语内标点属于字段内容。旧产物使用 `lqe_terms.terminology_issue_fields()` 兼容读取。
+术语不一致明细与报告标记直接读取 issue 的 `term_source`、`expected_targets` 和 `term_spans`，不得从 `comment` / “问题说明”反解析术语或跨度。只要旧任务中任一 Terminology issue 缺少这些字段，就不兼容当前合同，必须从 `pre-check` 重跑并重建全部后续 artifact。
 
-报告使用富文本显示修改差异：原译中删除或替换的内容显示为红色删除线，AI/建议译文中新增或替换的内容显示为红色字体。安全局部 edit 可进入 corrected 流程；独立 `reference_suggestions.json` 中的整句建议只供审校，并固定标为“建议待确认”。corrected 文件不添加差异样式。
+报告富文本图例：原文中受术语问题影响的词显示红字；原译中的术语问题词显示红字，若同时属于删除或替换差异则显示红色删除线；AI/建议译文中新增或替换的内容显示红字。`term_spans.target` 为空时只标原文。Results 对同段全部 Terminology span 取并集，Scorecard 每条问题只标对应 span。每个含 Terminology/`term_spans` 的历史迭代 entry 必须保存 `review_targets`，格式为 `{"<segment_id>": "该轮送审译文"}`；缺失、损坏或与 span 切片不一致时失败，不得回退或静默跳过。安全局部 edit 可进入 corrected 流程；独立 `reference_suggestions.json` 中的整句建议只供审校，并固定标为“建议待确认”。corrected 文件保持纯文本，不添加差异或术语样式。
 
 经验证的内部结果中，`corrected: ""` 是合法的整段删除；只有 `corrected: null` 表示没有建议修改。write、apply、export 和聚合都必须保留这一区别。
 

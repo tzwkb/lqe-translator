@@ -18,6 +18,7 @@ _ISSUE_FIELDS = (
     "comment",
     "term_source",
     "expected_targets",
+    "term_spans",
     "protected",
     "repeated",
 )
@@ -36,6 +37,205 @@ _VARIABLE_RE = re.compile(r"\{[^{}]*\}|%(?:\d+\$)?[sd]")
 _TAG_RE = re.compile(
     r"<[^<>]+>|\[[^\[\]]+\]|#(?:G|C|Y|E)(?=$|[^A-Za-z])"
 )
+_TERM_FIELDS = {"term_source", "expected_targets", "term_spans"}
+_TERM_SPAN_GROUPS = {"source", "target"}
+_TERM_SPAN_FIELDS = {"start", "end", "text"}
+
+
+def _canonical_term_span_list(
+    value: object,
+    *,
+    label: str,
+    require_nonempty: bool,
+) -> list[dict]:
+    if not isinstance(value, list):
+        raise CheckFormatError(f"{label} must be an array")
+    if require_nonempty and not value:
+        raise CheckFormatError(f"{label} must be non-empty")
+
+    spans = []
+    seen = set()
+    previous_key = None
+    previous_end = None
+    for index, span in enumerate(value):
+        span_label = f"{label}[{index}]"
+        if not isinstance(span, dict):
+            raise CheckFormatError(f"{span_label} must be an object")
+        if set(span) != _TERM_SPAN_FIELDS:
+            raise CheckFormatError(f"{span_label} has invalid fields")
+        start = span["start"]
+        end = span["end"]
+        text = span["text"]
+        if type(start) is not int or type(end) is not int:
+            raise CheckFormatError(f"{span_label} start/end must be integers")
+        if start < 0 or end <= start:
+            raise CheckFormatError(
+                f"{span_label} must use a non-empty 0-based half-open range"
+            )
+        if not isinstance(text, str) or not text:
+            raise CheckFormatError(f"{span_label} text must be a non-empty string")
+
+        key = (start, end, text)
+        if key in seen:
+            raise CheckFormatError(f"{label} contains a duplicate span")
+        if previous_key is not None and key < previous_key:
+            raise CheckFormatError(f"{label} must be sorted")
+        if previous_end is not None and start < previous_end:
+            raise CheckFormatError(f"{label} spans must not overlap")
+        seen.add(key)
+        previous_key = key
+        previous_end = end
+        spans.append({"start": start, "end": end, "text": text})
+    return spans
+
+
+def _canonical_term_spans(value: object, *, label: str) -> dict:
+    if not isinstance(value, dict):
+        raise CheckFormatError(f"{label}: term_spans must be an object")
+    if set(value) != _TERM_SPAN_GROUPS:
+        raise CheckFormatError(
+            f"{label}: term_spans must contain exactly source and target"
+        )
+    return {
+        "source": _canonical_term_span_list(
+            value["source"],
+            label=f"{label}.term_spans.source",
+            require_nonempty=True,
+        ),
+        "target": _canonical_term_span_list(
+            value["target"],
+            label=f"{label}.term_spans.target",
+            require_nonempty=False,
+        ),
+    }
+
+
+def _canonical_issue_term_fields(value: dict, *, label: str) -> dict | None:
+    present_term_fields = _TERM_FIELDS.intersection(value)
+    if value.get("category") == "Terminology" and present_term_fields != _TERM_FIELDS:
+        raise CheckFormatError(
+            f"{label}: Terminology issue requires term_source, "
+            "expected_targets, and term_spans"
+        )
+    if present_term_fields and present_term_fields != _TERM_FIELDS:
+        raise CheckFormatError(
+            f"{label}: term_source, expected_targets, and term_spans "
+            "must be provided together"
+        )
+    if not present_term_fields:
+        return None
+
+    term_source = value["term_source"]
+    expected_targets = value["expected_targets"]
+    if not isinstance(term_source, str) or not term_source.strip():
+        raise CheckFormatError(f"{label}: term_source must be a non-empty string")
+    if (
+        not isinstance(expected_targets, list)
+        or not expected_targets
+        or not all(
+            isinstance(target, str) and target.strip()
+            for target in expected_targets
+        )
+    ):
+        raise CheckFormatError(
+            f"{label}: expected_targets must be an array of non-empty strings"
+        )
+    return {
+        "term_source": term_source,
+        "expected_targets": copy.deepcopy(expected_targets),
+        "term_spans": _canonical_term_spans(value["term_spans"], label=label),
+    }
+
+
+def validate_error_history_term_contract(
+    history: object,
+    *,
+    segments: object,
+    label: str = "error_history",
+) -> None:
+    if not isinstance(history, list):
+        return
+    if not isinstance(segments, list):
+        segments = []
+    segment_by_id = {
+        segment.get("id"): segment
+        for segment in segments
+        if isinstance(segment, dict) and type(segment.get("id")) is int
+    }
+    for entry_index, entry in enumerate(history):
+        if not isinstance(entry, dict):
+            continue
+        term_items = []
+        results = entry.get("errors", [])
+        if not isinstance(results, list):
+            continue
+        for result_index, result in enumerate(results):
+            if not isinstance(result, dict):
+                continue
+            issues = result.get("errors", [])
+            if not isinstance(issues, list):
+                continue
+            for issue_index, issue in enumerate(issues):
+                if not isinstance(issue, dict):
+                    continue
+                if issue.get("category") != "Terminology" and not (
+                    _TERM_FIELDS.intersection(issue)
+                ):
+                    continue
+                issue_label = (
+                    f"{label}[{entry_index}].errors[{result_index}]."
+                    f"errors[{issue_index}]"
+                )
+                canonical_fields = _canonical_issue_term_fields(
+                    issue, label=issue_label
+                )
+                segment_id = result.get("id")
+                if type(segment_id) is not int:
+                    raise CheckFormatError(f"{issue_label}: result id must be an integer")
+                term_items.append((segment_id, canonical_fields, issue_label))
+
+        if not term_items:
+            continue
+        snapshots = entry.get("review_targets")
+        if not isinstance(snapshots, dict):
+            raise CheckFormatError(
+                f"{label}[{entry_index}].review_targets is required for term history"
+            )
+        if not all(
+            isinstance(key, str) and isinstance(target, str)
+            for key, target in snapshots.items()
+        ):
+            raise CheckFormatError(
+                f"{label}[{entry_index}].review_targets must map string ids "
+                "to string targets"
+            )
+        missing = [
+            segment_id
+            for segment_id in sorted({item[0] for item in term_items})
+            if str(segment_id) not in snapshots
+        ]
+        if missing:
+            raise CheckFormatError(
+                f"{label}[{entry_index}].review_targets is missing term "
+                f"segment ids {missing}"
+            )
+        for segment_id, canonical_fields, issue_label in term_items:
+            segment = segment_by_id.get(segment_id)
+            if segment is None:
+                raise CheckFormatError(
+                    f"{issue_label}: segment {segment_id} is missing from state"
+                )
+            source = segment.get("source")
+            if not isinstance(source, str):
+                raise CheckFormatError(
+                    f"{issue_label}: segment source must be a string"
+                )
+            _validate_term_span_slices(
+                canonical_fields,
+                source,
+                snapshots[str(segment_id)],
+                label=issue_label,
+            )
 
 
 def _canonical_review_provenance(value: object, *, label: str) -> dict:
@@ -130,27 +330,7 @@ def _canonical_issue(
     for field in ("protected", "repeated"):
         if field in value and type(value[field]) is not bool:
             raise CheckFormatError(f"{label}: {field} must be boolean")
-    has_term_source = "term_source" in value
-    has_expected_targets = "expected_targets" in value
-    if has_term_source != has_expected_targets:
-        raise CheckFormatError(
-            f"{label}: term_source and expected_targets must be provided together"
-        )
-    if has_term_source:
-        term_source = value["term_source"]
-        expected_targets = value["expected_targets"]
-        if not isinstance(term_source, str) or not term_source:
-            raise CheckFormatError(f"{label}: term_source must be a non-empty string")
-        if (
-            not isinstance(expected_targets, list)
-            or not expected_targets
-            or not all(
-                isinstance(target, str) and target for target in expected_targets
-            )
-        ):
-            raise CheckFormatError(
-                f"{label}: expected_targets must be an array of non-empty strings"
-            )
+    canonical_term_fields = _canonical_issue_term_fields(value, label=label)
 
     if "edit" in value:
         edit = value["edit"]
@@ -175,6 +355,8 @@ def _canonical_issue(
     result = {
         key: copy.deepcopy(value[key]) for key in _ISSUE_FIELDS if key in value
     }
+    if canonical_term_fields is not None:
+        result.update(canonical_term_fields)
     if "precheck_ref" in value:
         precheck_ref = value["precheck_ref"]
         if not isinstance(precheck_ref, str) or not precheck_ref.strip():
@@ -421,6 +603,29 @@ def _damages_protected_text(segment: dict, original: str, resolved: dict) -> boo
     )
 
 
+def _validate_term_span_slices(
+    error: dict,
+    source: str,
+    target: str,
+    *,
+    label: str,
+) -> None:
+    for group, text in (("source", source), ("target", target)):
+        for index, span in enumerate(error["term_spans"][group]):
+            start = span["start"]
+            end = span["end"]
+            if end > len(text) or text[start:end] != span["text"]:
+                raise CheckFormatError(
+                    f"{label}.term_spans.{group}[{index}] does not match "
+                    f"segment {group} text"
+                )
+            if group == "source" and span["text"] != error["term_source"]:
+                raise CheckFormatError(
+                    f"{label}.term_spans.source[{index}] text must equal "
+                    "term_source"
+                )
+
+
 def validate_reference_target(
     segment: dict,
     target: object,
@@ -491,6 +696,25 @@ def build_segment_result(
         )
         for index, value in enumerate(issues)
     ]
+    term_errors = [
+        (index, error)
+        for index, error in enumerate(errors)
+        if "term_spans" in error
+    ]
+    if term_errors:
+        source = segment.get("source")
+        if not isinstance(source, str):
+            raise CheckFormatError(
+                f"segment {segment['id']}: source must be a string for "
+                "issues with term_spans"
+            )
+        for index, error in term_errors:
+            _validate_term_span_slices(
+                error,
+                source,
+                original,
+                label=f"segment {segment['id']}.issues[{index}]",
+            )
     resolved_by_index = {}
     for index, error in enumerate(errors):
         edit = error["edit"]
