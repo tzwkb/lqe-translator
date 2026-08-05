@@ -309,7 +309,27 @@ references/suggestions.md
 ]
 ```
 
-固定接口为 `{id, issues:[{category,severity,comment,needs_confirmation,edit}]}`（模型输出）。机器预检生成的 Terminology issue 另带只读的 `term_source` 和 `expected_targets`；模型无需输出或改写，publisher 会按 `precheck_ref` 保留。默认模型草稿使用第 7 节的紧凑包装，只列确有问题的接口项；publisher 补齐无问题 id。检查模块不得输出 corrected；`lqe_corrections.py` 验证局部修改后生成该内部字段。每个 review packet 都带 `review_policy`，worker 必须按其中的 `mode` 执行。
+固定接口为 `{id, issues:[{category,severity,comment,needs_confirmation,edit}]}`（模型输出）；每个 Terminology issue 必须再带 `term_source`、`expected_targets` 和 `term_spans`：
+
+```json
+{
+  "category": "Terminology",
+  "severity": "Major",
+  "comment": "The confirmed project term is not used.",
+  "needs_confirmation": true,
+  "edit": null,
+  "term_source": "督管案台",
+  "expected_targets": ["Supervisor's Counter"],
+  "term_spans": {
+    "source": [{"start": 2, "end": 6, "text": "督管案台"}],
+    "target": [{"start": 10, "end": 22, "text": "control desk"}]
+  }
+}
+```
+
+`term_spans` 必须恰有 `source` 和 `target` 两键。每个 span 对象恰有整数 `start`、整数 `end` 和非空 `text`，使用 0-based、左闭右开的非空区间；数组按 `(start,end,text)` 升序排列，不得重复或重叠。`text` 必须严格等于原文或当前译文的对应切片，且每个 source span 的 `text` 必须等于 `term_source`。`source` 必须非空；`target` 可为空，表示当前译文没有可安全定位的受影响词（如漏译），不得猜测或整句标记。复核机器预检 Terminology issue 时，`term_source`、`expected_targets` 和 `term_spans.source` 为只读并按 `precheck_ref` 继承；模型必须精确补充 `term_spans.target`，确实没有可标译文词时保留空数组。新发现的 Terminology issue 由模型完整提交这三个字段。
+
+默认模型草稿使用第 7 节的紧凑包装，只列确有问题的接口项；publisher 补齐无问题 id。检查模块不得输出 corrected；`lqe_corrections.py` 验证局部修改后生成该内部字段。每个 review packet 都带 `review_policy`，worker 必须按其中的 `mode` 执行。
 
 - 所有必需模块的正式产物覆盖全部 id；无问题项由 publisher 写成 `issues: []`。
 - `optimized`：`comment` 统一用英文，以 20–30 个字符为软目标；完整、清楚优先，不机械补字或截断。Minor 只报告问题：必须写非空 `comment`、`needs_confirmation: true` 和 `edit: null`；非 Minor 的安全、唯一、局部改法才可写入 `edit`。
@@ -509,11 +529,11 @@ python "$SCRIPTS/lqe_io.py" export \
 
 LQE 报告保留三张可见工作表：`说明·导读`、`LQA Scorecard` 和 `LQE Results`；绑定 state/errors 和可见内容摘要的 `_LQE_CONTRACT` 必须保持 veryHidden。`说明·导读` 固定排在第一张并作为默认打开页，包含三步阅读路径、Scorecard 读法、10 列释义、建议状态、审校结论和交付提示。Scorecard 完整显示判定、分数、类别汇总和逐错误审校行，不隐藏行列；类别汇总将每个严重度的总数与重复数合并显示。
 
-`LQA Scorecard` 的逐错误区域和 `LQE Results` 的一段一行审校区域共用 10 列：Segment ID、原文、原译、AI/建议译文、建议状态、错误类别、严重度、问题说明、审校结论、审校终稿或备注。Scorecard 合并父类别和子类别，不再显示文件名、迭代、处理方式和 AI provenance 等技术列；这些审计字段保留在 `LQE Results` 隐藏区。`LQE Results` 的多错误段在可见首行汇总；额外逐错误审计行、无问题段和原始来源字段保留但隐藏。`审校结论` 使用“接受、修改后接受、拒绝、待确认”下拉值。
+`LQA Scorecard` 的逐错误区域和 `LQE Results` 的一段一行审校区域共用 10 列：Segment ID、原文、原译、AI/建议译文、建议状态、错误类别、严重度、问题说明、审校结论、审校终稿或备注。这里的“原译”固定表示本轮实际送审译文：首轮为输入原译，后续轮为上一轮已应用的 `current_target`；术语跨度、差异比较和建议译文必须使用同一基线。Scorecard 合并父类别和子类别，不再显示文件名、迭代、处理方式和 AI provenance 等技术列；这些审计字段保留在 `LQE Results` 隐藏区。`LQE Results` 的多错误段在可见首行汇总；额外逐错误审计行、无问题段和原始来源字段保留但隐藏。`审校结论` 使用“接受、修改后接受、拒绝、待确认”下拉值。
 
-术语不一致明细必须读取 issue 的 `term_source` 和 `expected_targets`，或读取 `LQE Results` 隐藏区的“术语原文（结构化）”“术语库译文（结构化）”。禁止从 `comment` / “问题说明”用单引号正则反解析术语；所有格撇号和术语内标点属于字段内容。旧产物只能通过 `lqe_terms.terminology_issue_fields()` 兼容读取。
+术语不一致明细与报告标记必须直接读取 issue 的 `term_source`、`expected_targets` 和 `term_spans`。禁止从 `comment` / “问题说明”反解析术语或跨度。缺少任一字段的旧 Terminology issue 不兼容当前合同；旧任务必须从 `pre-check` 重新运行并重建后续 artifact。
 
-报告使用富文本显示修改差异：原译中删除或替换的内容显示为红色删除线，AI/建议译文中新增或替换的内容显示为红色字体。安全局部 edit 生成的建议可进入 corrected 流程；`reference_suggestions.json` 的整句参考译文始终标为“建议待确认”，只用于审校。`LQE AI 复核状态`、`LQE AI 编辑状态`、`LQE 检查来源` 等逐错误 provenance 列保留在隐藏审计区。正式 module entries 同时受内容摘要和独立本地发布收据绑定；“AI 模块记录”是本地流程证据，不是 host/orchestrator 的外部身份签名。corrected 文件不添加差异样式。
+报告使用富文本标记。原有差异图例保持：原译中删除或替换的内容显示为红色删除线，AI/建议译文中新增或替换的内容显示为红色字体。术语图例为：原文中受术语问题影响的词显示红字；原译中的术语问题词显示红字，若同时属于删除或替换差异则显示红色删除线。`term_spans.target` 为空时只标原文。Results 对同段全部 Terminology issue 的 span 取并集，Scorecard 每条问题只标对应 span。每个含 Terminology/`term_spans` 的历史迭代 entry 必须保存 `review_targets`，格式为 `{"<segment_id>": "该轮送审译文"}`；缺失、损坏或与 span 切片不一致时报告失败，不得回退到首次输入译文或静默跳过标记。安全局部 edit 生成的建议可进入 corrected 流程；`reference_suggestions.json` 的整句参考译文始终标为“建议待确认”，只用于审校。`LQE AI 复核状态`、`LQE AI 编辑状态`、`LQE 检查来源` 等逐错误 provenance 列保留在隐藏审计区。正式 module entries 同时受内容摘要和独立本地发布收据绑定；“AI 模块记录”是本地流程证据，不是 host/orchestrator 的外部身份签名。corrected 文件不添加差异样式或术语样式，保持纯文本。
 
 表格与 SDLXLIFF 报告都采用同一 10 列审校视图，并把来源文件、TU ID、SDL Segment ID、处理方式、逐错误 provenance、保护证据和 `LQE_Iter` 保留在隐藏审计区；`LQE_Iter` 固定为最后一列。其余 SDL 私有字段、文件 SHA-256、语言、扩展 namespace、规则命中、排除和保护证据写入 `source_manifest.json`。SDL corrected Excel 固定为 5 列：来源文件、TU ID、SDL Segment ID、原文、译文。
 

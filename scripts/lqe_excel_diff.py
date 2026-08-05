@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from difflib import SequenceMatcher
 
 import regex
@@ -15,6 +16,9 @@ _EXCEL_CELL_LIMIT = 32767
 _SEQUENCE_MATCHER_PRODUCT_LIMIT = 4_000_000
 _BOUNDED_EDIT_LIMIT = 256
 _GRAPHEME_PATTERN = regex.compile(r"\X")
+_PLAIN = 0
+_RED_TEXT = 1
+_RED_STRIKE = 2
 
 
 def _split_graphemes(text: str) -> list[str]:
@@ -159,41 +163,120 @@ def _middle_opcodes(
     return [("replace", 0, len(original), 0, len(suggested))]
 
 
-def _append(runs: list[tuple[str, bool]], text: str, changed: bool) -> None:
+def _append(runs: list[tuple[str, int]], text: str, style: int) -> None:
     if not text:
         return
-    if runs and runs[-1][1] == changed:
+    if runs and runs[-1][1] == style:
         previous, _ = runs[-1]
-        runs[-1] = (previous + text, changed)
+        runs[-1] = (previous + text, style)
     else:
-        runs.append((text, changed))
+        runs.append((text, style))
 
 
-def _to_excel_text(runs: list[tuple[str, bool]], *, strike: bool):
-    if not any(changed for _, changed in runs):
+def _to_excel_text(runs: list[tuple[str, int]]):
+    if not any(style for _, style in runs):
         return "".join(text for text, _ in runs)
     values = []
-    for text, changed in runs:
-        if changed:
+    for text, style in runs:
+        if style:
             values.append(
-                TextBlock(InlineFont(color=_RED, strike=strike or None), text)
+                TextBlock(
+                    InlineFont(
+                        color=_RED,
+                        strike=True if style == _RED_STRIKE else None,
+                    ),
+                    text,
+                )
             )
         else:
             values.append(text)
     return CellRichText(values)
 
 
-def build_rich_diff(
-    original: str,
-    suggested: str,
-) -> tuple[str | CellRichText, str | CellRichText]:
-    if original == suggested:
-        return original, suggested
-    if len(original) > _EXCEL_CELL_LIMIT or len(suggested) > _EXCEL_CELL_LIMIT:
-        return original, suggested
+def _span_bounds(
+    text: str,
+    spans: Iterable[Mapping[str, object] | tuple[int, int]],
+) -> list[tuple[int, int]]:
+    bounds = []
+    for index, span in enumerate(spans):
+        if isinstance(span, Mapping):
+            start = span.get("start")
+            end = span.get("end")
+            expected = span.get("text")
+        elif isinstance(span, (tuple, list)) and len(span) == 2:
+            start, end = span
+            expected = None
+        else:
+            raise ValueError(f"span {index} must define start and end")
+        if type(start) is not int or type(end) is not int:
+            raise ValueError(f"span {index} start/end must be integers")
+        if start < 0 or end <= start or end > len(text):
+            raise ValueError(
+                f"span {index} [{start}, {end}) is outside text length {len(text)}"
+            )
+        if expected is not None and (
+            not isinstance(expected, str) or text[start:end] != expected
+        ):
+            raise ValueError(f"span {index} text does not match [{start}, {end})")
+        bounds.append((start, end))
+    return bounds
 
-    original_graphemes = _split_graphemes(original)
-    suggested_graphemes = _split_graphemes(suggested)
+
+def _span_mask(
+    text: str,
+    graphemes: list[str],
+    spans: Iterable[Mapping[str, object] | tuple[int, int]],
+) -> list[bool]:
+    bounds = _span_bounds(text, spans)
+    if not bounds:
+        return [False] * len(graphemes)
+    changes = [0] * (len(text) + 1)
+    for start, end in bounds:
+        changes[start] += 1
+        changes[end] -= 1
+    covered = []
+    active = 0
+    for index in range(len(text)):
+        active += changes[index]
+        covered.append(active > 0)
+    mask = []
+    offset = 0
+    for grapheme in graphemes:
+        end = offset + len(grapheme)
+        mask.append(any(covered[offset:end]))
+        offset = end
+    return mask
+
+
+def _styled_graphemes(
+    graphemes: list[str],
+    styles: list[int],
+) -> str | CellRichText:
+    runs: list[tuple[str, int]] = []
+    for grapheme, style in zip(graphemes, styles):
+        _append(runs, grapheme, style)
+    return _to_excel_text(runs)
+
+
+def build_rich_highlights(
+    text: str,
+    spans: Iterable[Mapping[str, object] | tuple[int, int]] = (),
+) -> str | CellRichText:
+    """Render validated character spans as red text without strike-through."""
+    if len(text) > _EXCEL_CELL_LIMIT:
+        return text
+    graphemes = _split_graphemes(text)
+    mask = _span_mask(text, graphemes, spans)
+    return _styled_graphemes(
+        graphemes,
+        [_RED_TEXT if highlighted else _PLAIN for highlighted in mask],
+    )
+
+
+def _diff_opcodes(
+    original_graphemes: list[str],
+    suggested_graphemes: list[str],
+) -> list[tuple[str, int, int, int, int]]:
     prefix = 0
     while (
         prefix < min(len(original_graphemes), len(suggested_graphemes))
@@ -235,26 +318,103 @@ def build_rich_diff(
                 len(suggested_graphemes),
             )
         )
+    return opcodes
 
-    original_runs: list[tuple[str, bool]] = []
-    suggested_runs: list[tuple[str, bool]] = []
-    for tag, i1, i2, j1, j2 in opcodes:
-        if tag in {"equal", "delete", "replace"}:
-            _append(
-                original_runs,
-                "".join(original_graphemes[i1:i2]),
-                tag != "equal",
-            )
-        if tag in {"equal", "insert", "replace"}:
-            _append(
-                suggested_runs,
-                "".join(suggested_graphemes[j1:j2]),
-                tag != "equal",
-            )
-    original_value = _to_excel_text(original_runs, strike=True)
-    suggested_value = _to_excel_text(suggested_runs, strike=False)
-    if isinstance(original_value, str) and original_value.startswith("="):
-        original_value = CellRichText([original_value])
-    if isinstance(suggested_value, str) and suggested_value.startswith("="):
-        suggested_value = CellRichText([suggested_value])
+
+def _formula_safe(value: str | CellRichText) -> str | CellRichText:
+    if isinstance(value, str) and value.startswith("="):
+        return CellRichText([value])
+    return value
+
+
+def build_review_rich_texts(
+    source: str,
+    original: str,
+    suggested: str | None,
+    *,
+    source_spans: Iterable[Mapping[str, object] | tuple[int, int]] = (),
+    target_spans: Iterable[Mapping[str, object] | tuple[int, int]] = (),
+) -> tuple[
+    str | CellRichText,
+    str | CellRichText,
+    str | CellRichText | None,
+]:
+    """Build source/translation rich text with terminology and diff styles merged."""
+    source_value = _formula_safe(build_rich_highlights(source, source_spans))
+    target_spans = tuple(target_spans)
+    if suggested is None:
+        return source_value, build_rich_highlights(original, target_spans), None
+
+    if len(original) > _EXCEL_CELL_LIMIT or len(suggested) > _EXCEL_CELL_LIMIT:
+        return source_value, build_rich_highlights(original, target_spans), suggested
+
+    original_graphemes = _split_graphemes(original)
+    suggested_graphemes = _split_graphemes(suggested)
+    original_changed = [False] * len(original_graphemes)
+    suggested_changed = [False] * len(suggested_graphemes)
+    opcodes = []
+    if original != suggested:
+        opcodes = _diff_opcodes(
+            original_graphemes,
+            suggested_graphemes,
+        )
+        for tag, i1, i2, j1, j2 in opcodes:
+            if tag != "equal":
+                original_changed[i1:i2] = [True] * (i2 - i1)
+                suggested_changed[j1:j2] = [True] * (j2 - j1)
+
+    term_mask = _span_mask(original, original_graphemes, target_spans)
+    for target_span in target_spans:
+        span_mask = _span_mask(
+            original,
+            original_graphemes,
+            (target_span,),
+        )
+        if any(
+            changed and inside
+            for changed, inside in zip(original_changed, span_mask)
+        ):
+            span_start = span_mask.index(True)
+            span_end = len(span_mask) - list(reversed(span_mask)).index(True)
+            original_changed = [
+                changed or inside
+                for changed, inside in zip(original_changed, span_mask)
+            ]
+            for tag, i1, i2, j1, _ in opcodes:
+                if tag != "equal":
+                    continue
+                overlap_start = max(i1, span_start)
+                overlap_end = min(i2, span_end)
+                if overlap_start < overlap_end:
+                    mapped_start = j1 + overlap_start - i1
+                    mapped_end = j1 + overlap_end - i1
+                    suggested_changed[mapped_start:mapped_end] = [True] * (
+                        mapped_end - mapped_start
+                    )
+    original_styles = [
+        _RED_STRIKE if changed else _RED_TEXT if term else _PLAIN
+        for changed, term in zip(original_changed, term_mask)
+    ]
+    suggested_styles = [
+        _RED_TEXT if changed else _PLAIN
+        for changed in suggested_changed
+    ]
+    return (
+        source_value,
+        _formula_safe(_styled_graphemes(original_graphemes, original_styles)),
+        _formula_safe(_styled_graphemes(suggested_graphemes, suggested_styles)),
+    )
+
+
+def build_rich_diff(
+    original: str,
+    suggested: str,
+) -> tuple[str | CellRichText, str | CellRichText]:
+    if original == suggested:
+        return original, suggested
+    _, original_value, suggested_value = build_review_rich_texts(
+        "",
+        original,
+        suggested,
+    )
     return original_value, suggested_value

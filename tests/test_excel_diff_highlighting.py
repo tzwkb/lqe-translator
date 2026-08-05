@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-from lqe_excel_diff import build_rich_diff
+from lqe_excel_diff import build_review_rich_texts, build_rich_diff
 from lqe_report_contract import attach_report_contract
 import lqe_io
 import lqe_paths
@@ -57,6 +57,75 @@ class RichDiffUnitTests(unittest.TestCase):
         self.assertEqual([block.text for block in changed_blocks(suggested)], ["new"])
         self.assert_red(changed_blocks(original)[0], strike=True)
         self.assert_red(changed_blocks(suggested)[0], strike=False)
+
+    def test_term_spans_render_without_suggestion(self):
+        source, original, suggested = build_review_rich_texts(
+            "查看督管案台",
+            "Check the control desk",
+            None,
+            source_spans=[{"start": 2, "end": 6, "text": "督管案台"}],
+            target_spans=[
+                {"start": 10, "end": 22, "text": "control desk"}
+            ],
+        )
+
+        self.assertIsNone(suggested)
+        self.assertEqual([block.text for block in changed_blocks(source)], ["督管案台"])
+        self.assertEqual(
+            [block.text for block in changed_blocks(original)],
+            ["control desk"],
+        )
+        self.assert_red(changed_blocks(source)[0], strike=False)
+        self.assert_red(changed_blocks(original)[0], strike=False)
+
+    def test_diff_strike_takes_priority_over_term_highlight(self):
+        _, original, suggested = build_review_rich_texts(
+            "焦虑",
+            "I feel worried",
+            "I feel anxious",
+            source_spans=[{"start": 0, "end": 2, "text": "焦虑"}],
+            target_spans=[{"start": 7, "end": 14, "text": "worried"}],
+        )
+
+        self.assertEqual([block.text for block in changed_blocks(original)], ["worried"])
+        self.assertEqual([block.text for block in changed_blocks(suggested)], ["anxious"])
+        self.assert_red(changed_blocks(original)[0], strike=True)
+        self.assert_red(changed_blocks(suggested)[0], strike=False)
+
+    def test_term_and_unrelated_diff_keep_distinct_original_styles(self):
+        _, original, _ = build_review_rich_texts(
+            "术语",
+            "wrong term old",
+            "wrong term new",
+            source_spans=[{"start": 0, "end": 2, "text": "术语"}],
+            target_spans=[{"start": 0, "end": 10, "text": "wrong term"}],
+        )
+
+        blocks = changed_blocks(original)
+        self.assertEqual([block.text for block in blocks], ["wrong term", "old"])
+        self.assert_red(blocks[0], strike=False)
+        self.assert_red(blocks[1], strike=True)
+
+    def test_empty_suggestion_remains_a_real_deletion(self):
+        _, original, suggested = build_review_rich_texts(
+            "删除",
+            "remove me",
+            "",
+            source_spans=[{"start": 0, "end": 2, "text": "删除"}],
+        )
+
+        self.assertEqual(suggested, "")
+        self.assertEqual([block.text for block in changed_blocks(original)], ["remove me"])
+        self.assert_red(changed_blocks(original)[0], strike=True)
+
+    def test_term_span_text_must_match(self):
+        with self.assertRaisesRegex(ValueError, "text does not match"):
+            build_review_rich_texts(
+                "source",
+                "target",
+                None,
+                source_spans=[{"start": 0, "end": 3, "text": "wrong"}],
+            )
 
     def test_insert_marks_only_suggestion(self):
         original, suggested = build_rich_diff("Save file", "Save new file")
@@ -321,6 +390,22 @@ class RichDiffUnitTests(unittest.TestCase):
                 self.assertEqual(str(loaded.active["B1"].value), "=A1+1")
                 self.assertEqual(loaded.active["A1"].data_type, "s")
                 self.assertEqual(loaded.active["B1"].data_type, "s")
+            finally:
+                loaded.close()
+
+    def test_formula_like_plain_source_round_trips_as_text(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            path = Path(tempdir) / "formula-source.xlsx"
+            source, _, _ = build_review_rich_texts("=A1", "old", None)
+            workbook = openpyxl.Workbook()
+            workbook.active["A1"] = source
+            workbook.save(path)
+            workbook.close()
+
+            loaded = openpyxl.load_workbook(path, rich_text=True, data_only=False)
+            try:
+                self.assertEqual(str(loaded.active["A1"].value), "=A1")
+                self.assertEqual(loaded.active["A1"].data_type, "s")
             finally:
                 loaded.close()
 

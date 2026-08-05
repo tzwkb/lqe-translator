@@ -63,6 +63,45 @@ def check_issue(
     }
 
 
+def exact_spans(text, value):
+    spans = []
+    start = text.find(value)
+    while start >= 0:
+        end = start + len(value)
+        spans.append({"start": start, "end": end, "text": value})
+        start = text.find(value, end)
+    return spans
+
+
+def term_issue(
+    term_source,
+    expected_targets,
+    source_text,
+    target_text,
+    *,
+    target_terms=(),
+    **kwargs,
+):
+    value = check_issue(category="Terminology", **kwargs)
+    target_spans = [
+        span
+        for target_term in target_terms
+        for span in exact_spans(target_text, target_term)
+    ]
+    target_spans.sort(key=lambda span: (span["start"], span["end"], span["text"]))
+    value.update(
+        {
+            "term_source": term_source,
+            "expected_targets": list(expected_targets),
+            "term_spans": {
+                "source": exact_spans(source_text, term_source),
+                "target": target_spans,
+            },
+        }
+    )
+    return value
+
+
 def replacement(frm, to, *, evidence=None, start=None, end=None):
     value = {"from": frm, "to": to, "evidence": evidence}
     if start is not None or end is not None:
@@ -235,11 +274,15 @@ class CorrectedOwnershipChunkTests(unittest.TestCase):
             comment="same",
             edit=replacement("x", "X"),
         )
-        terminology = check_issue(
-            category="Terminology",
+        terminology = term_issue(
+            "x",
+            ["X"],
+            "x",
+            "x",
             severity="Major",
             comment="terminology finding",
             needs_confirmation=True,
+            target_terms=("x",),
         )
         accuracy = check_issue(
             category="Omission",
@@ -501,10 +544,14 @@ class CorrectedOwnershipChunkTests(unittest.TestCase):
                 }
             )
             terminology[segment_id] = [
-                check_issue(
-                    category="Terminology",
+                term_issue(
+                    source,
+                    [proposed],
+                    source,
+                    original,
                     severity="Major",
                     comment=f"{source} proposed name",
+                    target_terms=(original,),
                     edit=replacement(
                         original,
                         proposed,
@@ -545,10 +592,14 @@ class CorrectedOwnershipChunkTests(unittest.TestCase):
                         ],
                         "protected_texts": [],
                     }
-                    issue = check_issue(
-                        category="Terminology",
+                    issue = term_issue(
+                        source,
+                        [target],
+                        source,
+                        original,
                         severity="Major",
                         comment="use confirmed term",
+                        target_terms=(original,),
                         edit=replacement(
                             original,
                             target,
@@ -593,20 +644,28 @@ class CorrectedOwnershipChunkTests(unittest.TestCase):
             ],
             "protected_texts": [],
         }
-        first_issue = check_issue(
-            category="Terminology",
+        first_issue = term_issue(
+            "花衣蝶",
+            [first],
+            source,
+            original,
             severity="Major",
             comment="first name",
+            target_terms=("Old Butterfly",),
             edit=replacement(
                 "Old Butterfly",
                 first,
                 evidence=confirmed_evidence("花衣蝶", first),
             ),
         )
-        second_issue = check_issue(
-            category="Terminology",
+        second_issue = term_issue(
+            "花衣蝶",
+            [second],
+            source,
+            original,
             severity="Major",
             comment="second name",
+            target_terms=("Old Butterfly",),
             edit=replacement(
                 "Old Butterfly",
                 second,
@@ -643,11 +702,15 @@ class CorrectedOwnershipChunkTests(unittest.TestCase):
             ],
             "protected_texts": [],
         }
-        pending_name = check_issue(
-            category="Terminology",
+        pending_name = term_issue(
+            "奇丽花",
+            ["Florora"],
+            segment["source"],
+            original,
             severity="Major",
             comment="proper name needs confirmation",
             needs_confirmation=True,
+            target_terms=("ฟลอโรรา",),
         )
         spacing = check_issue(
             category="Punctuation",
@@ -1486,10 +1549,14 @@ class CorrectedOwnershipOutputTests(unittest.TestCase):
         segments = [
             {"id": 0, "row_index": 0, "source": "世界", "target": "World"}
         ]
-        issue = check_issue(
-            category="Terminology",
+        issue = term_issue(
+            "世界",
+            ["Realm"],
+            segments[0]["source"],
+            segments[0]["target"],
             severity="Major",
             comment="Use the confirmed project term.",
+            target_terms=("World",),
             edit=replacement(
                 "World",
                 "Realm",

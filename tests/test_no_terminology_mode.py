@@ -516,6 +516,24 @@ class NoTerminologyPrecheckTests(unittest.TestCase):
             "needs_confirmation": edit is None,
             "edit": edit,
         }
+        if category == "Terminology":
+            source = segments[0]["source"]
+            issue.update(
+                {
+                    "term_source": source,
+                    "expected_targets": ["Forbidden"],
+                    "term_spans": {
+                        "source": [
+                            {
+                                "start": 0,
+                                "end": len(source),
+                                "text": source,
+                            }
+                        ],
+                        "target": [],
+                    },
+                }
+            )
         if precheck_ref is not None:
             issue["precheck_ref"] = precheck_ref
         rows[0]["issues"] = [issue]
@@ -997,6 +1015,12 @@ class NoTerminologyModuleTests(unittest.TestCase):
                             "category": "Terminology",
                             "severity": "Major",
                             "comment": "forbidden",
+                            "term_source": "A",
+                            "expected_targets": ["Forbidden"],
+                            "term_spans": {
+                                "source": [{"start": 0, "end": 1, "text": "A"}],
+                                "target": [],
+                            },
                             "needs_confirmation": True,
                             "edit": None,
                         }
@@ -1539,20 +1563,30 @@ class NoTerminologyFinalizeTests(unittest.TestCase):
             self.assertEqual(published.returncode, 0, published.stderr)
 
     def write_raw_checks(self, *, category="Terminology", comment="forbidden"):
+        issue = {
+            "category": category,
+            "severity": "Minor",
+            "comment": comment,
+            "needs_confirmation": True,
+            "edit": None,
+        }
+        if category == "Terminology":
+            issue.update(
+                {
+                    "term_source": "A",
+                    "expected_targets": ["Forbidden"],
+                    "term_spans": {
+                        "source": [{"start": 0, "end": 1, "text": "A"}],
+                        "target": [],
+                    },
+                }
+            )
         write_json(
             self.job / "checks.json",
             [
                 {
                     "id": 0,
-                    "issues": [
-                        {
-                            "category": category,
-                            "severity": "Minor",
-                            "comment": comment,
-                            "needs_confirmation": True,
-                            "edit": None,
-                        }
-                    ],
+                    "issues": [issue],
                 }
             ],
         )
@@ -1565,20 +1599,30 @@ class NoTerminologyFinalizeTests(unittest.TestCase):
         edit=None,
         corrected=None,
     ):
+        issue = {
+            "category": category,
+            "severity": "Minor",
+            "comment": comment,
+            "needs_confirmation": edit is None,
+            "edit": edit,
+        }
+        if category == "Terminology":
+            issue.update(
+                {
+                    "term_source": "A",
+                    "expected_targets": ["Forbidden"],
+                    "term_spans": {
+                        "source": [{"start": 0, "end": 1, "text": "A"}],
+                        "target": [],
+                    },
+                }
+            )
         write_json(
             self.job / "errors.json",
             [
                 {
                     "id": 0,
-                    "errors": [
-                        {
-                            "category": category,
-                            "severity": "Minor",
-                            "comment": comment,
-                            "needs_confirmation": edit is None,
-                            "edit": edit,
-                        }
-                    ],
+                    "errors": [issue],
                     "corrected": corrected,
                 }
             ],

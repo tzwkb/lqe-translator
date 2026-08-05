@@ -924,6 +924,7 @@ def _cmd_merge_unlocked(a, state: dict, outdir: Path):
         )
         segment = {
             "id": i,
+            "source": original.get("source", ""),
             "target": current_target(original),
             "kind": context.get("kind", _seg_kind(original.get("source", ""))),
             "term_hits": context.get("term_hits", []),
@@ -1224,6 +1225,22 @@ def _precheck_provenance_problem(
                 "precheck provenance mismatch for category "
                 f"{reviewed.get('category')!r}"
             )
+        original = original_issues[match]
+        if original.get("category") == "Terminology":
+            if reviewed.get("term_source") != original.get("term_source"):
+                return "reviewed Terminology issue must inherit term_source"
+            if reviewed.get("expected_targets") != original.get("expected_targets"):
+                return "reviewed Terminology issue must inherit expected_targets"
+            original_spans = original.get("term_spans")
+            reviewed_spans = reviewed.get("term_spans")
+            if not isinstance(original_spans, dict) or not isinstance(
+                reviewed_spans, dict
+            ):
+                return "reviewed Terminology issue requires term_spans"
+            if reviewed_spans.get("source") != original_spans.get("source"):
+                return (
+                    "reviewed Terminology issue must inherit machine source spans"
+                )
         used.add(match)
     return None
 
@@ -1363,6 +1380,11 @@ def _issue_key(issue):
         issue.get("comment"),
         issue.get("term_source"),
         json.dumps(issue.get("expected_targets"), ensure_ascii=False),
+        json.dumps(
+            issue.get("term_spans"),
+            ensure_ascii=False,
+            sort_keys=True,
+        ),
         json.dumps(issue.get("edit"), ensure_ascii=False, sort_keys=True),
     )
 
@@ -1391,6 +1413,18 @@ def _mark_ai_reviewed(
         for field in ("term_source", "expected_targets"):
             if field in original:
                 reviewed[field] = copy.deepcopy(original[field])
+        original_spans = original.get("term_spans")
+        if isinstance(original_spans, dict):
+            reviewed_spans = reviewed.get("term_spans")
+            reviewed_target_spans = (
+                reviewed_spans.get("target")
+                if isinstance(reviewed_spans, dict)
+                else original_spans.get("target", [])
+            )
+            reviewed["term_spans"] = {
+                "source": copy.deepcopy(original_spans.get("source", [])),
+                "target": copy.deepcopy(reviewed_target_spans),
+            }
     edit = issue.get("edit")
     if edit is None:
         edit_origin = None
@@ -1684,10 +1718,19 @@ def cmd_publish_module(a):
             for segment in base["segments"]
         }
         for entry in entries:
-            if a.module == "precheck_review":
+            if a.module in {"precheck_review", "terminology"}:
+                reviewed_issues = (
+                    entry["issues"]
+                    if a.module == "precheck_review"
+                    else [
+                        issue
+                        for issue in entry["issues"]
+                        if issue.get("precheck_ref") is not None
+                    ]
+                )
                 problem = _precheck_provenance_problem(
                     precheck_by_id.get(entry["id"], []),
-                    entry["issues"],
+                    reviewed_issues,
                 )
                 if problem:
                     raise SystemExit(

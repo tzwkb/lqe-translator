@@ -230,7 +230,7 @@ class CorrectionBuilderTests(unittest.TestCase):
 
     def test_confirmation_issue_cannot_carry_edit(self):
         pending_issue = {
-            "category": "Terminology",
+            "category": "Grammar",
             "severity": "Major",
             "comment": "需确认",
             "needs_confirmation": True,
@@ -551,7 +551,7 @@ class CorrectionBuilderTests(unittest.TestCase):
 
     def test_normalize_accepts_null_edit(self):
         pending = {
-            "category": "Terminology",
+            "category": "Grammar",
             "severity": "Major",
             "comment": "confirm",
             "needs_confirmation": True,
