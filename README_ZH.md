@@ -6,6 +6,12 @@
 
 [English](README.md) | 中文
 
+自动优化至至少98分的可选流程见[自动达标协议](references/automatic_workflow.md)：
+局部修正与复审/抽查后，必须独立全量终审；发现新问题则继续循环。
+普通单轮审校保持原行为。[共用核心与迁移说明](docs/2026-10-09_自动达标工作流迁移.md)。
+开发验证先安装 `requirements-dev.txt`，再运行 `python3 scripts/run_tests.py`；包含原有
+unittest 回归和新增自动工作流的原生文件处理测试。
+
 用于游戏本地化 LQE：先做机器预检，再由专项检查模块报告问题和安全的局部修改，最后由 Python 校验、评分并生成对应格式的交付文件。
 
 > PM 的手动与 Agent 操作、验收和恢复流程见[项目经理操作手册](PM_GUIDE.html)。

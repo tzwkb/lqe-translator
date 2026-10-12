@@ -6,6 +6,16 @@
 
 English | [中文](README_ZH.md)
 
+The optional [automatic acceptance workflow](references/automatic_workflow.md)
+adds scoped repair reviews, rotating discovery and independent full final review
+at a threshold of at least 98. Single-pass review retains its existing behavior.
+New automatic jobs stop at the first passing final review, retain noncritical
+disagreements for reporting, and default to six review stages / 90 minutes total.
+The shared core is maintained here and pinned in the integration service using
+`scripts/sync_workflow_core.py`.
+Install `requirements-dev.txt` before running `python3 scripts/run_tests.py`;
+the regression runner includes both legacy suites and the automatic workflow tests.
+
 Agent skill for game-localization LQE: deterministic pre-checks, focused AI check modules, validated local edits, scoring, and format-specific deliverables.
 
 > Manual and agent operation, acceptance, and recovery are documented in the [PM guide](PM_GUIDE.html).

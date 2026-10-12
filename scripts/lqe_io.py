@@ -3916,6 +3916,8 @@ def _cmd_apply_fixes_locked(
     revalidate,
 ):
     require_current_job_runtime(state, "apply-fixes")
+    if state.get("workflow_scope") is not None:
+        raise ValueError("自动工作流的修改必须作为新版本提交，请使用 lqe_workflow.py submit")
     errors_data = read_json(args.errors)
     original_errors_data = deepcopy(errors_data)
     _validate_scope_or_exit(
@@ -6200,6 +6202,8 @@ def _cmd_export_locked(
     revalidate,
 ):
     require_current_job_runtime(state, "export")
+    from lqe_workflow_scope import require_full_export
+    require_full_export(state)
     errors_path = Path(args.errors) if getattr(args, "errors", None) else None
     overlay_entries = None
     original_overlay = None

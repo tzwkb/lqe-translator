@@ -9,6 +9,41 @@ Run the native scripts. Read only the references required by the current phase. 
 
 ## Required decisions and inputs
 
+When explicitly asked for autonomous iteration to the threshold, use
+[`references/automatic_workflow.md`](references/automatic_workflow.md) and the
+`lqe_workflow.py` controller. This opt-in workflow uses a new `full` job and does
+not require another mode question when automatic acceptance was already requested.
+The controller owns stage transitions; ordinary single-pass requests keep the
+existing workflow below. Do not promote report-only suggestions to approved edits.
+New automatic jobs use the score-threshold policy: stop at the first passing
+full final review; retain noncritical disagreements without extra review rounds.
+Default limits are six review stages and 90 minutes total; development trials
+should set a small sample and explicit limits, reserving stages for repair
+verification and the mandatory full final review (for example five stages / ten minutes).
+Stop before another repair if the remaining stages cannot cover both incremental
+verification and the mandatory full final review.
+Do not automatically enlarge or restart a stopped trial to seek a higher score.
+Automatic stages also provide `review_execution.json`. For a small, flat document,
+it assigns one fresh checker to all required dimensions using a lossless shared
+reading pack; each dimension still produces its own native draft and receipt.
+Keep separate workers for specialized context or larger jobs. Every machine
+precheck needs an explicit applicable-sense decision, including dismissed hints;
+repairs must address all listed penalized findings on each affected segment.
+For small automatic stages, forward the generated `checker_task.md` unchanged
+to a synchronous fresh checker. The controller binds the actual returned worker
+ID afterward; do not replan the workflow or explore source to infer output fields.
+When the execution plan has `checker_view_sha256`, the checker reads the ready
+`checker_view.md` and fills only `review_response.json` from its template. The
+controller runs `lqe_review_execution.py submit-response --job <stage-job>
+--worker-id <actual-returned-id>` to expand judgments into native drafts. Full
+resources remain bound; transport metadata and output assembly are program work.
+For response version 2, each hint has one confirmed_error/no_error judgment.
+A correct glossary match is no_error. Put a confirmed defect only in that
+decision.finding; findings_by_module holds additional non-hint defects. The
+program joins frozen term facts and offsets. Never duplicate a hint's finding
+or invent its location metadata. Follow the frozen version on older jobs.
+Older frozen assignments retain their original task and draft contract on resume.
+
 Before a new job, confirm: input path, source/target columns or SDLXLIFF/XLIFF input, project/language pair, terminology source, and review mode. `optimized` is the cost-saving mode; `full` is complete review. If the request does not specify the mode, 必须先询问一次并等待回答；不得根据项目、文件、历史任务或成本偏好代选. Pass `--review-mode "<optimized|full>"`. Existing jobs keep `state.review_policy`.
 
 <pre data-lqe-review-mode-contract>
