@@ -986,11 +986,21 @@ def t25():
     )
 
 
+def t26():
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "tests/test_automatic_workflow.py",
+         "tests/test_review_execution.py", "-q", "--tb=short"],
+        cwd=SCRIPTS.parent, capture_output=True, text=True,
+    )
+    check("T26 automatic workflow native integration", result.returncode == 0,
+          (result.stdout + result.stderr)[-3000:])
+
+
 if __name__ == "__main__":
     exit_code = 1
     try:
         for t in (t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15, t16, t17,
-                  t18, t19, t20, t21, t22, t23, t24, t25):
+                  t18, t19, t20, t21, t22, t23, t24, t25, t26):
             t()
         rag = subprocess.run([sys.executable, str(SCRIPTS / "tm_index_test.py")], capture_output=True, text=True)
         check("TM suite (tm_index_test.py)", rag.returncode == 0,

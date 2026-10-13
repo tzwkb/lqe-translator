@@ -646,7 +646,8 @@ def load_project_context_assets(state: Mapping) -> dict:
         if project_manifest is not None
         else None
     )
-    segments = state.get("segments", [])
+    from lqe_workflow_scope import context_segments
+    segments = context_segments(state)
     if not isinstance(segments, list):
         raise ContextBundleError("state.segments must be an array")
     held_out_keys = [
@@ -1814,7 +1815,8 @@ def _select_neighbors(
             scanned_count=0,
             selected_count=0,
         )
-    segments = state.get("segments")
+    from lqe_workflow_scope import context_segments
+    segments = context_segments(state)
     if not isinstance(segments, list):
         raise ContextBundleError("state.segments must be an array")
     key = segment.get("segment_key")

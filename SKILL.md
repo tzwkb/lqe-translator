@@ -9,6 +9,25 @@ Run the native scripts. Read only the references required by the current phase. 
 
 ## Required decisions and inputs
 
+When explicitly asked for autonomous iteration to the threshold, use
+[`references/automatic_workflow.md`](references/automatic_workflow.md) and the
+`lqe_workflow.py` controller with a fresh `read --review-mode full` job.
+Standalone automatic review is quality-first: new jobs use `strict` acceptance,
+and every historical dispute needs an evidenced resolution or dismissal.
+Keep terminology/precheck, accuracy, grammar and naturalness in separate fresh
+checker contexts, including small scopes and the final review. Different modules
+must not share a checker identity. Follow each native module packet and publish
+its actual receipt; record every machine hint's applicability decision.
+The default audit rate is 1.0, so intermediate stages re-review the whole current
+version. Explicit lower rates and operational limits remain user choices; there
+is no default six-stage/ninety-minute cap. Model and reasoning settings are not
+changed by this controller. Use explicit limits for development model trials.
+The controller owns versions, issue history and native artifact verification.
+Repairs require a fresh post-edit review and a separate full final review at >=98;
+uncertain findings must not disappear merely because a later checker omitted them.
+Ordinary single-pass review and reference-suggestion verification keep their
+existing workflow below. Report-only suggestions are not approved edits.
+
 Before a new job, confirm: input path, source/target columns or SDLXLIFF/XLIFF input, project/language pair, terminology source, and review mode. `optimized` is the cost-saving mode; `full` is complete review. If the request does not specify the mode, 必须先询问一次并等待回答；不得根据项目、文件、历史任务或成本偏好代选. Pass `--review-mode "<optimized|full>"`. Existing jobs keep `state.review_policy`.
 
 <pre data-lqe-review-mode-contract>

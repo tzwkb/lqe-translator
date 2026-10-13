@@ -6,6 +6,13 @@
 
 English | [中文](README_ZH.md)
 
+The optional [automatic acceptance workflow](references/automatic_workflow.md)
+adds versioned corrections, issue history and independent full final review at
+at least 98. Standalone jobs use strict dispute resolution, separate module
+checkers and complete intermediate re-review by default. No integration cost
+policy or model-effort override is inherited. Single-pass review is unchanged.
+Install `requirements-dev.txt` before `python3 scripts/run_tests.py`.
+
 Agent skill for game-localization LQE: deterministic pre-checks, focused AI check modules, validated local edits, scoring, and format-specific deliverables.
 
 > Manual and agent operation, acceptance, and recovery are documented in the [PM guide](PM_GUIDE.html).

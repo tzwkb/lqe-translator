@@ -2,6 +2,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -1516,11 +1517,11 @@ class NoTerminologyFinalizeTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def run_finalize(self):
+    def run_finalize(self, python=None):
         return subprocess.run(
             ["bash", str(FINALIZE_SCRIPT), str(self.job), "1", "single"],
             cwd=ROOT,
-            env={**os.environ, "PYTHON": sys.executable},
+            env={**os.environ, "PYTHON": str(python or sys.executable)},
             text=True,
             capture_output=True,
         )
@@ -1634,6 +1635,22 @@ class NoTerminologyFinalizeTests(unittest.TestCase):
         self.assertTrue((self.job / "errors.json").exists())
         self.assertTrue((self.job / "errors.contract.json").exists())
         self.assertFalse(any(self.job.glob("chunks/*.terminology.json")))
+        self.assertTrue(list(self.job.glob("*_lqe.xlsx")))
+        self.assertTrue(list(self.job.glob("*_corrected.xlsx")))
+
+    def test_finalize_accepts_python_executable_path_with_spaces(self):
+        python = self.root / "python interpreter"
+        python.write_text(
+            f'#!/bin/sh\nexec {shlex.quote(sys.executable)} "$@"\n',
+            encoding="utf-8",
+        )
+        python.chmod(0o755)
+
+        result = self.run_finalize(python=python)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("FINALIZED", result.stdout)
+        self.assertTrue((self.job / ".finalized").is_file())
         self.assertTrue(list(self.job.glob("*_lqe.xlsx")))
         self.assertTrue(list(self.job.glob("*_corrected.xlsx")))
 

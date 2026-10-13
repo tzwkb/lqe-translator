@@ -6,6 +6,12 @@
 
 [English](README.md) | 中文
 
+[自动达标流程](references/automatic_workflow.md)按独立模块的质量优先规则维护：
+保留自动修正、问题台账和独立全文终审，默认每轮完整复审、四模块分开检查、
+历史争议逐项核验，不继承集成版的成本策略或推理参数。
+[本次部分回退说明](docs/2026-10-14_独立LQE质量优先_部分回退.md)。
+安装 `requirements-dev.txt` 后运行 `python3 scripts/run_tests.py`。
+
 用于游戏本地化 LQE：先做机器预检，再由专项检查模块报告问题和安全的局部修改，最后由 Python 校验、评分并生成对应格式的交付文件。
 
 > PM 的手动与 Agent 操作、验收和恢复流程见[项目经理操作手册](PM_GUIDE.html)。

@@ -231,7 +231,7 @@ def state_revision_payload(state: dict) -> dict:
         "context_overrides_path",
         "context_gap_report_path",
     )
-    return {
+    payload = {
         "artifact_contract_version": state.get("artifact_contract_version"),
         "job_runtime_contract_version": state.get("job_runtime_contract_version"),
         "context_contract_version": state.get("context_contract_version"),
@@ -274,6 +274,13 @@ def state_revision_payload(state: dict) -> dict:
         },
         "segments": [_state_segment_payload(segment) for segment in segments],
     }
+    if "workflow_scope" in state:
+        from lqe_workflow_scope import context_segments
+        payload["workflow_scope"] = deepcopy(state["workflow_scope"])
+        payload["workflow_context_segments"] = [
+            _state_segment_payload(segment) for segment in context_segments(state)
+        ]
+    return payload
 
 
 def state_fingerprint(state: dict) -> str:
