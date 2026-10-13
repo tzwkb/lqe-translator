@@ -211,15 +211,27 @@ def test_insufficient_stages_stop_before_second_repair_or_unusable_review(tmp_pa
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX process ownership check")
 def test_whole_budget_terminates_owned_worker_without_model_calls(tmp_path):
     import os
+    from datetime import datetime, timedelta, timezone
+    from lqe_workflow_core.store import commit
+
     worker = tmp_path / "sleeping_fixture.py"
     worker.write_text("import os,time\nfrom pathlib import Path\nPath('fixture.pid').write_text(str(os.getpid()))\ntime.sleep(60)\n")
-    work = setup_job(tmp_path, acceptance_mode="score_threshold", max_seconds=8,
+    work = setup_job(tmp_path, max_seconds=300,
         runtime_config={"model": "TEST_FIXTURE_NO_MODEL", "worker_command": [sys.executable, str(worker)],
                         "request_timeout_seconds": 60})
+    assert flow.next_request(work)["kind"] == "review"
+    # Slow CI runners may spend the whole short budget preparing native packets.
+    # Start the termination window only once there is work ready for the worker.
+    state = load(work)
+    state["started_at"] = (datetime.now(timezone.utc) - timedelta(
+        seconds=state["policy"]["max_seconds"] - 8)).isoformat()
+    commit(work, state, "fixture_prepared_near_expiry")
+
     result = subprocess.run([sys.executable, str(ROOT / "scripts/lqe_workflow.py"), "run", "--workdir", str(work)],
         capture_output=True, text=True, timeout=20)
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout)["status"] == "stopped"
+    status = json.loads(result.stdout)
+    assert status["status"] == "stopped" and "总时间" in status["stop_reason"]
     pid = int((work / "fixture.pid").read_text())
     with pytest.raises(ProcessLookupError):
         os.kill(pid, 0)
